@@ -1,14 +1,14 @@
-![Claude Code Tools Installer for macOS by SK America](assets/claude-code-tools-logo.png)
+![Claude Code Tools Installer by SK America](assets/claude-code-tools-logo.png)
 
-# Claude Code Tools Installer for macOS
+# Claude Code Tools Installer
 
-Safe interactive Bash installer for a curated Claude Code tools stack, including Claude Code skills, plugins, MCP servers, memory utilities, harnesses, developer tools, and cost-monitoring helpers.
+Safe interactive installers for a curated Claude Code tools stack on macOS, Linux, and Windows, including Claude Code skills, plugins, MCP servers, memory utilities, harnesses, developer tools, and cost-monitoring helpers.
 
 This repository is designed for developers and AI consultants who want a repeatable Claude Code setup without blindly installing every popular third-party extension.
 
 ## What This Installs
 
-`setup-my-claude.sh` helps install or queue setup steps for 30 Claude Code-related tools from Charlie Hills' curated list. It classifies each item before installing it because these tools are not all the same kind of software.
+The platform installers help install or queue setup steps for 30 Claude Code-related tools from Charlie Hills' curated list. They classify each item before installing it because these tools are not all the same kind of software.
 
 The installer separates tools into:
 
@@ -40,7 +40,7 @@ This installer gives you:
 
 - A curated default Claude Code setup
 - Interactive category and item selection
-- macOS-friendly Bash support
+- macOS, Linux, and Windows entrypoints
 - Dependency checks
 - Dry-run mode
 - Existing-install detection where feasible
@@ -48,6 +48,43 @@ This installer gives you:
 - Rollback manifest
 - A generated plugin-command queue for Claude Code slash commands
 - A README matrix showing how each item is installed
+
+## Quick Start by Platform
+
+macOS:
+
+```bash
+chmod +x setup-my-claude.sh
+./setup-my-claude.sh --dry-run --defaults
+./setup-my-claude.sh --defaults
+```
+
+Linux:
+
+```bash
+chmod +x setup-my-claude-linux.sh
+./setup-my-claude-linux.sh --dry-run --defaults
+./setup-my-claude-linux.sh --defaults
+```
+
+Windows PowerShell 7+:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -DryRun -Defaults
+pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -Defaults
+```
+
+The dry-run command checks what would happen. The install command performs the default install.
+
+## Platform Support
+
+| Platform | Installer | Distribution | Status |
+|---|---|---|---|
+| macOS | `setup-my-claude.sh` | GitHub, ZIP, notarized DMG | Primary supported platform |
+| Linux | `setup-my-claude-linux.sh` | GitHub, ZIP, Linux tarball | Supported for Bash-compatible environments |
+| Windows | `setup-my-claude.ps1` | GitHub, ZIP, Windows archive | Supported for PowerShell 7+; test on target Windows machines |
+
+Claude Code itself and third-party tools may have their own platform limitations. The installers avoid automating platform-specific desktop apps when the upstream project does not document a safe cross-platform install path.
 
 ## Quick Start
 
@@ -59,7 +96,7 @@ chmod +x setup-my-claude.sh
 ./setup-my-claude.sh --defaults
 ```
 
-The first command checks what would happen. The second command performs the default install.
+The example above is for macOS. Use the Linux or Windows commands from the platform section when appropriate.
 
 ## Install from GitHub
 
@@ -69,6 +106,12 @@ Clone the repository:
 git clone https://github.com/SteveKinzey/claude-code-tools-installer.git
 cd claude-code-tools-installer
 chmod +x setup-my-claude.sh
+```
+
+For Linux:
+
+```bash
+chmod +x setup-my-claude-linux.sh
 ```
 
 Preview the curated default install:
@@ -83,6 +126,20 @@ Run the curated default install:
 ./setup-my-claude.sh --defaults
 ```
 
+Linux users can run:
+
+```bash
+./setup-my-claude-linux.sh --dry-run --defaults
+./setup-my-claude-linux.sh --defaults
+```
+
+Windows users can run:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -DryRun -Defaults
+pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -Defaults
+```
+
 Open the generated Claude Code plugin command queue:
 
 ```bash
@@ -91,7 +148,7 @@ open ~/.setup-my-claude/claude-plugin-commands.md
 
 Some Claude Code plugins must be installed from inside Claude Code using slash commands. This script writes those commands to the plugin queue instead of trying to execute them from Bash.
 
-## Install from DMG or ZIP
+## Install from DMG, ZIP, or Tarball
 
 Download the latest release:
 
@@ -99,10 +156,12 @@ https://github.com/SteveKinzey/claude-code-tools-installer/releases
 
 Then:
 
-1. Open the DMG or unzip the ZIP.
+1. Open the DMG, unzip the ZIP, or extract the Linux tarball.
 2. Open Terminal.
 3. Change into the extracted folder.
-4. Run:
+4. Run the command for your platform.
+
+macOS:
 
 ```bash
 chmod +x setup-my-claude.sh
@@ -110,7 +169,22 @@ chmod +x setup-my-claude.sh
 ./setup-my-claude.sh --defaults
 ```
 
-Because the DMG and Bash script are not Apple-notarized, macOS may show a security warning. For public use, review the script before running it.
+Linux:
+
+```bash
+chmod +x setup-my-claude-linux.sh
+./setup-my-claude-linux.sh --dry-run --defaults
+./setup-my-claude-linux.sh --defaults
+```
+
+Windows:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -DryRun -Defaults
+pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -Defaults
+```
+
+The macOS DMG is submitted to Apple notarization and stapled for Gatekeeper distribution. Review scripts before running them, especially when enabling optional memory, routing, MCP, or credential-sensitive tools.
 
 ## Commands
 
@@ -180,6 +254,15 @@ Show help:
 ./setup-my-claude.sh --help
 ```
 
+Windows equivalents use PowerShell flags:
+
+```powershell
+pwsh -File .\setup-my-claude.ps1 -Help
+pwsh -File .\setup-my-claude.ps1 -Item playwright-mcp
+pwsh -File .\setup-my-claude.ps1 -Category tools
+pwsh -File .\setup-my-claude.ps1 -Uninstall
+```
+
 ## Requirements
 
 The installer checks for these dependencies:
@@ -189,8 +272,9 @@ The installer checks for these dependencies:
 - npm: `npm`
 - npx: `npx`
 - Git: `git`
+- PowerShell 7+ on Windows: `pwsh`
 
-It does not install Claude Code, Node.js, npm, npx, Git, Homebrew, Docker, or API keys.
+It does not install Claude Code, Node.js, npm, npx, Git, PowerShell, Homebrew, Docker, or API keys.
 
 Recommended dependency check:
 
@@ -200,6 +284,17 @@ node --version
 npm --version
 npx --version
 git --version
+```
+
+On Windows:
+
+```powershell
+claude --version
+node --version
+npm --version
+npx --version
+git --version
+pwsh --version
 ```
 
 ## Runtime Files
@@ -234,7 +329,7 @@ Claude Code plugin marketplace installs use slash commands such as:
 /reload-plugins
 ```
 
-Those commands must be run inside Claude Code. Bash cannot reliably execute Claude Code slash commands because they are part of the interactive Claude Code interface.
+Those commands must be run inside Claude Code. Bash and PowerShell cannot reliably execute Claude Code slash commands because they are part of the interactive Claude Code interface.
 
 This installer writes plugin commands to:
 
@@ -391,6 +486,8 @@ This project is relevant to:
 
 - Claude Code tools installer
 - Claude Code macOS setup
+- Claude Code Linux setup
+- Claude Code Windows setup
 - Claude Code skills installer
 - Claude Code plugins
 - Claude Code MCP servers
