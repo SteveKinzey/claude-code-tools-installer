@@ -36,6 +36,22 @@ The default installation is intentionally conservative. It installs or queues on
 
 Many Claude Code extension lists mix together skills, plugins, MCP servers, CLIs, memory tools, and full frameworks. Installing them all with one copied command is risky.
 
+The problem is not that Claude Code lacks useful extensions. The problem is that the extension ecosystem is fragmented. A single screenshot or social post may include:
+
+- Skills that belong in `~/.claude/skills`
+- Claude Code plugins that must be installed from inside Claude Code
+- MCP servers that register external tool access
+- Global npm CLIs that change a machine's command environment
+- Persistent memory systems that add hooks or background state
+- Agent frameworks that change planning, delegation, and execution style
+- Catalogs or reference repositories that are useful but not really installers
+
+Those categories have different risk profiles. Treating all of them as equivalent "Claude installs" creates three practical problems:
+
+1. You may install redundant tools that fight for the same workflow.
+2. You may register MCP servers or memory systems before you understand their credential and data behavior.
+3. You may lose track of what changed on your machine and how to undo it.
+
 This installer gives you:
 
 - A curated default Claude Code setup
@@ -48,6 +64,35 @@ This installer gives you:
 - Rollback manifest
 - A generated plugin-command queue for Claude Code slash commands
 - A README matrix showing how each item is installed
+
+## The Plausible Solution
+
+This project takes a controlled-installation approach instead of a bulk-installation approach.
+
+The installer does four things:
+
+1. Classifies every listed tool before acting on it.
+2. Installs only a conservative default set.
+3. Queues plugin commands when Claude Code requires interactive slash commands.
+4. Logs actions and writes a rollback manifest where feasible.
+
+That does not make third-party extensions risk-free. It does make the setup repeatable, reviewable, and easier to debug. The result is a practical Claude Code starter environment that can grow over time instead of a pile of untracked one-off installs.
+
+## Benefits
+
+Use this installer when you want:
+
+- A faster Claude Code setup without copying dozens of commands manually
+- A safer default selection for real developer work
+- A clear distinction between skills, plugins, MCP servers, CLIs, memory tools, and catalogs
+- Repeatable setup across macOS, Linux, and Windows
+- Dry-run output before any changes are made
+- A record of what was installed and where
+- A rollback path for shell-installed items
+- A generated list of Claude Code plugin commands to run manually
+- A public, auditable repository instead of private notes or random terminal history
+
+The main trade-off is that the installer is intentionally conservative. It will not silently configure credentials, start self-hosted systems, or install every optional tool by default.
 
 ## Quick Start by Platform
 
@@ -263,6 +308,91 @@ pwsh -File .\setup-my-claude.ps1 -Category tools
 pwsh -File .\setup-my-claude.ps1 -Uninstall
 ```
 
+## Installing Extras
+
+The curated defaults are meant to be the starting point, not the whole ecosystem. Extras should be installed by category or by item after you know what problem you are solving.
+
+Install one extra item:
+
+```bash
+./setup-my-claude.sh --item github-mcp
+```
+
+Install several extra items:
+
+```bash
+./setup-my-claude.sh --item firecrawl,claude-code-router,codegraph
+```
+
+Install a whole category:
+
+```bash
+./setup-my-claude.sh --category memory
+```
+
+Preview before installing:
+
+```bash
+./setup-my-claude.sh --dry-run --item github-mcp
+./setup-my-claude.sh --dry-run --category tools
+```
+
+Linux users should replace `setup-my-claude.sh` with:
+
+```bash
+./setup-my-claude-linux.sh
+```
+
+Windows users should use PowerShell:
+
+```powershell
+pwsh -File .\setup-my-claude.ps1 -Item github-mcp -DryRun
+pwsh -File .\setup-my-claude.ps1 -Item github-mcp
+```
+
+After installing or queueing extras, open the plugin command file:
+
+```bash
+open ~/.setup-my-claude/claude-plugin-commands.md
+```
+
+On Linux:
+
+```bash
+xdg-open ~/.setup-my-claude/claude-plugin-commands.md
+```
+
+On Windows:
+
+```powershell
+notepad "$HOME\.setup-my-claude\claude-plugin-commands.md"
+```
+
+Some extras only generate instructions because they require credentials, Docker, platform-specific desktop installers, or Claude Code slash commands.
+
+## Recommended Add-On Paths
+
+Start with defaults. Then add extras based on the workflow you actually use.
+
+| Workflow | Recommended extras | Why |
+|---|---|---|
+| GitHub-heavy coding | `github-mcp`, `codegraph`, `awesome-mcp-servers` | Better repo operations, project graphing, and MCP discovery |
+| Browser automation and QA | `playwright-mcp`, `firecrawl` | Browser control, scraping, QA, and research workflows |
+| Long-running project memory | `claude-mem`, `planning-with-files`, `repomix` | Persistent context, explicit planning files, and compact repo packaging |
+| Frontend/UI work | `taste-skill`, `ui-ux-pro-max`, `graphify` | Better UI judgment, design review, and visual/code structure support |
+| Agent and workflow experimentation | `wshobson-agents`, `ecc`, `multica` | Subagents, harnesses, and larger orchestration experiments |
+| Cost and usage awareness | `claude-hud`, `caveman`, `best-practice` | Session visibility, token/cost habits, and usage discipline |
+
+For most users, the best sequence is:
+
+1. Install the defaults.
+2. Add `github-mcp` only after creating a scoped GitHub token or choosing a secure authentication path.
+3. Add `firecrawl` only when you have a Firecrawl account/API key and a real scraping or research workflow.
+4. Add `claude-mem` only when you want persistent memory and understand the data implications.
+5. Add router/framework tools only after the base Claude Code setup is stable.
+
+Avoid installing multiple tools that solve the same problem until you have tested the first one.
+
 ## Requirements
 
 The installer checks for these dependencies:
@@ -451,7 +581,7 @@ cost
 | Repomix | Memory | CLI/MCP server | Yes | `npm install -g repomix`; `claude mcp add repomix -- npx -y repomix --mcp` | `https://github.com/yamadashy/repomix` |
 | Multica | Tools | Harness/framework | No | Clone reference repo only | `https://github.com/multica-ai/multica` |
 | Firecrawl | Tools | Plugin/MCP/CLI | No | Install `firecrawl-cli`; queue plugin note | `https://github.com/firecrawl/firecrawl-claude-plugin`, `https://github.com/firecrawl/firecrawl-mcp-server` |
-| CC Switch | Tools | Desktop CLI/tool | No | `brew install --cask cc-switch` if Homebrew exists | `https://github.com/farion1231/cc-switch` |
+| CC Switch | Tools | Desktop CLI/tool | No | macOS Homebrew cask when available; Linux/Windows manual review | `https://github.com/farion1231/cc-switch` |
 | Vibe Kanban | Tools | Desktop/web tool | No | Document only; project says sunsetting | `https://github.com/BloopAI/vibe-kanban` |
 | GitHub MCP | Tools | MCP server | No | Queue credential-sensitive setup note | `https://github.com/github/github-mcp-server` |
 | Playwright MCP | Tools | MCP server | Yes | `claude mcp add playwright npx @playwright/mcp@latest` | `https://github.com/microsoft/playwright-mcp` |
@@ -462,6 +592,59 @@ cost
 | Codex in Claude | Cost | CLI/plugin integration | No | Manual review note | `https://github.com/openai/codex` |
 | Claude HUD | Cost | Plugin/monitoring | Yes | Queue Claude plugin marketplace commands | `https://github.com/jarrodwatts/claude-hud` |
 | Caveman | Cost | Cost/token workflow | No | Clone reference repo | `https://github.com/JuliusBrussel/caveman` |
+
+## Tool Guide
+
+This section explains what each included item is for and when to install it.
+
+| Tool | What it is | When to use it | Default |
+|---|---|---|---:|
+| Learn Claude Code | Reference/training repository for learning Claude Code workflows. | Use when onboarding yourself or a team to Claude Code patterns. | No |
+| Karpathy Skills | Reference/context material inspired by Andrej Karpathy-style AI engineering workflows. | Use as learning material or workflow inspiration, not as a required extension. | No |
+| Superpowers | Claude Code plugin/skills framework that adds a structured productivity layer. | Use when you want a stronger default Claude Code operating environment. | Yes |
+| Ponytail | Claude Code skill. | Use when you specifically want that skill's workflow; keep optional until needed. | No |
+| gstack | Skill pack/harness for improving Claude Code project workflow. | Use as part of the default setup for stronger planning and execution habits. | Yes |
+| ECC | Extension/harness focused on broader Claude Code workflow control and safety patterns. | Use only after reviewing its repository and understanding the behavior it adds. | No |
+| taste-skill | Frontend/design taste skill. | Use for UI, UX, and visual product work where judgment matters. | Yes |
+| Anthropic skills | Official Anthropic skills repository/marketplace entrypoint. | Use to browse and install official or example skills through Claude Code. | Yes |
+| wshobson/agents | Collection of Claude Code subagents and workflow helpers. | Use when you want specialized agents for code review, security, docs, or implementation tasks. | No |
+| claude-plugins-official | Official Claude Code plugin marketplace. | Use to browse supported plugins from inside Claude Code. | No |
+| ui-ux-pro-max | UI/UX-oriented skill/reference repository. | Use for deeper frontend/product design review workflows. | No |
+| awesome-claude-skills | Catalog of Claude skills. | Use for discovery; do not treat every catalog item as safe to install. | No |
+| planning-with-files | Skill that encourages explicit planning through files. | Use for larger changes where persistent plans beat one-off chat context. | Yes |
+| Claude-Mem | Persistent memory/context utility. | Use when you want Claude Code to remember project context across sessions and you accept the data trade-offs. | No |
+| CodeGraph | CLI for generating or working with code graphs. | Use for larger repositories where structural understanding matters. | No |
+| Graphify | Skill/CLI-oriented graphing tool. | Use when visualizing project structure or dependencies helps planning. | No |
+| Repomix | CLI and MCP server for packaging repository context. | Use to compress repo context for AI workflows and expose it through MCP. | Yes |
+| Multica | Larger self-hosted harness/framework. | Use only for advanced experimentation with self-hosted AI workflows. | No |
+| Firecrawl | Web crawling/scraping tool with Claude integration paths. | Use for research, crawling, and web-data workflows after setting up API credentials. | No |
+| CC Switch | Desktop/provider switching tool. | Use only if you need its provider switching workflow and your platform is supported. | No |
+| Vibe Kanban | Desktop/web project planning tool. | Use cautiously; the upstream project has indicated sunsetting. | No |
+| GitHub MCP | MCP server for GitHub operations. | Use when Claude Code needs structured GitHub access; configure credentials carefully. | No |
+| Playwright MCP | MCP server for browser automation through Playwright. | Use for browser testing, UI QA, page interaction, and automation. | Yes |
+| Claude Code Router | CLI/router for model/provider routing. | Use only when you intentionally want to route Claude Code through alternate providers. | No |
+| awesome-mcp-servers | Catalog of MCP servers. | Use for discovery after you understand MCP security boundaries. | No |
+| system-prompts-ai | Reference collection of system prompts and AI tool prompts. | Use for research and prompt-pattern study, not as a default install. | No |
+| claude-code-best-practice | Reference/workflow repository for Claude Code habits. | Use for process improvement, team standards, and prompt/workflow examples. | No |
+| Codex in Claude | Manual review note for OpenAI Codex/Claude integration ideas. | Use only when you have a specific Codex integration workflow. | No |
+| Claude HUD | Plugin/monitoring tool for Claude Code usage visibility. | Use to improve awareness of session behavior and cost/usage patterns. | Yes |
+| Caveman | Cost/token workflow reference. | Use when you want lightweight cost discipline and token-usage habits. | No |
+
+## What Comes With the App
+
+The repository includes:
+
+- `setup-my-claude.sh` - macOS Bash installer
+- `setup-my-claude-linux.sh` - Linux Bash installer
+- `setup-my-claude.ps1` - Windows PowerShell installer
+- `README.md` - full documentation
+- `assets/claude-code-tools-logo.png` - GitHub README/header image
+- `releases/claude-code-tools-installer.dmg` - notarized/stapled macOS DMG
+- `releases/claude-code-tools-installer.zip` - all-platform ZIP
+- `releases/claude-code-tools-installer-linux.tar.gz` - Linux tarball
+- `releases/claude-code-tools-installer-windows.zip` - Windows ZIP
+
+The installer itself does not contain the third-party tools. It installs, clones, registers, or queues them from their upstream sources so users can inspect where each component came from.
 
 ## Rollback
 
