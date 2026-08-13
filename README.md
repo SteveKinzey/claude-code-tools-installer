@@ -1,30 +1,55 @@
-# Claude Code Tools Installer
+# Claude Code Tools Installer for macOS
 
-Generated: 2026-08-12
+Safe interactive Bash installer for a curated Claude Code tools stack, including Claude Code skills, plugins, MCP servers, memory utilities, harnesses, developer tools, and cost-monitoring helpers.
 
-This package builds a safer macOS setup path for the 30 Claude Code tools in Charlie Hills' current list. It does not blindly install everything. The default set is intentionally small:
+This repository is designed for developers and AI consultants who want a repeatable Claude Code setup without blindly installing every popular third-party extension.
+
+## What This Installs
+
+`setup-my-claude.sh` helps install or queue setup steps for 30 Claude Code-related tools from Charlie Hills' curated list. It classifies each item before installing it because these tools are not all the same kind of software.
+
+The installer separates tools into:
+
+- Claude Code skills
+- Claude Code plugins
+- MCP servers
+- CLI tools
+- Memory and context utilities
+- Harnesses and agent frameworks
+- Cost and monitoring tools
+- Reference repositories and catalogs
+
+The default installation is intentionally conservative. It installs or queues only a practical starter set:
 
 - Superpowers
 - gstack
 - taste-skill
-- anthropics/skills
+- Anthropic skills
 - planning-with-files
 - Repomix
 - Playwright MCP
 - Claude HUD
 
-Several items are queued as Claude Code slash commands because Claude's plugin marketplace is operated from inside Claude Code, not from a normal shell script.
+## Why This Exists
 
-## Files
+Many Claude Code extension lists mix together skills, plugins, MCP servers, CLIs, memory tools, and full frameworks. Installing them all with one copied command is risky.
 
-- `setup-my-claude.sh` - interactive installer
-- `README.md` - this guide
-- Runtime output after running the installer:
-  - `~/.setup-my-claude/logs/` - command and version logs
-  - `~/.setup-my-claude/manifest.tsv` - rollback manifest
-  - `~/.setup-my-claude/claude-plugin-commands.md` - commands to paste into Claude Code
+This installer gives you:
+
+- A curated default Claude Code setup
+- Interactive category and item selection
+- macOS-friendly Bash support
+- Dependency checks
+- Dry-run mode
+- Existing-install detection where feasible
+- Source and version logging
+- Rollback manifest
+- A generated plugin-command queue for Claude Code slash commands
+- A README matrix showing how each item is installed
 
 ## Quick Start
+
+Download this repository or the latest release, then run:
 
 ```bash
 chmod +x setup-my-claude.sh
@@ -32,61 +57,279 @@ chmod +x setup-my-claude.sh
 ./setup-my-claude.sh --defaults
 ```
 
-For fully interactive selection:
+The first command checks what would happen. The second command performs the default install.
+
+## Install from GitHub
+
+Clone the repository:
+
+```bash
+git clone https://github.com/SteveKinzey/claude-code-tools-installer.git
+cd claude-code-tools-installer
+chmod +x setup-my-claude.sh
+```
+
+Preview the curated default install:
+
+```bash
+./setup-my-claude.sh --dry-run --defaults
+```
+
+Run the curated default install:
+
+```bash
+./setup-my-claude.sh --defaults
+```
+
+Open the generated Claude Code plugin command queue:
+
+```bash
+open ~/.setup-my-claude/claude-plugin-commands.md
+```
+
+Some Claude Code plugins must be installed from inside Claude Code using slash commands. This script writes those commands to the plugin queue instead of trying to execute them from Bash.
+
+## Install from DMG or ZIP
+
+Download the latest release:
+
+https://github.com/SteveKinzey/claude-code-tools-installer/releases
+
+Then:
+
+1. Open the DMG or unzip the ZIP.
+2. Open Terminal.
+3. Change into the extracted folder.
+4. Run:
+
+```bash
+chmod +x setup-my-claude.sh
+./setup-my-claude.sh --dry-run --defaults
+./setup-my-claude.sh --defaults
+```
+
+Because the DMG and Bash script are not Apple-notarized, macOS may show a security warning. For public use, review the script before running it.
+
+## Commands
+
+Interactive selection:
 
 ```bash
 ./setup-my-claude.sh
 ```
 
-Rollback recorded shell-installed items:
+Curated defaults:
+
+```bash
+./setup-my-claude.sh --defaults
+```
+
+Dry run:
+
+```bash
+./setup-my-claude.sh --dry-run
+```
+
+Dry run with defaults:
+
+```bash
+./setup-my-claude.sh --dry-run --defaults
+```
+
+Install a specific item:
+
+```bash
+./setup-my-claude.sh --item playwright-mcp
+```
+
+Install multiple specific items:
+
+```bash
+./setup-my-claude.sh --item playwright-mcp,repomix,planning-with-files
+```
+
+Install a whole category:
+
+```bash
+./setup-my-claude.sh --category tools
+```
+
+Install multiple categories:
+
+```bash
+./setup-my-claude.sh --category skills,memory
+```
+
+Select every installable item:
+
+```bash
+./setup-my-claude.sh --all
+```
+
+Rollback recorded installs:
 
 ```bash
 ./setup-my-claude.sh --uninstall
 ```
 
-## Dependency Checks
+Show help:
 
-The script checks for:
+```bash
+./setup-my-claude.sh --help
+```
 
-- `claude`
-- `node`
-- `npm`
-- `npx`
-- `git`
+## Requirements
 
-It does not install those dependencies for you.
+The installer checks for these dependencies:
 
-## Important Risks
+- Claude Code: `claude`
+- Node.js: `node`
+- npm: `npm`
+- npx: `npx`
+- Git: `git`
 
-Third-party Claude Code extensions can include executable scripts, hooks, MCP servers, persistent memory workers, and credentials-handling logic. Review repositories before installing high-impact items.
+It does not install Claude Code, Node.js, npm, npx, Git, Homebrew, Docker, or API keys.
 
-The installer treats these as higher-risk and does not install them by default:
+Recommended dependency check:
 
-- `claude-mem` - persistent memory worker and hooks
-- `github-mcp` - credential-sensitive
-- `claude-code-router` - routes model/provider traffic
-- `cc-switch` - desktop app/provider manager
-- `vibe-kanban` - repository currently says the product is sunsetting
-- `multica` - larger self-hosted platform
-- `firecrawl` - requires API key for meaningful use
-- `ecc` - broad harness/security/plugin framework
+```bash
+claude --version
+node --version
+npm --version
+npx --version
+git --version
+```
 
-## How Plugin Items Work
+## Runtime Files
+
+After the installer runs, it writes operational files under:
+
+```text
+~/.setup-my-claude/
+```
+
+Important files:
+
+```text
+~/.setup-my-claude/logs/
+~/.setup-my-claude/manifest.tsv
+~/.setup-my-claude/claude-plugin-commands.md
+```
+
+The log records commands and source versions where practical.
+
+The manifest records installed paths, MCP registrations, npm packages, and cask installs where practical.
+
+The plugin command file contains Claude Code slash commands that must be run manually inside Claude Code.
+
+## Claude Code Plugin Setup
 
 Claude Code plugin marketplace installs use slash commands such as:
 
 ```text
 /plugin marketplace add owner/repo
 /plugin install plugin-name@marketplace
+/reload-plugins
 ```
 
-Those commands must be run inside Claude Code. The Bash installer writes them to:
+Those commands must be run inside Claude Code. Bash cannot reliably execute Claude Code slash commands because they are part of the interactive Claude Code interface.
+
+This installer writes plugin commands to:
 
 ```text
 ~/.setup-my-claude/claude-plugin-commands.md
 ```
 
-Open Claude Code and paste the commands for the plugin items you selected.
+After running the installer:
+
+```bash
+open ~/.setup-my-claude/claude-plugin-commands.md
+```
+
+Then paste the relevant commands into Claude Code.
+
+## Safety Model
+
+This project is conservative by design.
+
+Third-party Claude Code extensions can include executable scripts, hooks, MCP servers, persistent memory workers, routing layers, and credentials-handling logic. That creates real security and operational risk.
+
+The installer does not install every item by default. Higher-impact tools are opt-in.
+
+Higher-risk or more invasive items include:
+
+- `claude-mem` - persistent memory worker and hooks
+- `github-mcp` - credential-sensitive MCP server
+- `claude-code-router` - provider/model routing layer
+- `cc-switch` - desktop app/provider manager
+- `vibe-kanban` - repository currently says the product is sunsetting
+- `multica` - larger self-hosted platform
+- `firecrawl` - requires API key for meaningful use
+- `ecc` - broad harness/security/plugin framework
+
+Review each repository before enabling optional tools.
+
+## Recommended Workflow
+
+Use this process for a safe Claude Code tools setup:
+
+1. Run the dry run.
+2. Install the curated defaults.
+3. Review the generated plugin command file.
+4. Paste only the plugin commands you actually want into Claude Code.
+5. Use Claude Code for a few real projects.
+6. Add optional memory, routing, GitHub, Firecrawl, and framework tools one at a time.
+7. Keep credentials out of shell history whenever possible.
+8. Re-run dry-run mode before adding new categories.
+
+Avoid installing every memory system, agent framework, MCP server, and cost tool at once. Overlapping tools can make Claude Code harder to debug.
+
+## Item IDs
+
+Use these IDs with `--item`:
+
+```text
+learn-claude-code
+karpathy-skills
+superpowers
+ponytail
+gstack
+ecc
+taste-skill
+anthropic-skills
+wshobson-agents
+claude-plugins-official
+ui-ux-pro-max
+awesome-claude-skills
+planning-with-files
+claude-mem
+codegraph
+graphify
+repomix
+multica
+firecrawl
+cc-switch
+vibe-kanban
+github-mcp
+playwright-mcp
+claude-code-router
+awesome-mcp-servers
+system-prompts-ai
+best-practice
+codex-plugin-cc
+claude-hud
+caveman
+```
+
+Categories:
+
+```text
+harness
+skills
+memory
+tools
+cost
+```
 
 ## Classification and Install Matrix
 
@@ -123,14 +366,47 @@ Open Claude Code and paste the commands for the plugin items you selected.
 | Claude HUD | Cost | Plugin/monitoring | Yes | Queue Claude plugin marketplace commands | `https://github.com/jarrodwatts/claude-hud` |
 | Caveman | Cost | Cost/token workflow | No | Clone reference repo | `https://github.com/JuliusBrussel/caveman` |
 
-## Recommended Operating Procedure
+## Rollback
 
-1. Run `--dry-run --defaults`.
-2. Install the defaults.
-3. Open `~/.setup-my-claude/claude-plugin-commands.md`.
-4. Paste only the queued plugin commands you actually want into Claude Code.
-5. Use optional items one at a time. Do not enable every memory, router, agent, and cost tool at once.
+Rollback uses the manifest written during installation:
 
-## Notes on Evidence
+```bash
+./setup-my-claude.sh --uninstall
+```
 
-The source list came from the current text version of Charlie Hills' top-30 post because the referenced image payload was not available in the imported conversation preview. Installation methods were checked against official Claude Code docs or the linked repositories where possible. Some repos are catalogs or reference material, not installable Claude extensions; those are cloned only when selected.
+The rollback removes recorded paths, MCP registrations, global npm installs, and Homebrew casks where feasible.
+
+Manual review may still be required for:
+
+- Plugin commands installed inside Claude Code
+- Credential-bearing MCP servers
+- Tool-specific data directories
+- Persistent memory stores
+
+## SEO Keywords
+
+This project is relevant to:
+
+- Claude Code tools installer
+- Claude Code macOS setup
+- Claude Code skills installer
+- Claude Code plugins
+- Claude Code MCP servers
+- Anthropic Claude Code extensions
+- Claude Code Playwright MCP
+- Claude Code Repomix MCP
+- Claude Code memory tools
+- Claude Code cost monitoring
+- AI developer workflow automation
+
+## Evidence and Limitations
+
+The source list came from the current text version of Charlie Hills' top-30 Claude Code tools list because the original uploaded image was not available in the imported conversation preview.
+
+Installation methods were checked against official Claude Code documentation or linked repository documentation where possible. Some repositories are catalogs or reference material rather than installable Claude extensions, so the installer clones those only when selected.
+
+Repository installation instructions can change. Run dry-run mode first and review source repositories before installing optional tools.
+
+## License
+
+No license has been added yet. Until a license is added, this repository is public but not explicitly open-source licensed.
