@@ -1,3 +1,5 @@
+![Claude Code Tools Installer for macOS by SK America](assets/claude-code-tools-logo.png)
+
 # Claude Code Tools Installer for macOS
 
 Safe interactive Bash installer for a curated Claude Code tools stack, including Claude Code skills, plugins, MCP servers, memory utilities, harnesses, developer tools, and cost-monitoring helpers.
