@@ -26,6 +26,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Preserve static assets without Jekyll processing
         run: touch docs/installation-guide/site/.nojekyll
       - name: Include the downloadable PDF in the Pages artifact
