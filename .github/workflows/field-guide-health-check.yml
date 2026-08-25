@@ -1,0 +1,29 @@
+name: Verify Live Field Guide
+
+on:
+  workflow_run:
+    workflows:
+      - Deploy Field Guide to GitHub Pages
+    types:
+      - completed
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live-guide:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the verification script
+        uses: actions/checkout@v4
+      - name: Verify deployed Field Guide links and downloadable PDF
+        run: |
+          chmod +x docs/field-guide-publication-skill/scripts/verify_live_field_guide.sh
+          docs/field-guide-publication-skill/scripts/verify_live_field_guide.sh
