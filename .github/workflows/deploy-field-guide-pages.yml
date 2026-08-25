@@ -28,6 +28,10 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Preserve static assets without Jekyll processing
         run: touch docs/installation-guide/site/.nojekyll
+      - name: Include the downloadable PDF in the Pages artifact
+        run: |
+          mkdir -p docs/installation-guide/site/downloads
+          cp docs/installation-guide/downloads/claude-code-tools-installer-guide-2026.pdf docs/installation-guide/site/downloads/
       - name: Upload Field Guide site artifact
         uses: actions/upload-pages-artifact@v3
         with:
