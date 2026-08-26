@@ -5,3 +5,5 @@ Store the incoming webhook as the GitHub repository secret `FIELD_GUIDE_ALERT_WE
 The verification workflow runs `notify_health_check_failure.sh` only when the live health-check job fails. The notifier sends Discord payloads with `content` and Slack payloads with `text`. If the secret is absent, it logs that notifications are not configured and exits successfully. It never changes the Field Guide, Pages configuration, or installer runtime.
 
 For a webhook delivery failure, review the GitHub Actions run and replace the repository secret through GitHub Settings; never commit a webhook URL.
+
+Run `scripts/test_health_check_notification_mock.sh` before adding a real secret. It sets `FIELD_GUIDE_ALERT_DRY_RUN=1`, prints the Discord and Slack JSON payload shapes, and exits before any external `curl` request.
