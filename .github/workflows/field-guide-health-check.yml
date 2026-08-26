@@ -27,3 +27,20 @@ jobs:
         run: |
           chmod +x docs/field-guide-publication-skill/scripts/verify_live_field_guide.sh
           docs/field-guide-publication-skill/scripts/verify_live_field_guide.sh
+
+  notify-on-failure:
+    needs: verify-live-guide
+    if: ${{ always() && needs.verify-live-guide.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      FIELD_GUIDE_ALERT_WEBHOOK: ${{ secrets.FIELD_GUIDE_ALERT_WEBHOOK }}
+      FIELD_GUIDE_ALERT_PROVIDER: ${{ vars.FIELD_GUIDE_ALERT_PROVIDER }}
+      FIELD_GUIDE_URL: https://stevekinzey.github.io/claude-code-tools-installer/
+    steps:
+      - name: Checkout the notification script
+        uses: actions/checkout@v4
+      - name: Notify Discord or Slack webhook about the failed health check
+        run: |
+          chmod +x docs/field-guide-publication-skill/scripts/notify_health_check_failure.sh
+          docs/field-guide-publication-skill/scripts/notify_health_check_failure.sh
