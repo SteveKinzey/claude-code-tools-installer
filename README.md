@@ -2,693 +2,226 @@
 
 # Claude Code Tools Installer
 
-Safe interactive installers for a curated Claude Code tools stack on macOS, Linux, and Windows, including Claude Code skills, plugins, MCP servers, memory utilities, harnesses, developer tools, and cost-monitoring helpers.
+**Claude Code Tools Installer** is a desktop setup app for people who want a clear way to install Claude Code, choose optional development tools, check what is already installed, and safely add Convex packages to the correct project. It is designed to remove terminal-first confusion, especially on Windows.
 
-This repository is designed for developers and AI consultants who want a repeatable Claude Code setup without blindly installing every popular third-party extension.
+> The app never installs anything just because it is shown. You choose the item, review the plan, and confirm the exact action before it runs.
 
-## What This Installs
+## What You See in the GUI
 
-The platform installers help install or queue setup steps for 30 Claude Code-related tools from Charlie Hills' curated list. They classify each item before installing it because these tools are not all the same kind of software.
+The main window is a guided flow with a separate library for project-level Convex packages. The app treats a **Claude Code tool** and a **Convex Component** differently because they install in different places.
 
-The installer separates tools into:
-
-- Claude Code skills
-- Claude Code plugins
-- MCP servers
-- CLI tools
-- Memory and context utilities
-- Harnesses and agent frameworks
-- Cost and monitoring tools
-- Reference repositories and catalogs
-
-The default installation is intentionally conservative. It installs or queues only a practical starter set:
-
-- Superpowers
-- gstack
-- taste-skill
-- Anthropic skills
-- planning-with-files
-- Repomix
-- Playwright MCP
-- Claude HUD
-
-## Why This Exists
-
-Many Claude Code extension lists mix together skills, plugins, MCP servers, CLIs, memory tools, and full frameworks. Installing them all with one copied command is risky.
-
-The problem is not that Claude Code lacks useful extensions. The problem is that the extension ecosystem is fragmented. A single screenshot or social post may include:
-
-- Skills that belong in `~/.claude/skills`
-- Claude Code plugins that must be installed from inside Claude Code
-- MCP servers that register external tool access
-- Global npm CLIs that change a machine's command environment
-- Persistent memory systems that add hooks or background state
-- Agent frameworks that change planning, delegation, and execution style
-- Catalogs or reference repositories that are useful but not really installers
-
-Those categories have different risk profiles. Treating all of them as equivalent "Claude installs" creates three practical problems:
-
-1. You may install redundant tools that fight for the same workflow.
-2. You may register MCP servers or memory systems before you understand their credential and data behavior.
-3. You may lose track of what changed on your machine and how to undo it.
-
-This installer gives you:
-
-- A curated default Claude Code setup
-- Interactive category and item selection
-- macOS, Linux, and Windows entrypoints
-- Dependency checks
-- Dry-run mode
-- Existing-install detection where feasible
-- Source and version logging
-- Rollback manifest
-- A generated plugin-command queue for Claude Code slash commands
-- A README matrix showing how each item is installed
-
-## The Plausible Solution
-
-This project takes a controlled-installation approach instead of a bulk-installation approach.
-
-The installer does four things:
-
-1. Classifies every listed tool before acting on it.
-2. Installs only a conservative default set.
-3. Queues plugin commands when Claude Code requires interactive slash commands.
-4. Logs actions and writes a rollback manifest where feasible.
-
-That does not make third-party extensions risk-free. It does make the setup repeatable, reviewable, and easier to debug. The result is a practical Claude Code starter environment that can grow over time instead of a pile of untracked one-off installs.
-
-## Benefits
-
-Use this installer when you want:
-
-- A faster Claude Code setup without copying dozens of commands manually
-- A safer default selection for real developer work
-- A clear distinction between skills, plugins, MCP servers, CLIs, memory tools, and catalogs
-- Repeatable setup across macOS, Linux, and Windows
-- Dry-run output before any changes are made
-- A record of what was installed and where
-- A rollback path for shell-installed items
-- A generated list of Claude Code plugin commands to run manually
-- A public, auditable repository instead of private notes or random terminal history
-
-The main trade-off is that the installer is intentionally conservative. It will not silently configure credentials, start self-hosted systems, or install every optional tool by default.
-
-## Quick Start by Platform
-
-macOS:
-
-```bash
-chmod +x setup-my-claude.sh
-./setup-my-claude.sh --dry-run --defaults
-./setup-my-claude.sh --defaults
-```
-
-Linux:
-
-```bash
-chmod +x setup-my-claude-linux.sh
-./setup-my-claude-linux.sh --dry-run --defaults
-./setup-my-claude-linux.sh --defaults
-```
-
-Windows PowerShell 7+:
-
-```powershell
-pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -DryRun -Defaults
-pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -Defaults
-```
-
-The dry-run command checks what would happen. The install command performs the default install.
-
-## Platform Support
-
-| Platform | Installer | Distribution | Status |
-|---|---|---|---|
-| macOS | `setup-my-claude.sh` | GitHub, ZIP, notarized DMG | Primary supported platform |
-| Linux | `setup-my-claude-linux.sh` | GitHub, ZIP, Linux tarball | Supported for Bash-compatible environments |
-| Windows | `setup-my-claude.ps1` | GitHub, ZIP, Windows archive | Supported for PowerShell 7+; test on target Windows machines |
-
-Claude Code itself and third-party tools may have their own platform limitations. The installers avoid automating platform-specific desktop apps when the upstream project does not document a safe cross-platform install path.
-
-## Quick Start
-
-Download this repository or the latest release, then run:
-
-```bash
-chmod +x setup-my-claude.sh
-./setup-my-claude.sh --dry-run --defaults
-./setup-my-claude.sh --defaults
-```
-
-The example above is for macOS. Use the Linux or Windows commands from the platform section when appropriate.
-
-## Install from GitHub
-
-Clone the repository:
-
-```bash
-git clone https://github.com/SteveKinzey/claude-code-tools-installer.git
-cd claude-code-tools-installer
-chmod +x setup-my-claude.sh
-```
-
-For Linux:
-
-```bash
-chmod +x setup-my-claude-linux.sh
-```
-
-Preview the curated default install:
-
-```bash
-./setup-my-claude.sh --dry-run --defaults
-```
-
-Run the curated default install:
-
-```bash
-./setup-my-claude.sh --defaults
-```
-
-Linux users can run:
-
-```bash
-./setup-my-claude-linux.sh --dry-run --defaults
-./setup-my-claude-linux.sh --defaults
-```
-
-Windows users can run:
-
-```powershell
-pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -DryRun -Defaults
-pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -Defaults
-```
-
-Open the generated Claude Code plugin command queue:
-
-```bash
-open ~/.setup-my-claude/claude-plugin-commands.md
-```
-
-Some Claude Code plugins must be installed from inside Claude Code using slash commands. This script writes those commands to the plugin queue instead of trying to execute them from Bash.
-
-## Install from DMG, ZIP, or Tarball
-
-Download the latest release:
-
-https://github.com/SteveKinzey/claude-code-tools-installer/releases
-
-Then:
-
-1. Open the DMG, unzip the ZIP, or extract the Linux tarball.
-2. Open Terminal.
-3. Change into the extracted folder.
-4. Run the command for your platform.
-
-macOS:
-
-```bash
-chmod +x setup-my-claude.sh
-./setup-my-claude.sh --dry-run --defaults
-./setup-my-claude.sh --defaults
-```
-
-Linux:
-
-```bash
-chmod +x setup-my-claude-linux.sh
-./setup-my-claude-linux.sh --dry-run --defaults
-./setup-my-claude-linux.sh --defaults
-```
-
-Windows:
-
-```powershell
-pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -DryRun -Defaults
-pwsh -ExecutionPolicy Bypass -File .\setup-my-claude.ps1 -Defaults
-```
-
-The macOS DMG is submitted to Apple notarization and stapled for Gatekeeper distribution. Review scripts before running them, especially when enabling optional memory, routing, MCP, or credential-sensitive tools.
-
-## Commands
-
-Interactive selection:
-
-```bash
-./setup-my-claude.sh
-```
-
-Curated defaults:
-
-```bash
-./setup-my-claude.sh --defaults
-```
-
-Dry run:
-
-```bash
-./setup-my-claude.sh --dry-run
-```
-
-Dry run with defaults:
-
-```bash
-./setup-my-claude.sh --dry-run --defaults
-```
-
-Install a specific item:
-
-```bash
-./setup-my-claude.sh --item playwright-mcp
-```
-
-Install multiple specific items:
-
-```bash
-./setup-my-claude.sh --item playwright-mcp,repomix,planning-with-files
-```
-
-Install a whole category:
-
-```bash
-./setup-my-claude.sh --category tools
-```
-
-Install multiple categories:
-
-```bash
-./setup-my-claude.sh --category skills,memory
-```
-
-Select every installable item:
-
-```bash
-./setup-my-claude.sh --all
-```
-
-Rollback recorded installs:
-
-```bash
-./setup-my-claude.sh --uninstall
-```
-
-Show help:
-
-```bash
-./setup-my-claude.sh --help
-```
-
-Windows equivalents use PowerShell flags:
-
-```powershell
-pwsh -File .\setup-my-claude.ps1 -Help
-pwsh -File .\setup-my-claude.ps1 -Item playwright-mcp
-pwsh -File .\setup-my-claude.ps1 -Category tools
-pwsh -File .\setup-my-claude.ps1 -Uninstall
-```
-
-## Installing Extras
-
-The curated defaults are meant to be the starting point, not the whole ecosystem. Extras should be installed by category or by item after you know what problem you are solving.
-
-Install one extra item:
-
-```bash
-./setup-my-claude.sh --item github-mcp
-```
-
-Install several extra items:
-
-```bash
-./setup-my-claude.sh --item firecrawl,claude-code-router,codegraph
-```
-
-Install a whole category:
-
-```bash
-./setup-my-claude.sh --category memory
-```
-
-Preview before installing:
-
-```bash
-./setup-my-claude.sh --dry-run --item github-mcp
-./setup-my-claude.sh --dry-run --category tools
-```
-
-Linux users should replace `setup-my-claude.sh` with:
-
-```bash
-./setup-my-claude-linux.sh
-```
-
-Windows users should use PowerShell:
-
-```powershell
-pwsh -File .\setup-my-claude.ps1 -Item github-mcp -DryRun
-pwsh -File .\setup-my-claude.ps1 -Item github-mcp
-```
-
-After installing or queueing extras, open the plugin command file:
-
-```bash
-open ~/.setup-my-claude/claude-plugin-commands.md
-```
-
-On Linux:
-
-```bash
-xdg-open ~/.setup-my-claude/claude-plugin-commands.md
-```
-
-On Windows:
-
-```powershell
-notepad "$HOME\.setup-my-claude\claude-plugin-commands.md"
-```
-
-Some extras only generate instructions because they require credentials, Docker, platform-specific desktop installers, or Claude Code slash commands.
-
-## Recommended Add-On Paths
-
-Start with defaults. Then add extras based on the workflow you actually use.
-
-| Workflow | Recommended extras | Why |
+| Area | What you see | What it means |
 |---|---|---|
-| GitHub-heavy coding | `github-mcp`, `codegraph`, `awesome-mcp-servers` | Better repo operations, project graphing, and MCP discovery |
-| Browser automation and QA | `playwright-mcp`, `firecrawl` | Browser control, scraping, QA, and research workflows |
-| Long-running project memory | `claude-mem`, `planning-with-files`, `repomix` | Persistent context, explicit planning files, and compact repo packaging |
-| Frontend/UI work | `taste-skill`, `ui-ux-pro-max`, `graphify` | Better UI judgment, design review, and visual/code structure support |
-| Agent and workflow experimentation | `wshobson-agents`, `ecc`, `multica` | Subagents, harnesses, and larger orchestration experiments |
-| Cost and usage awareness | `claude-hud`, `caveman`, `best-practice` | Session visibility, token/cost habits, and usage discipline |
+| **Step 1 — Set up Claude Code** | A status check with a Complete setup action | The app can provision its managed Node.js runtime, Git if needed, Claude Code, and the recommended local-tool stack without sending users to a web page or requiring terminal commands. |
+| **Optional checkup — See what you already have** | A read-only list of found skills, add-ons, and saved connections | Use it before or after other setup. You can also check one project folder. It changes nothing while checking. |
+| **Step 2 — Choose your Claude Code tools** | A curated set of 35 workflow choices grouped by purpose | These choices improve your local Claude Code workflow. They are not project packages. |
+| **Convex Components Library** | A separate searchable library of 145 current Convex packages | These packages belong to one specific application folder that you choose. They are never mixed into the local-tool installation queue. |
+| **Step 3 — Review and run** | A selection total, preview toggle, confirmation dialog, and activity panel | You can inspect the selected tool actions before they run. |
+| **Add your own skill or add-on** | A folder picker and trusted-source review | Choose a folder with `SKILL.md`, a trusted GitHub owner/name, or a trusted marketplace link. The app shows the result before you approve it. |
+| **Compass** | A minimizable question-mark Tool Advisor on every screen | It helps you choose and compare tools privately first, then offers a free, site-powered online answer only when you request it. No key is needed. |
+| **Installation activity** | A scrolling technical log | It explains what the app is checking, installing, previewing, or saving as a follow-up step. |
 
-For most users, the best sequence is:
+## Start Here: Windows, macOS, and Linux
 
-1. Install the defaults.
-2. Add `github-mcp` only after creating a scoped GitHub token or choosing a secure authentication path.
-3. Add `firecrawl` only when you have a Firecrawl account/API key and a real scraping or research workflow.
-4. Add `claude-mem` only when you want persistent memory and understand the data implications.
-5. Add router/framework tools only after the base Claude Code setup is stable.
+Download the package for your computer from [Releases](https://github.com/SteveKinzey/claude-code-tools-installer/releases), open it, and launch **Claude Code Tools Installer**.
 
-Avoid installing multiple tools that solve the same problem until you have tested the first one.
+| Your computer | Package | What to do next |
+|---|---|---|
+| **Windows** | Signed `.exe` installer — coming soon | A verified signed Windows installer has not been released yet. When it is published on Releases, run it, open the app from the Start menu, then choose **Complete setup**. Do not treat a ZIP download as the signed EXE installer. |
+| **macOS** | `.dmg` | Open the DMG, drag the app to Applications, launch it, then use the same Step 1 choice. |
+| **Linux** | `.tar.gz` application archive | Extract the archive, run the desktop app, then use the same Step 1 choice. |
 
-## Requirements
+The first-run path is intentionally plain: you do **not** need to find a terminal, choose a package manager, visit an installation page, or paste a command. **Complete setup** uses Anthropic’s official Claude Code installer, adds a verified Node.js 22 LTS runtime only for this app’s optional tools, and requests approval to install Git only when it is missing. Native Windows is supported by Claude Code; Git for Windows improves Bash-tool availability. [1]
 
-The installer checks for these dependencies:
+## Step 1: Set Up Claude Code
 
-- Claude Code: `claude`
-- Node.js: `node`
-- npm: `npm`
-- npx: `npx`
-- Git: `git`
-- PowerShell 7+ on Windows: `pwsh`
+The first screen makes the preferred no-terminal path explicit before any optional tool configuration appears.
 
-It does not install Claude Code, Node.js, npm, npx, Git, PowerShell, Homebrew, Docker, or API keys.
+| Choice | Use it when | Result |
+|---|---|---|
+| **Complete setup** | You want the app to prepare a usable Claude Code workflow | Installs a verified Node.js 22 LTS runtime and Git when required, runs Anthropic’s official Claude Code installer, applies the recommended eight-tool setup, then opens Claude Code for sign-in. [1] |
+| **I already have Claude Code** | The app detects a working local installation | Confirms the existing installation and unlocks manual tool selection. |
+| **Install or update Claude Code only** | You want Claude Code without the optional curated stack | Runs Anthropic’s official installer and leaves optional tool choices to you. [1] |
+| **Browse tools first** | You only want to understand the choices | Opens the catalogs but keeps local-tool installation disabled. Nothing changes. |
+| **Start fresh** | A detected Claude Code installation needs a clean rebuild | Requires typing `DELETE CLAUDE DATA`, then removes local CLI versions, settings, session history, MCP configuration, the app-managed tool stack, and its managed Node.js runtime before Complete setup rebuilds them. It does not delete project files. [1] |
 
-Recommended dependency check:
+The status chip uses simple wording: **Claude Code ready**, **Claude Code not installed**, **Complete setup finished**, or **Setup needs attention**. Detailed output stays in the activity panel instead of blocking the user with terminal messages.
 
-```bash
-claude --version
-node --version
-npm --version
-npx --version
-git --version
-```
+## Step 2: Choose Your Claude Code Tools
 
-On Windows:
+The first catalog contains **35 curated workflow choices**. These are grouped into Harness, Skills, Memory, Tools, MCP & Automation, Cost & Reference, and Popular Plugins. Every card shows its name, its type, and the specific action the app will take.
 
-```powershell
-claude --version
-node --version
-npm --version
-npx --version
-git --version
-pwsh --version
-```
+| Control | What it does |
+|---|---|
+| **Use recommended setup** | Selects eight practical starting tools: Superpowers, gstack, taste-skill, Anthropic Skills, Planning with Files, Repomix, Playwright MCP, and Claude HUD. **Complete setup** applies this same set automatically. |
+| **Select all curated tools** | Selects all 35 local workflow choices. This is available for deliberate review, not recommended as a first run. |
+| **Clear selection** | Removes every local-tool selection. |
+| **Tick an individual card** | Adds or removes that exact local workflow tool. |
+| **Browse Convex Components** | Opens the project-level component library without adding anything to the local-tool plan. |
 
-## Runtime Files
+### Curated Tool Catalog
 
-After the installer runs, it writes operational files under:
+| Group | Choices shown in the GUI |
+|---|---|
+| **Harness** | Learn Claude Code, Karpathy Skills, Superpowers, Ponytail, gstack, ECC |
+| **Skills** | taste-skill, Anthropic Skills, wshobson/agents, Claude Plugins Official, UI UX Pro Max, Awesome Claude Skills |
+| **Popular Plugins** | Frontend Design, Code Review, Context7, Skill Creator — optional official Anthropic plugins. The GUI shows source-backed install counts when a current official page reports them. |
+| **Memory** | Planning with Files, Claude-Mem, CodeGraph, Graphify, Repomix |
+| **Tools** | Convex for Claude Code, Multica, Firecrawl, CC Switch, Vibe Kanban, GitHub MCP |
+| **MCP & Automation** | Playwright MCP, Claude Code Router, Awesome MCP Servers |
+| **Cost & Reference** | System Prompts AI, Claude Code Best Practice, Codex in Claude, Claude HUD, Caveman |
 
-```text
-~/.setup-my-claude/
-```
+Some cards run a supported local install. Others save a safe follow-up command or checklist item because a plugin must be installed **inside Claude Code**, or because a service needs credentials that this app should never collect automatically.
 
-Important files:
+### Convex for Claude Code
 
-```text
-~/.setup-my-claude/logs/
-~/.setup-my-claude/manifest.tsv
-~/.setup-my-claude/claude-plugin-commands.md
-```
+**Convex for Claude Code** is one parent plugin choice, not a collection of separate checkboxes. The official plugin adds Convex-aware guidance, skills, subagents, MCP access to a development deployment, hooks, and monitors as part of one install. [2] [3]
 
-The log records commands and source versions where practical.
+> The included Convex capabilities are described as “included with the Convex plugin.” They are not individual installations, so the app does not falsely show them as 24 separate tools.
 
-The manifest records installed paths, MCP registrations, npm packages, and cask installs where practical.
+## Convex Components Library
 
-The plugin command file contains Claude Code slash commands that must be run manually inside Claude Code.
+The second-level library contains **145 current entries** from Convex’s machine-readable Components Directory. Those 145 include the 26 official Convex components; the official subset is not counted again. [4]
 
-## Claude Code Plugin Setup
+A Convex Component is a package added to one backend project. It can have its own database tables, functions, configuration, external service requirements, and documentation. It is **not** a generic local Claude Code extension. [5]
 
-Claude Code plugin marketplace installs use slash commands such as:
+| Library control | What you do | What happens |
+|---|---|---|
+| **Find a component** | Search by component name, npm package name, or category | Filters the 145 entries without changing your plan. |
+| **Category** | Filter by AI, authentication, backend, collaboration, database, durable functions, integrations, messaging, storage, payments, or another directory category | Narrows the library to the task you are considering. |
+| **Details** | Open a component detail panel | Shows the package identity, version, source URL, and the exact project command. |
+| **Add to project plan** | Mark one or more components | Creates a separate project plan. It does not install yet. |
+| **Choose project folder** | Pick the application folder in the normal file picker | The app requires a folder containing `package.json` so it does not install packages in the wrong place. |
+| **Preview project plan** | Review the project plan | Shows the exact `npm install` command without running it. |
+| **Install project components** | Confirm the project path, named packages, and command | Runs the reviewed package install only in that chosen folder. Component-specific setup remains a separate, visible task. |
 
-```text
-/plugin marketplace add owner/repo
-/plugin install plugin-name@marketplace
-/reload-plugins
-```
+The complete generated component library is stored in [`desktop/convex-components.json`](desktop/convex-components.json). The underlying source inventory and deduplication decisions are preserved in [`docs/source-inventory/`](docs/source-inventory/).
 
-Those commands must be run inside Claude Code. Bash and PowerShell cannot reliably execute Claude Code slash commands because they are part of the interactive Claude Code interface.
+## Compass: Your Tool Advisor
 
-This installer writes plugin commands to:
+**Compass** is the in-app advisor. It is available on every screen and can be minimized to a styled question-mark button when you do not need it.
 
-```text
-~/.setup-my-claude/claude-plugin-commands.md
-```
+### Private Guide — the default
 
-After running the installer:
+Compass starts as a private guide. It does not make a network request and it does not require a key. It uses the verified catalog to ask short, relevant questions, recommend a small set of choices, compare the items you selected, and explain the difference between local Claude Code tools and project-level Convex Components.
 
-```bash
-open ~/.setup-my-claude/claude-plugin-commands.md
-```
+It may proactively ask a useful next question when you open the Convex library, select a credential-sensitive item, or finish browsing without a plan. It never adds an item or starts an installation without your explicit confirmation.
 
-Then paste the relevant commands into Claude Code.
+### Online Compass — optional deeper help
 
-## Safety Model
+When the private guide cannot answer a broader, open-ended question, it offers **Ask online Compass**. You must choose that handoff and read the notice before your next question is sent. The online answer is paid for by the product during its first three months of normal use. You do not need to bring an API key.
 
-This project is conservative by design.
+| Online Compass rule | What it protects |
+|---|---|
+| You choose online help after using the private guide | The app does not silently send every question away from your computer. |
+| The notice explains that your next question and a small amount of recent chat context leave the device | You can make an informed privacy decision before connecting. |
+| No API key is requested | Visitors do not need an Anthropic account or key to ask Compass online. |
+| The online answer is grounded in the verified catalog | Compass distinguishes catalog facts from questions that need independent research. |
 
-Third-party Claude Code extensions can include executable scripts, hooks, MCP servers, persistent memory workers, routing layers, and credentials-handling logic. That creates real security and operational risk.
+Online Compass gives advice only. It does not execute installations, create accounts, add credentials, or modify a project without the same explicit confirmations used everywhere else in the app.
 
-The installer does not install every item by default. Higher-impact tools are opt-in.
+## Optional Setup Manager
 
-Higher-risk or more invasive items include:
+The checkup is available before setup, after setup, or whenever you want to tidy a Claude Code workspace. It searches the usual user and project Claude Code locations for skills, enabled add-ons, and saved connections. It can also ask Claude Code for its own plugin and connection lists when Claude Code is available. The checkup is read-only.
 
-- `claude-mem` - persistent memory worker and hooks
-- `github-mcp` - credential-sensitive MCP server
-- `claude-code-router` - provider/model routing layer
-- `cc-switch` - desktop app/provider manager
-- `vibe-kanban` - repository currently says the product is sunsetting
-- `multica` - larger self-hosted platform
-- `firecrawl` - requires API key for meaningful use
-- `ecc` - broad harness/security/plugin framework
+| Checkup action | What happens |
+|---|---|
+| **Check this computer** | Looks in the usual Claude Code locations for the current user. It does not install, remove, or change anything. |
+| **Also check a project** | Lets you choose one project folder and adds its `.claude` locations to the same read-only list. |
+| **Possible duplicate skills** | Shows the same skill name found in more than one place, with each location. It does not assume that every duplicate is wrong. |
+| **Review backup move** | Available only for a discovered skill folder. It shows the current and backup paths. When approved, it moves the skill to a backup folder instead of deleting it. |
+| **Add your own skill or add-on** | Validates a local skill folder, trusted GitHub owner/name, or trusted marketplace source. You review the copy location or command before approval. Marketplace commands are saved to the checklist, not run without review. |
 
-Review each repository before enabling optional tools.
+## Step 3: Review and Run
 
-## Recommended Workflow
+The final local-tool panel says how many curated tools are selected and whether you are previewing or installing.
 
-Use this process for a safe Claude Code tools setup:
+| Control | What it does |
+|---|---|
+| **Preview changes only** | Shows planned local-tool changes without installing anything. Use this first if you are unsure. |
+| **Install selected tools** | Opens a confirmation dialog listing every selected local tool. Nothing runs until you approve it. |
+| **Installation activity** | Shows Claude Code preparation, install progress, queued follow-ups, project-component output, and plain-language errors. |
 
-1. Run the dry run.
-2. Install the curated defaults.
-3. Review the generated plugin command file.
-4. Paste only the plugin commands you actually want into Claude Code.
-5. Use Claude Code for a few real projects.
-6. Add optional memory, routing, GitHub, Firecrawl, and framework tools one at a time.
-7. Keep credentials out of shell history whenever possible.
-8. Re-run dry-run mode before adding new categories.
+The confirmation dialog reminds you that slash-command plugins and credential-sensitive integrations can create a follow-up task instead of a silent configuration. This is intentional.
 
-Avoid installing every memory system, agent framework, MCP server, and cost tool at once. Overlapping tools can make Claude Code harder to debug.
+## After Installation: Completion Checklist
 
-## Item IDs
+Some Claude Code plugins require a slash command inside Claude Code. The app saves those commands in a local completion checklist rather than trying to type into your active Claude Code session.
 
-Use these IDs with `--item`:
+| Platform | Checklist location |
+|---|---|
+| macOS and Linux | `~/.setup-my-claude/claude-plugin-commands.md` |
+| Windows | `%USERPROFILE%\.setup-my-claude\claude-plugin-commands.md` |
 
-```text
-learn-claude-code
-karpathy-skills
-superpowers
-ponytail
-gstack
-ecc
-taste-skill
-anthropic-skills
-wshobson-agents
-claude-plugins-official
-ui-ux-pro-max
-awesome-claude-skills
-planning-with-files
-claude-mem
-codegraph
-graphify
-repomix
-multica
-firecrawl
-cc-switch
-vibe-kanban
-github-mcp
-playwright-mcp
-claude-code-router
-awesome-mcp-servers
-system-prompts-ai
-best-practice
-codex-plugin-cc
-claude-hud
-caveman
-```
+Open Claude Code, open the checklist, and run only the commands for plugins you chose. The app also records an activity log and rollback manifest under `~/.setup-my-claude/` so you can review local changes and remove supported shell-installed items later.
 
-Categories:
+## Safety and Privacy Boundaries
 
-```text
-harness
-skills
-memory
-tools
-cost
-```
+| The app does | The app does not do |
+|---|---|
+| Uses Anthropic’s official Claude Code installer after you choose Complete setup or the Claude-only option | Bundle or redistribute an unknown Claude Code binary |
+| Downloads a Node.js 22 LTS runtime only after verification against the official SHA-256 checksum | Use an unverified runtime download |
+| Requires typed confirmation before Start fresh deletes local Claude Code state | Delete project files or silently remove Claude Code data |
+| Installs only the recommended local stack during Complete setup, or only selected tools during manual setup | Install all catalog entries by default |
+| Keeps Convex packages in a separately confirmed project plan | Install a backend package outside the folder you selected |
+| Previews the exact package command | Run an unreviewed project command |
+| Saves plugin commands and sensitive follow-up steps to a checklist | Paste slash commands or inject credentials silently |
+| Offers free site-powered online Compass only after you choose it | Ask for a visitor API key or silently send every question online |
 
-## Classification and Install Matrix
+Review each optional item before adding it. A memory utility, provider router, web-crawling tool, or package with an external integration can change local behavior, project dependencies, data flow, or permissions.
 
-| Item | Category | Classification | Default | Installer action | Verified source |
-|---|---:|---|---:|---|---|
-| learn-claude-code | Harness | Harness/framework | No | Clone reference repo | `https://github.com/shareAI-lab/learn-claude-code` |
-| karpathy-skills | Harness | Memory/context utility | No | Clone reference repo | `https://github.com/multica-ai/andrej-karpathy-skills` |
-| superpowers | Harness | Plugin/skills framework | Yes | Queue Claude plugin marketplace commands | `https://github.com/obra/superpowers`, `https://github.com/obra/superpowers-marketplace` |
-| ponytail | Harness | Skill | No | `npx skills add ... --skill ponytail --agent claude-code` | `https://github.com/DietrichGebert/ponytail` |
-| gstack | Harness | Skill pack/harness | Yes | Clone to `~/.claude/skills/gstack` and run `./setup` | `https://github.com/garrytan/gstack` |
-| ECC | Harness | Plugin/harness/security | No | Queue Claude plugin marketplace commands | `https://github.com/affaan-m/ECC` |
-| taste-skill | Skills | Skill | Yes | `npx skills add ... --skill design-taste-frontend --agent claude-code` | `https://github.com/Leonxlnx/taste-skill` |
-| anthropics/skills | Skills | Official skills marketplace | Yes | Queue Claude plugin marketplace commands | `https://github.com/anthropics/skills` |
-| wshobson/agents | Skills | Plugin marketplace/subagents | No | Queue Claude plugin marketplace commands | `https://github.com/wshobson/agents` |
-| claude-plugins-official | Skills | Official plugin marketplace | No | Queue browse/install note | `https://github.com/anthropics/claude-plugins-official` |
-| ui-ux-pro-max | Skills | Skill/reference | No | Clone reference repo | `https://github.com/nextlevelbuilders/ui-ux-pro-max` |
-| awesome-claude-skills | Skills | Catalog/reference | No | Clone reference repo | `https://github.com/ComposioHQ/awesome-claude-skills` |
-| planning-with-files | Memory | Skill | Yes | `npx skills add ... --skill planning-with-files --agent claude-code` | `https://github.com/OthmanAdi/planning-with-files` |
-| claude-mem | Memory | Memory/context utility | No | `npx claude-mem install` | `https://github.com/thedotmack/claude-mem` |
-| CodeGraph | Memory | CLI/tool | No | `npm install -g @colbymchenry/codegraph` | `https://github.com/colbymchenry/codegraph` |
-| Graphify | Memory | Skill/CLI | No | `npx skills add ... --skill graphify --agent claude-code` | `https://github.com/Graphify-Labs/graphify` |
-| Repomix | Memory | CLI/MCP server | Yes | `npm install -g repomix`; `claude mcp add repomix -- npx -y repomix --mcp` | `https://github.com/yamadashy/repomix` |
-| Multica | Tools | Harness/framework | No | Clone reference repo only | `https://github.com/multica-ai/multica` |
-| Firecrawl | Tools | Plugin/MCP/CLI | No | Install `firecrawl-cli`; queue plugin note | `https://github.com/firecrawl/firecrawl-claude-plugin`, `https://github.com/firecrawl/firecrawl-mcp-server` |
-| CC Switch | Tools | Desktop CLI/tool | No | macOS Homebrew cask when available; Linux/Windows manual review | `https://github.com/farion1231/cc-switch` |
-| Vibe Kanban | Tools | Desktop/web tool | No | Document only; project says sunsetting | `https://github.com/BloopAI/vibe-kanban` |
-| GitHub MCP | Tools | MCP server | No | Queue credential-sensitive setup note | `https://github.com/github/github-mcp-server` |
-| Playwright MCP | Tools | MCP server | Yes | `claude mcp add playwright npx @playwright/mcp@latest` | `https://github.com/microsoft/playwright-mcp` |
-| Claude Code Router | Tools | CLI/router | No | `npm install -g @musistudio/claude-code-router` | `https://github.com/musistudio/claude-code-router` |
-| awesome-mcp-servers | Tools | Catalog/reference | No | Clone reference repo | `https://github.com/punkpeye/awesome-mcp-servers` |
-| system-prompts-ai | Cost | Reference/research | No | Clone reference repo | `https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools` |
-| claude-code-best-practice | Cost | Reference/workflows | No | Clone reference repo | `https://github.com/shanraisshan/claude-code-best-practice` |
-| Codex in Claude | Cost | CLI/plugin integration | No | Manual review note | `https://github.com/openai/codex` |
-| Claude HUD | Cost | Plugin/monitoring | Yes | Queue Claude plugin marketplace commands | `https://github.com/jarrodwatts/claude-hud` |
-| Caveman | Cost | Cost/token workflow | No | Clone reference repo | `https://github.com/JuliusBrussel/caveman` |
+## Development and Packaging
 
-## Tool Guide
-
-This section explains what each included item is for and when to install it.
-
-| Tool | What it is | When to use it | Default |
-|---|---|---|---:|
-| Learn Claude Code | Reference/training repository for learning Claude Code workflows. | Use when onboarding yourself or a team to Claude Code patterns. | No |
-| Karpathy Skills | Reference/context material inspired by Andrej Karpathy-style AI engineering workflows. | Use as learning material or workflow inspiration, not as a required extension. | No |
-| Superpowers | Claude Code plugin/skills framework that adds a structured productivity layer. | Use when you want a stronger default Claude Code operating environment. | Yes |
-| Ponytail | Claude Code skill. | Use when you specifically want that skill's workflow; keep optional until needed. | No |
-| gstack | Skill pack/harness for improving Claude Code project workflow. | Use as part of the default setup for stronger planning and execution habits. | Yes |
-| ECC | Extension/harness focused on broader Claude Code workflow control and safety patterns. | Use only after reviewing its repository and understanding the behavior it adds. | No |
-| taste-skill | Frontend/design taste skill. | Use for UI, UX, and visual product work where judgment matters. | Yes |
-| Anthropic skills | Official Anthropic skills repository/marketplace entrypoint. | Use to browse and install official or example skills through Claude Code. | Yes |
-| wshobson/agents | Collection of Claude Code subagents and workflow helpers. | Use when you want specialized agents for code review, security, docs, or implementation tasks. | No |
-| claude-plugins-official | Official Claude Code plugin marketplace. | Use to browse supported plugins from inside Claude Code. | No |
-| ui-ux-pro-max | UI/UX-oriented skill/reference repository. | Use for deeper frontend/product design review workflows. | No |
-| awesome-claude-skills | Catalog of Claude skills. | Use for discovery; do not treat every catalog item as safe to install. | No |
-| planning-with-files | Skill that encourages explicit planning through files. | Use for larger changes where persistent plans beat one-off chat context. | Yes |
-| Claude-Mem | Persistent memory/context utility. | Use when you want Claude Code to remember project context across sessions and you accept the data trade-offs. | No |
-| CodeGraph | CLI for generating or working with code graphs. | Use for larger repositories where structural understanding matters. | No |
-| Graphify | Skill/CLI-oriented graphing tool. | Use when visualizing project structure or dependencies helps planning. | No |
-| Repomix | CLI and MCP server for packaging repository context. | Use to compress repo context for AI workflows and expose it through MCP. | Yes |
-| Multica | Larger self-hosted harness/framework. | Use only for advanced experimentation with self-hosted AI workflows. | No |
-| Firecrawl | Web crawling/scraping tool with Claude integration paths. | Use for research, crawling, and web-data workflows after setting up API credentials. | No |
-| CC Switch | Desktop/provider switching tool. | Use only if you need its provider switching workflow and your platform is supported. | No |
-| Vibe Kanban | Desktop/web project planning tool. | Use cautiously; the upstream project has indicated sunsetting. | No |
-| GitHub MCP | MCP server for GitHub operations. | Use when Claude Code needs structured GitHub access; configure credentials carefully. | No |
-| Playwright MCP | MCP server for browser automation through Playwright. | Use for browser testing, UI QA, page interaction, and automation. | Yes |
-| Claude Code Router | CLI/router for model/provider routing. | Use only when you intentionally want to route Claude Code through alternate providers. | No |
-| awesome-mcp-servers | Catalog of MCP servers. | Use for discovery after you understand MCP security boundaries. | No |
-| system-prompts-ai | Reference collection of system prompts and AI tool prompts. | Use for research and prompt-pattern study, not as a default install. | No |
-| claude-code-best-practice | Reference/workflow repository for Claude Code habits. | Use for process improvement, team standards, and prompt/workflow examples. | No |
-| Codex in Claude | Manual review note for OpenAI Codex/Claude integration ideas. | Use only when you have a specific Codex integration workflow. | No |
-| Claude HUD | Plugin/monitoring tool for Claude Code usage visibility. | Use to improve awareness of session behavior and cost/usage patterns. | Yes |
-| Caveman | Cost/token workflow reference. | Use when you want lightweight cost discipline and token-usage habits. | No |
-
-## What Comes With the App
-
-The repository includes:
-
-- `setup-my-claude.sh` - macOS Bash installer
-- `setup-my-claude-linux.sh` - Linux Bash installer
-- `setup-my-claude.ps1` - Windows PowerShell installer
-- `README.md` - full documentation
-- `assets/claude-code-tools-logo.png` - GitHub README/header image
-- `releases/claude-code-tools-installer.dmg` - notarized/stapled macOS DMG
-- `releases/claude-code-tools-installer.zip` - all-platform ZIP
-- `releases/claude-code-tools-installer-linux.tar.gz` - Linux tarball
-- `releases/claude-code-tools-installer-windows.zip` - Windows ZIP
-
-The installer itself does not contain the third-party tools. It installs, clones, registers, or queues them from their upstream sources so users can inspect where each component came from.
-
-## Rollback
-
-Rollback uses the manifest written during installation:
+The desktop app is an Electron application in `desktop/`. Release resources include the curated catalog, the 145-entry Convex component library, and the macOS, Windows, and Linux setup adapters.
 
 ```bash
-./setup-my-claude.sh --uninstall
+cd desktop
+npm install
+npm run start
 ```
 
-The rollback removes recorded paths, MCP registrations, global npm installs, and Homebrew casks where feasible.
+Run checks before packaging:
 
-Manual review may still be required for:
+```bash
+npm run check
+```
 
-- Plugin commands installed inside Claude Code
-- Credential-bearing MCP servers
-- Tool-specific data directories
-- Persistent memory stores
+Build a local package:
 
-## SEO Keywords
+```bash
+npm run dist:mac
+npm run dist:win
+npm run dist:linux
+```
 
-This project is relevant to:
+Public releases must be code-signed and, on macOS, notarized before distribution. The app downloads Claude Code only after the user selects **Complete setup** or **Install or update Claude Code only**; it does not redistribute Claude Code inside this repository.
 
-- Claude Code tools installer
-- Claude Code macOS setup
-- Claude Code Linux setup
-- Claude Code Windows setup
-- Claude Code skills installer
-- Claude Code plugins
-- Claude Code MCP servers
-- Anthropic Claude Code extensions
-- Claude Code Playwright MCP
-- Claude Code Repomix MCP
-- Claude Code memory tools
-- Claude Code cost monitoring
-- AI developer workflow automation
+## Repository Layout
 
-## Evidence and Limitations
-
-The source list came from the current text version of Charlie Hills' top-30 Claude Code tools list because the original uploaded image was not available in the imported conversation preview.
-
-Installation methods were checked against official Claude Code documentation or linked repository documentation where possible. Some repositories are catalogs or reference material rather than installable Claude extensions, so the installer clones those only when selected.
-
-Repository installation instructions can change. Run dry-run mode first and review source repositories before installing optional tools.
+| Path | Purpose |
+|---|---|
+| `desktop/` | Electron desktop app and package configuration. |
+| `desktop/catalog.json` | The 35 curated Claude Code workflow choices, including optional source-backed popular plugins. |
+| `desktop/convex-components.json` | The current 145-entry Convex Components Library. |
+| `docs/two-level-catalog-design.md` | Product, safety, and Compass design decisions. |
+| `docs/claude-setup-manager-design.md` | Discovery, duplicate-review, custom-addition, and backup-only cleanup rules. |
+| `docs/source-inventory/` | The source inventory, count summary, and deduplication decisions. |
+| `setup-my-claude.sh` | macOS adapter. |
+| `setup-my-claude-linux.sh` | Linux adapter. |
+| `setup-my-claude.ps1` | Windows PowerShell adapter. |
+| `scripts/validate-catalog.js` | Validates that each curated GUI tool exists in every platform adapter. |
 
 ## License
 
-No license has been added yet. Until a license is added, this repository is public but not explicitly open-source licensed.
+The source code in this repository is licensed under the [Apache License, Version 2.0](LICENSE). Copyright 2026 SK America LLC.
+
+This license lets people use, copy, change, and share the repository source code under its terms. It includes a patent grant and requires the license and notices to remain with redistributed source. It does **not** grant rights to SK America LLC trademarks, Anthropic, Claude Code, Convex, GitHub, npm, or any other third-party name, logo, service, content, or separate add-on. Review third-party licenses and terms before using an add-on or redistributing a packaged build.
+
+## References
+
+[1]: https://code.claude.com/docs/en/setup "Claude Code setup"
+[2]: https://docs.convex.dev/ai/using-claude-code "Using Claude Code with Convex"
+[3]: https://github.com/get-convex/convex-backend-skill "Convex Plugin for Claude Code"
+[4]: https://www.convex.dev/components/components.md "Convex Components Directory"
+[5]: https://docs.convex.dev/components/overview "Convex Components overview"
+[6]: https://docs.anthropic.com/en/api/messages "Anthropic Messages API"
