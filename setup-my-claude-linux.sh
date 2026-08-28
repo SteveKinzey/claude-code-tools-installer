@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_VERSION="2026-08-12"
+SCRIPT_VERSION="2026-08-26"
 BASE_DIR="${HOME}/.setup-my-claude"
 CLONE_DIR="${HOME}/.claude/reference-repos"
+NODE_RUNTIME_DIR="${BASE_DIR}/node-runtime"
 LOG_DIR="${BASE_DIR}/logs"
 MANIFEST="${BASE_DIR}/manifest.tsv"
 PLUGIN_COMMANDS="${BASE_DIR}/claude-plugin-commands.md"
+CLAUDE_BOOTSTRAP_STATE="${BASE_DIR}/claude-code-bootstrap.pid"
+CLAUDE_BOOTSTRAP_PID=""
+CLAUDE_BOOTSTRAP_OWNED=0
+CLAUDE_BOOTSTRAP_LOG=""
+CLAUDE_LAUNCHED=0
+BOOTSTRAP_ONLY=0
+COMPLETE=0
+FRESH=0
+FRESH_CONFIRMED=0
+NO_LAUNCH=0
 DRY_RUN=0
 DEFAULTS=0
 ALL=0
@@ -21,6 +32,9 @@ setup-my-claude-linux.sh
 
 Safe interactive Linux installer for a curated Claude Code extension stack.
 
+Claude Code is started in a background terminal window when it is already installed.
+If it is missing, the official Claude Code installer starts in the background while you make selections.
+
 Usage:
   ./setup-my-claude-linux.sh                 Interactive selection
   ./setup-my-claude-linux.sh --defaults      Install curated defaults
@@ -28,6 +42,10 @@ Usage:
   ./setup-my-claude-linux.sh --item id,id    Install specific item ids
   ./setup-my-claude-linux.sh --category cat  Install a category: harness,skills,memory,tools,cost
   ./setup-my-claude-linux.sh --all           Select every installable item
+  ./setup-my-claude-linux.sh --bootstrap-only Start or open Claude Code, then exit
+  ./setup-my-claude-linux.sh --complete      Install prerequisites, Claude Code, and curated defaults
+  ./setup-my-claude-linux.sh --fresh         Remove Claude Code and its local data before setup (requires --complete)
+  ./setup-my-claude-linux.sh --no-launch     Do not open a terminal window after preparation
   ./setup-my-claude-linux.sh --uninstall     Roll back items recorded in the manifest
 
 Options can be combined, for example:
@@ -40,6 +58,11 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1 ;;
     --defaults) DEFAULTS=1 ;;
     --all) ALL=1 ;;
+    --bootstrap-only) BOOTSTRAP_ONLY=1 ;;
+    --complete) COMPLETE=1 ;;
+    --fresh) FRESH=1 ;;
+    --fresh-confirmed) FRESH_CONFIRMED=1 ;;
+    --no-launch) NO_LAUNCH=1 ;;
     --yes|-y) YES=1 ;;
     --uninstall) UNINSTALL=1 ;;
     --item|--items) shift; SELECTED_RAW="${1:-}" ;;
@@ -50,12 +73,34 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-mkdir -p "$BASE_DIR" "$LOG_DIR" "$CLONE_DIR"
-LOG_FILE="${LOG_DIR}/run-$(date +%Y%m%d-%H%M%S).log"
-touch "$MANIFEST" "$LOG_FILE" "$PLUGIN_COMMANDS"
+if [[ "$FRESH" -eq 1 && "$COMPLETE" -ne 1 ]]; then
+  echo "--fresh must be used with --complete." >&2
+  exit 2
+fi
+if [[ "$FRESH" -eq 1 && "$FRESH_CONFIRMED" -ne 1 ]]; then
+  echo "--fresh is destructive and requires confirmation from the desktop app." >&2
+  exit 2
+fi
+if [[ "$COMPLETE" -eq 1 ]]; then
+  DEFAULTS=1
+  YES=1
+  NO_LAUNCH=0
+fi
+
+LOG_FILE=""
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  mkdir -p "$BASE_DIR" "$LOG_DIR" "$CLONE_DIR"
+  LOG_FILE="${LOG_DIR}/run-$(date +%Y%m%d-%H%M%S).log"
+  touch "$MANIFEST" "$LOG_FILE" "$PLUGIN_COMMANDS"
+fi
 
 log() {
-  printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG_FILE"
+  local line
+  line="$(date -u +%Y-%m-%dT%H:%M:%SZ) $*"
+  printf '%s\n' "$line"
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    printf '%s\n' "$line" >> "$LOG_FILE"
+  fi
 }
 
 run_cmd() {
@@ -68,11 +113,16 @@ run_cmd() {
 
 record_manifest() {
   local kind="$1" target="$2" extra="$3" item="$4"
+  [[ "$DRY_RUN" -eq 1 ]] && return 0
   printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$kind" "$target" "$extra" "$item" >> "$MANIFEST"
 }
 
 append_plugin_command() {
   local title="$1" commands="$2" source="$3"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Dry run: would queue Claude Code plugin commands for $title"
+    return 0
+  fi
   {
     printf '\n## %s\n\n' "$title"
     printf 'Source: %s\n\n' "$source"
@@ -88,20 +138,270 @@ require_cmd() {
   fi
 }
 
+refresh_claude_path() {
+  local native_bin="${HOME}/.local/bin"
+  if [[ -d "$native_bin" && ":${PATH}:" != *":${native_bin}:"* ]]; then
+    export PATH="${native_bin}:${PATH}"
+  fi
+  if [[ -d "${NODE_RUNTIME_DIR}/bin" && ":${PATH}:" != *":${NODE_RUNTIME_DIR}/bin:"* ]]; then
+    export PATH="${NODE_RUNTIME_DIR}/bin:${PATH}"
+  fi
+}
+
+file_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo "A SHA-256 utility is required to verify the Node.js download." >&2
+    return 1
+  fi
+}
+
+ensure_node_runtime() {
+  local arch package checksum_file extract_dir expected actual
+  refresh_claude_path
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 && command -v npx >/dev/null 2>&1; then
+    log "Node.js toolchain detected: $(node --version 2>/dev/null || echo unknown)"
+    return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Dry run: would download the official Node.js 22 LTS runtime into $NODE_RUNTIME_DIR"
+    return 0
+  fi
+  require_cmd curl
+  require_cmd tar
+  case "$(uname -m)" in
+    x86_64) arch="x64" ;;
+    aarch64|arm64) arch="arm64" ;;
+    *) echo "Unsupported Linux processor architecture for managed Node.js: $(uname -m)" >&2; return 1 ;;
+  esac
+  extract_dir="$(mktemp -d "${BASE_DIR}/node-download.XXXXXX")"
+  checksum_file="${extract_dir}/SHASUMS256.txt"
+  curl -fsSL https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt -o "$checksum_file"
+  package="$(awk -v suffix="linux-${arch}.tar.gz" '$2 ~ suffix {print $2; exit}' "$checksum_file")"
+  if [[ -z "$package" || ! "$package" =~ ^node-v[0-9]+\.[0-9]+\.[0-9]+-linux-(arm64|x64)\.tar\.gz$ ]]; then
+    echo "Could not determine a supported Node.js 22 LTS download for this Linux computer." >&2
+    return 1
+  fi
+  expected="$(awk -v file="$package" '$2 == file {print $1; exit}' "$checksum_file")"
+  curl -fsSL "https://nodejs.org/dist/latest-v22.x/${package}" -o "${extract_dir}/${package}"
+  actual="$(file_sha256 "${extract_dir}/${package}")"
+  if [[ "$expected" != "$actual" ]]; then
+    echo "Node.js download checksum verification failed. Nothing was installed." >&2
+    return 1
+  fi
+  tar -xzf "${extract_dir}/${package}" -C "$extract_dir"
+  rm -rf "$NODE_RUNTIME_DIR"
+  mv "${extract_dir}/${package%.tar.gz}" "$NODE_RUNTIME_DIR"
+  rm -rf "$extract_dir"
+  refresh_claude_path
+  command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 && command -v npx >/dev/null 2>&1 || { echo "Managed Node.js installation completed, but its commands are unavailable." >&2; return 1; }
+  record_manifest "managed-runtime" "$NODE_RUNTIME_DIR" "Official Node.js 22 LTS runtime for Claude Code Tools Installer." "node-runtime"
+  log "Installed managed Node.js runtime: $(node --version)"
+}
+
+ensure_git() {
+  if command -v git >/dev/null 2>&1; then return 0; fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then log "Dry run: would install Git with the detected Linux package manager"; return 0; fi
+  if ! command -v pkexec >/dev/null 2>&1; then
+    echo "Git is required. This Linux desktop needs PolicyKit (pkexec) to request approval for a system package install." >&2
+    return 1
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    pkexec sh -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y git'
+  elif command -v dnf >/dev/null 2>&1; then
+    pkexec dnf install -y git
+  elif command -v apk >/dev/null 2>&1; then
+    pkexec apk add git
+  elif command -v pacman >/dev/null 2>&1; then
+    pkexec pacman -Sy --noconfirm git
+  else
+    echo "Git is required, but this Linux package manager is not supported by Complete setup." >&2
+    return 1
+  fi
+  command -v git >/dev/null 2>&1 || { echo "Git installation did not complete." >&2; return 1; }
+}
+
+fresh_claude_code() {
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Dry run: would remove native Claude Code files, legacy npm files, settings, session history, and local tool configuration"
+    return 0
+  fi
+  log "Removing Claude Code native installation and local configuration for a clean setup"
+  rm -f "${HOME}/.local/bin/claude"
+  rm -rf "${HOME}/.local/share/claude" "${HOME}/.claude/local" "${HOME}/.claude" "${HOME}/.claude.json" "$CLONE_DIR" "$NODE_RUNTIME_DIR"
+  if command -v npm >/dev/null 2>&1 && npm list -g @anthropic-ai/claude-code >/dev/null 2>&1; then npm uninstall -g @anthropic-ai/claude-code || log "The global npm Claude Code package could not be removed automatically."; fi
+  : > "$MANIFEST"
+  : > "$PLUGIN_COMMANDS"
+  log "Start-fresh cleanup completed. The installer will now provision a new Claude Code setup."
+}
+
+claude_path() {
+  refresh_claude_path
+  command -v claude 2>/dev/null || true
+}
+
+launch_claude_code() {
+  local claude_bin="$1"
+  local launch_file="${BASE_DIR}/launch-claude-code.sh"
+
+  [[ "$CLAUDE_LAUNCHED" -eq 1 ]] && return 0
+  if [[ "$NO_LAUNCH" -eq 1 ]]; then
+    log "Claude Code is ready. Terminal launch was skipped because the desktop app will guide the next step."
+    return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Dry run: would open Claude Code in a background terminal window from $PWD"
+    return 0
+  fi
+  if [[ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+    log "Claude Code is installed, but no graphical terminal session is available. Run: cd '$PWD' && '$claude_bin'"
+    return 0
+  fi
+
+  cat > "$launch_file" <<EOF
+#!/usr/bin/env bash
+cd -- "$PWD"
+exec "$claude_bin"
+EOF
+  chmod 700 "$launch_file"
+
+  if command -v x-terminal-emulator >/dev/null 2>&1; then
+    nohup x-terminal-emulator -e bash "$launch_file" >/dev/null 2>&1 &
+    CLAUDE_LAUNCHED=1
+    log "Opened Claude Code in a background terminal window from $PWD"
+  elif command -v gnome-terminal >/dev/null 2>&1; then
+    nohup gnome-terminal -- bash "$launch_file" >/dev/null 2>&1 &
+    CLAUDE_LAUNCHED=1
+    log "Opened Claude Code in a background terminal window from $PWD"
+  elif command -v konsole >/dev/null 2>&1; then
+    nohup konsole -e bash "$launch_file" >/dev/null 2>&1 &
+    CLAUDE_LAUNCHED=1
+    log "Opened Claude Code in a background terminal window from $PWD"
+  else
+    log "Claude Code is installed, but no supported terminal launcher was found. Run: cd '$PWD' && '$claude_bin'"
+  fi
+}
+
+reuse_active_claude_bootstrap() {
+  local recorded_pid
+  if [[ ! -s "$CLAUDE_BOOTSTRAP_STATE" ]]; then
+    return 1
+  fi
+  recorded_pid="$(cat "$CLAUDE_BOOTSTRAP_STATE" 2>/dev/null || true)"
+  if [[ "$recorded_pid" =~ ^[0-9]+$ ]] && kill -0 "$recorded_pid" 2>/dev/null; then
+    CLAUDE_BOOTSTRAP_PID="$recorded_pid"
+    log "Reusing existing Claude Code bootstrap (pid $CLAUDE_BOOTSTRAP_PID)."
+    return 0
+  fi
+  rm -f "$CLAUDE_BOOTSTRAP_STATE"
+  return 1
+}
+
+start_claude_bootstrap() {
+  local claude_bin
+  refresh_claude_path
+  claude_bin="$(claude_path)"
+  if [[ -n "$claude_bin" ]]; then
+    log "Existing Claude Code detected: $claude_bin"
+    if [[ "$COMPLETE" -eq 1 ]]; then
+      log "Complete setup will open Claude Code after the recommended tools are ready."
+    else
+      launch_claude_code "$claude_bin"
+    fi
+    return 0
+  fi
+  if reuse_active_claude_bootstrap; then
+    return 0
+  fi
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Dry run: would install Claude Code with the official native installer in the background"
+    return 0
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    log "Claude Code is missing and curl is unavailable, so the official installer cannot start."
+    return 1
+  fi
+
+  CLAUDE_BOOTSTRAP_LOG="${LOG_DIR}/claude-code-bootstrap-$(date +%Y%m%d-%H%M%S).log"
+  echo "Claude Code is not installed. Starting Anthropic's official installer in the background while you make selections."
+  nohup bash -c 'set -o pipefail; curl -fsSL https://claude.ai/install.sh | bash' >"$CLAUDE_BOOTSTRAP_LOG" 2>&1 &
+  CLAUDE_BOOTSTRAP_PID=$!
+  CLAUDE_BOOTSTRAP_OWNED=1
+  printf '%s\n' "$CLAUDE_BOOTSTRAP_PID" > "$CLAUDE_BOOTSTRAP_STATE"
+  log "Started Claude Code bootstrap in background (pid $CLAUDE_BOOTSTRAP_PID). Log: $CLAUDE_BOOTSTRAP_LOG"
+}
+
+ensure_claude_ready() {
+  local claude_bin
+  refresh_claude_path
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Dry run: Claude Code bootstrap would complete before selected tools are installed"
+    return 0
+  fi
+
+  if [[ -n "$CLAUDE_BOOTSTRAP_PID" ]]; then
+    echo "Waiting for Claude Code to finish installing before applying selected tools..."
+    if [[ "$CLAUDE_BOOTSTRAP_OWNED" -eq 1 ]]; then
+      if ! wait "$CLAUDE_BOOTSTRAP_PID"; then
+        rm -f "$CLAUDE_BOOTSTRAP_STATE"
+        echo "Claude Code installation failed. Review: ${CLAUDE_BOOTSTRAP_LOG:-the latest claude-code-bootstrap log in $LOG_DIR}" >&2
+        return 1
+      fi
+    else
+      while kill -0 "$CLAUDE_BOOTSTRAP_PID" 2>/dev/null; do
+        sleep 1
+      done
+    fi
+    rm -f "$CLAUDE_BOOTSTRAP_STATE"
+    claude_bin="$(claude_path)"
+    if [[ -z "$claude_bin" ]]; then
+      echo "Claude Code finished installing but is not available in this shell. Restart your terminal, then rerun the installer. Bootstrap log: $CLAUDE_BOOTSTRAP_LOG" >&2
+      return 1
+    fi
+    record_manifest "manual-review" "$claude_bin" "Installed by Claude Code's official native installer; manage updates and removal with Claude Code's documented commands." "claude-code"
+    log "Claude Code bootstrap completed: $claude_bin"
+    if [[ "$COMPLETE" -eq 1 ]]; then
+      log "Complete setup will open Claude Code after the recommended tools are ready."
+    else
+      launch_claude_code "$claude_bin"
+    fi
+    return 0
+  fi
+
+  claude_bin="$(claude_path)"
+  if [[ -n "$claude_bin" ]]; then
+    if [[ "$COMPLETE" -eq 0 ]]; then
+      launch_claude_code "$claude_bin"
+    fi
+    return 0
+  fi
+
+  echo "Claude Code is required to finish this setup, but the bootstrap did not start." >&2
+  return 1
+}
+
 check_dependencies() {
   local missing=0
-  for cmd in claude node npm npx git; do
+  for cmd in node npm npx git; do
     if ! require_cmd "$cmd"; then
       missing=1
     fi
   done
   if [[ "$missing" -eq 1 ]]; then
+    if [[ "$COMPLETE" -eq 1 && "$DRY_RUN" -eq 1 ]]; then
+      log "Dry run: Complete setup would make the missing tool dependencies available before installing curated tools"
+      return 0
+    fi
     echo
-    echo "Install the missing dependencies first. This script does not install Claude Code, Node, npm, npx, or git."
+    echo "Complete setup could not prepare all required dependencies. Node.js (node, npm, npx) and Git are required."
     exit 1
   fi
-  log "Dependency versions:"
-  log "claude: $(claude --version 2>/dev/null || echo unknown)"
+  log "Tool dependency versions:"
   log "node: $(node --version 2>/dev/null || echo unknown)"
   log "npm: $(npm --version 2>/dev/null || echo unknown)"
   log "git: $(git --version 2>/dev/null || echo unknown)"
@@ -122,6 +422,10 @@ already_path() {
 
 mcp_exists() {
   local name="$1"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Dry run: would check whether MCP server '$name' already exists; no Claude Code command will run"
+    return 1
+  fi
   claude mcp list 2>/dev/null | awk '{print $1}' | grep -Fxq "$name"
 }
 
@@ -248,6 +552,26 @@ install_item() {
 # /plugin install {plugin-name}@claude-plugins-official" "https://github.com/anthropics/claude-plugins-official"
       log "Queued official plugin marketplace note in $PLUGIN_COMMANDS"
       ;;
+    frontend-design)
+      append_plugin_command "Frontend Design" "/plugin install frontend-design@claude-plugins-official
+/reload-plugins" "https://claude.com/plugins/frontend-design"
+      log "Queued Frontend Design plugin command in $PLUGIN_COMMANDS"
+      ;;
+    code-review)
+      append_plugin_command "Code Review" "/plugin install code-review@claude-plugins-official
+/reload-plugins" "https://claude.com/plugins/code-review"
+      log "Queued Code Review plugin command in $PLUGIN_COMMANDS"
+      ;;
+    context7)
+      append_plugin_command "Context7" "/plugin install context7@claude-plugins-official
+/reload-plugins" "https://claude.com/plugins/context7"
+      log "Queued Context7 plugin command in $PLUGIN_COMMANDS"
+      ;;
+    skill-creator)
+      append_plugin_command "Skill Creator" "/plugin install skill-creator@claude-plugins-official
+/reload-plugins" "https://claude.com/plugins/skill-creator"
+      log "Queued Skill Creator plugin command in $PLUGIN_COMMANDS"
+      ;;
     ui-ux-pro-max)
       version="$(source_version https://github.com/nextlevelbuilders/ui-ux-pro-max)"
       log "Source ui-ux-pro-max HEAD: ${version:-unknown}"
@@ -278,6 +602,12 @@ install_item() {
     repomix)
       install_npm_global repomix repomix "$id"
       install_mcp_after_dashdash repomix "$id" npx -y repomix --mcp
+      ;;
+    convex)
+      append_plugin_command "Convex for Claude Code" "/plugin install convex@claude-plugins-official
+/reload-plugins
+# Open a Convex project before using deployment access. The plugin may request a deployment connection when needed." "https://docs.convex.dev/ai/using-claude-code"
+      log "Queued the official Convex plugin command in $PLUGIN_COMMANDS"
       ;;
     multica)
       clone_or_update https://github.com/multica-ai/multica "${CLONE_DIR}/multica" "$id"
@@ -358,6 +688,10 @@ taste-skill|taste-skill|skills|skill|yes|npx skills add
 anthropic-skills|anthropics/skills|skills|official skills marketplace|yes|queue Claude plugin marketplace commands
 wshobson-agents|wshobson/agents|skills|plugin marketplace/subagents|no|queue Claude plugin commands
 claude-plugins-official|claude-plugins-official|skills|official plugin marketplace|no|queue browse/install note
+frontend-design|Frontend Design|popular|official Claude Code plugin|no|queue official plugin command for review
+code-review|Code Review|popular|official Claude Code plugin|no|queue official plugin command for review
+context7|Context7|popular|official Claude Code plugin|no|queue official plugin command for review
+skill-creator|Skill Creator|popular|official Claude Code plugin|no|queue official plugin command for review
 ui-ux-pro-max|ui-ux-pro-max|skills|skill/reference|no|clone reference repo
 awesome-claude-skills|awesome-claude-skills|skills|catalog/reference|no|clone reference repo
 planning-with-files|planning-with-files|memory|skill|yes|npx skills add
@@ -365,6 +699,7 @@ claude-mem|Claude-Mem|memory|memory/context utility|no|npx claude-mem install
 codegraph|CodeGraph|memory|CLI/tool|no|npm global install
 graphify|Graphify|memory|skill/CLI|no|npx skills add
 repomix|Repomix|memory|CLI/MCP server|yes|npm global plus claude mcp add
+convex|Convex for Claude Code|tools|official Convex plugin|no|queue plugin command for Convex skills, agents, MCP access, monitors, and rules
 multica|Multica|tools|harness/framework|no|clone reference repo only
 firecrawl|Firecrawl|tools|plugin/MCP/CLI|no|npm CLI plus plugin command note
 cc-switch|CC Switch|tools|desktop CLI/tool|no|Homebrew cask if available
@@ -465,6 +800,11 @@ uninstall_manifest() {
           run_cmd brew uninstall --cask "$target"
         fi
         ;;
+      managed-runtime)
+        if [[ -e "$target" ]]; then
+          run_cmd rm -rf "$target"
+        fi
+        ;;
       manual-review)
         log "Manual rollback review required for $item: $target $extra"
         ;;
@@ -479,6 +819,20 @@ main() {
   if [[ "$UNINSTALL" -eq 1 ]]; then
     check_dependencies
     uninstall_manifest
+    exit 0
+  fi
+
+  if [[ "$FRESH" -eq 1 ]]; then
+    fresh_claude_code
+  fi
+  if [[ "$COMPLETE" -eq 1 ]]; then
+    ensure_node_runtime
+    ensure_git
+  fi
+
+  start_claude_bootstrap
+  if [[ "$BOOTSTRAP_ONLY" -eq 1 ]]; then
+    echo "Claude Code preparation has started. You can continue selecting tools in the desktop installer."
     exit 0
   fi
 
@@ -502,14 +856,20 @@ main() {
     [[ "$answer" =~ ^[Yy]$ ]] || exit 0
   fi
 
-  cat > "$PLUGIN_COMMANDS" <<EOF
+  ensure_claude_ready
+
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    cat > "$PLUGIN_COMMANDS" <<EOF
 # Claude Code plugin commands
 
-Generated by setup-my-claude.sh on $(date).
+Generated by setup-my-claude-linux.sh on $(date).
 
 Some Claude Code plugins must be installed from inside Claude Code with slash commands.
 This installer does not paste or execute those commands for you.
 EOF
+  else
+    log "Dry run: would prepare the Claude Code plugin command checklist"
+  fi
 
   for id in "${selected[@]}"; do
     log "Installing or queuing: $id"
@@ -521,6 +881,10 @@ EOF
   echo "Log: $LOG_FILE"
   echo "Manifest: $MANIFEST"
   echo "Claude plugin command queue: $PLUGIN_COMMANDS"
+  if [[ "$COMPLETE" -eq 1 && "$DRY_RUN" -eq 0 ]]; then
+    claude_bin="$(claude_path)"
+    [[ -n "$claude_bin" ]] && launch_claude_code "$claude_bin"
+  fi
   if [[ -s "$PLUGIN_COMMANDS" ]]; then
     echo
     echo "Open Claude Code and run the queued slash commands for plugin items."
