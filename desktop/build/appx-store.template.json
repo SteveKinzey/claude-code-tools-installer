@@ -1,0 +1,15 @@
+{
+  "win": {
+    "target": ["nsis", "appx"]
+  },
+  "appx": {
+    "identityName": "[Partner Center identity name]",
+    "applicationId": "[Partner Center application ID]",
+    "publisher": "[Partner Center publisher value]",
+    "publisherDisplayName": "SK America LLC",
+    "displayName": "Claude Code Tools Installer",
+    "languages": ["en-US"],
+    "capabilities": ["runFullTrust", "internetClient"],
+    "minVersion": "10.0.17763.0"
+  }
+}

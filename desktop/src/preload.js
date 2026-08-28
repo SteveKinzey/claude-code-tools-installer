@@ -1,0 +1,27 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('installer', {
+  getCatalog: () => ipcRenderer.invoke('catalog:get'),
+  getComponentCatalog: () => ipcRenderer.invoke('components:get'),
+  getClaudeStatus: () => ipcRenderer.invoke('claude:status'),
+  startBootstrap: () => ipcRenderer.invoke('bootstrap:start'),
+  runCompleteSetup: (payload) => ipcRenderer.invoke('setup:complete', payload),
+  runInstall: (payload) => ipcRenderer.invoke('install:run', payload),
+  chooseComponentProject: () => ipcRenderer.invoke('components:choose-project'),
+  previewComponents: (payload) => ipcRenderer.invoke('components:preview', payload),
+  installComponents: (payload) => ipcRenderer.invoke('components:install', payload),
+  reportAnonymousSetupSuccess: (payload) => ipcRenderer.invoke('telemetry:report-setup-success', payload),
+  getCompassStatus: () => ipcRenderer.invoke('compass:status'),
+  askCompass: (payload) => ipcRenderer.invoke('compass:ask', payload),
+  chooseSetupManagerProject: () => ipcRenderer.invoke('setup-manager:choose-project'),
+  discoverSetup: (payload) => ipcRenderer.invoke('setup-manager:discover', payload),
+  chooseCustomSource: () => ipcRenderer.invoke('setup-manager:choose-custom-source'),
+  reviewCustomAddOn: (payload) => ipcRenderer.invoke('setup-manager:review-custom', payload),
+  applyCustomAddOn: (payload) => ipcRenderer.invoke('setup-manager:apply-custom', payload),
+  reviewCleanup: (payload) => ipcRenderer.invoke('setup-manager:review-cleanup', payload),
+  applyCleanup: (payload) => ipcRenderer.invoke('setup-manager:apply-cleanup', payload),
+  onOutput: (callback) => ipcRenderer.on('installer:output', (_event, payload) => callback(payload)),
+  onState: (callback) => ipcRenderer.on('installer:state', (_event, payload) => callback(payload)),
+  onComponentOutput: (callback) => ipcRenderer.on('component:output', (_event, payload) => callback(payload)),
+  onComponentState: (callback) => ipcRenderer.on('component:state', (_event, payload) => callback(payload)),
+});

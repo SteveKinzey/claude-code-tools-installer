@@ -1,0 +1,56 @@
+#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const html = fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'index.html'), 'utf8');
+const renderer = fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'app.js'), 'utf8');
+const preload = fs.readFileSync(path.join(root, 'desktop', 'src', 'preload.js'), 'utf8');
+const main = fs.readFileSync(path.join(root, 'desktop', 'src', 'main.js'), 'utf8');
+
+const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]));
+const selectorIds = new Set([...renderer.matchAll(/querySelector\(['"]#([^'"]+)['"]\)/g)].map((match) => match[1]));
+const missingIds = [...selectorIds].filter((id) => !ids.has(id));
+if (missingIds.length) throw new Error(`Renderer selectors with no HTML ID: ${missingIds.join(', ')}.`);
+
+const calledMethods = new Set([...renderer.matchAll(/window\.installer\.([A-Za-z0-9_]+)/g)].map((match) => match[1]));
+const exposedMethods = new Set([...preload.matchAll(/^\s{2}([A-Za-z0-9_]+):/gm)].map((match) => match[1]));
+const missingBridgeMethods = [...calledMethods].filter((method) => !exposedMethods.has(method));
+if (missingBridgeMethods.length) throw new Error(`Renderer calls missing preload methods: ${missingBridgeMethods.join(', ')}.`);
+
+const componentCatalogResource = /from": "convex-components\.json",\s*"to": "convex-components\.json"/.test(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'));
+if (!componentCatalogResource) throw new Error('Component catalog is missing from the packaged resource list.');
+
+for (const asset of ['StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.png', 'Wide310x150Logo.png']) {
+  if (!fs.existsSync(path.join(root, 'desktop', 'build', 'appx', asset))) throw new Error(`Missing required Microsoft Store AppX asset: ${asset}.`);
+}
+
+for (const channel of [
+  'setup:complete',
+  'components:get',
+  'components:choose-project',
+  'components:preview',
+  'components:install',
+  'telemetry:report-setup-success',
+  'compass:status',
+  'compass:ask',
+  'setup-manager:choose-project',
+  'setup-manager:discover',
+  'setup-manager:choose-custom-source',
+  'setup-manager:review-custom',
+  'setup-manager:apply-custom',
+  'setup-manager:review-cleanup',
+  'setup-manager:apply-cleanup',
+]) {
+  if (!main.includes(`'${channel}'`)) throw new Error(`Missing main-process handler for ${channel}.`);
+}
+
+if (preload.includes('connectCompass') || preload.includes('disconnectCompass') || main.includes("'compass:connect'") || main.includes("'compass:disconnect'")) {
+  throw new Error('Visitor-owned Compass API-key handlers must not be present.');
+}
+
+if (!main.includes('reportAnonymousSetupSuccess') || !main.includes("JSON.stringify({ '0': { json: { kind, consent: true } } })") || !html.includes('no name, email, device ID, folder path, tool list, log, or event ID')) {
+  throw new Error('Anonymous success telemetry must remain explicit and payload-minimal.');
+}
+
+console.log(`Desktop UI contract passed: ${selectorIds.size} renderer IDs and ${calledMethods.size} secure bridge methods verified.`);

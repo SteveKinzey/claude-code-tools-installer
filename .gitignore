@@ -1,1 +1,7 @@
 dist/
+desktop/node_modules/
+desktop/dist/
+desktop/build/appx-store.resolved.json
+releases/test-builds/*
+!releases/test-builds/.gitkeep
+!releases/test-builds/README.md

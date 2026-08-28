@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Code Tools Installer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">SK America LLC</p>
+          <h1>Claude Code Tools Installer</h1>
+          <p class="subtitle">Set up Claude Code, choose your workflow tools, and add Convex components to the right project.</p>
+        </div>
+        <div id="bootstrap-status" class="status-chip status-pending">Checking Claude Code…</div>
+      </header>
+
+      <section class="notice" aria-label="Installation policy">
+        <strong>No command-line steps are required in this app.</strong> Start by setting up Claude Code, choose only the tools you want, and review every change before it runs. Project-level Convex packages are kept separate so they never install in the wrong folder.
+      </section>
+
+      <section class="setup-panel" aria-labelledby="setup-heading">
+        <div class="step-heading">
+          <span class="step-number">1</span>
+          <div>
+            <h2 id="setup-heading">Set up Claude Code</h2>
+            <p id="claude-status-text">Checking whether Claude Code is already available…</p>
+          </div>
+        </div>
+        <div class="setup-options">
+          <button id="complete-setup-button" class="setup-option setup-option-primary" type="button">
+            <span class="setup-option-title">Complete setup</span>
+            <span class="setup-option-copy">Installs Node.js and Git if needed, installs Claude Code, adds the recommended tools, and opens Claude Code for sign-in.</span>
+          </button>
+          <button id="use-existing-button" class="setup-option" type="button" disabled>
+            <span class="setup-option-title">I already have Claude Code</span>
+            <span class="setup-option-copy">Use the Claude Code already on this computer, then choose exactly which tools to add.</span>
+          </button>
+          <button id="install-claude-button" class="setup-option" type="button">
+            <span class="setup-option-title">Install or update Claude Code only</span>
+            <span class="setup-option-copy">Runs Anthropic’s official installer without installing any extra development tools.</span>
+          </button>
+          <button id="browse-button" class="setup-option" type="button">
+            <span class="setup-option-title">Browse tools first</span>
+            <span class="setup-option-copy">Look through every option without installing or changing anything.</span>
+          </button>
+          <button id="start-fresh-button" class="setup-option setup-option-danger" type="button" disabled>
+            <span class="setup-option-title">Start fresh</span>
+            <span class="setup-option-copy">Deletes local Claude Code versions, settings, session history, MCP configuration, and this app’s tool stack before Complete setup runs again.</span>
+          </button>
+        </div>
+        <p id="setup-note" class="setup-note">Choose Complete setup for the no-terminal first-run path. Start fresh requires a separate typed confirmation.</p>
+      </section>
+
+      <section id="setup-manager" class="setup-manager" aria-labelledby="setup-manager-heading">
+        <div class="manager-header">
+          <div class="step-heading">
+            <span class="step-number">?</span>
+            <div>
+              <p class="eyebrow">OPTIONAL CHECKUP</p>
+              <h2 id="setup-manager-heading">See what you already have</h2>
+              <p>Use this at any time. It looks for Claude Code skills, add-ons, and saved connections on this computer or in one project. It changes nothing while checking.</p>
+            </div>
+          </div>
+          <div class="button-group">
+            <button id="scan-setup-button" class="button button-secondary" type="button">Check this computer</button>
+            <button id="choose-manager-project-button" class="button button-ghost" type="button">Also check a project</button>
+          </div>
+        </div>
+        <p id="manager-project-note" class="project-path-note">No project folder selected. A computer check looks only in the usual Claude Code locations for this user.</p>
+        <p id="setup-manager-summary" class="manager-summary">Nothing has been checked yet.</p>
+        <div id="setup-manager-results" class="manager-results" aria-live="polite"></div>
+        <section id="duplicate-review" class="duplicate-review is-hidden" aria-labelledby="duplicate-review-heading">
+          <h3 id="duplicate-review-heading">Possible duplicate skills</h3>
+          <p>These names appear in more than one place. That does not always mean there is a problem. Review the locations first. If you want to remove a skill, this app moves one copy to a backup folder instead of deleting it.</p>
+          <div id="duplicate-review-list" class="duplicate-review-list"></div>
+        </section>
+        <section class="custom-addon" aria-labelledby="custom-addon-heading">
+          <div>
+            <h3 id="custom-addon-heading">Add your own skill or add-on</h3>
+            <p>Choose a local folder with a <code>SKILL.md</code> file, paste a trusted GitHub owner/name, or paste a trusted marketplace link. You will see the exact result before you approve it.</p>
+          </div>
+          <div class="custom-addon-controls">
+            <label class="search-field" for="custom-addon-source">Skill folder or trusted source
+              <input id="custom-addon-source" type="text" placeholder="Choose a folder or enter owner/repository" autocomplete="off" />
+            </label>
+            <button id="choose-custom-source-button" class="button button-ghost" type="button">Choose folder</button>
+            <label class="filter-field" for="custom-addon-scope">Add a local skill to
+              <select id="custom-addon-scope">
+                <option value="user">My Claude Code setup</option>
+                <option value="project">This project</option>
+              </select>
+            </label>
+            <button id="review-custom-addon-button" class="button button-secondary" type="button">Review this add-on</button>
+          </div>
+          <pre id="custom-addon-output" class="component-plan-output">Nothing has been added. Review a folder or trusted source first.</pre>
+          <button id="apply-custom-addon-button" class="button button-primary" type="button" disabled>Add after review</button>
+        </section>
+      </section>
+
+      <section id="catalog-workflow" class="workflow-section is-hidden" aria-labelledby="tool-stack-heading">
+        <section class="selection-toolbar" aria-label="Tool selection controls">
+          <div class="step-heading">
+            <span class="step-number">2</span>
+            <div>
+              <h2 id="tool-stack-heading">Choose your Claude Code tools</h2>
+              <p id="selection-summary">Loading the curated catalog…</p>
+            </div>
+          </div>
+          <div class="button-group">
+            <button id="recommended-button" class="button button-secondary" type="button">Use recommended setup</button>
+            <button id="all-button" class="button button-secondary" type="button">Select all curated tools</button>
+            <button id="clear-button" class="button button-ghost" type="button">Clear selection</button>
+          </div>
+        </section>
+
+        <section class="selection-explainer" aria-label="Selection guidance">
+          <strong>Start here for your Claude Code workflow.</strong> Each card says whether it installs a tool, adds an MCP connection, saves a reference repository, or puts a command in your completion checklist. Credential-sensitive tools never receive credentials from this app.
+        </section>
+
+        <section id="catalog" class="catalog" aria-live="polite"></section>
+
+        <section class="components-entry" aria-labelledby="components-entry-heading">
+          <div>
+            <p class="eyebrow">PROJECT-LEVEL OPTIONS</p>
+            <h2 id="components-entry-heading">Need a Convex backend component?</h2>
+            <p>Browse all <strong id="component-count">145</strong> catalogued Convex packages for a specific app. These are separate from Claude Code tools and will only run inside a project folder you choose.</p>
+          </div>
+          <button id="open-components-library" class="button button-primary" type="button">Browse Convex Components</button>
+        </section>
+
+        <section id="component-library" class="component-library is-hidden" aria-labelledby="component-library-heading">
+          <div class="library-header">
+            <div>
+              <p class="eyebrow">LEVEL TWO</p>
+              <h2 id="component-library-heading">Convex Components Library</h2>
+              <p id="component-library-summary">Loading the verified component directory…</p>
+            </div>
+            <button id="close-components-library" class="button button-ghost" type="button">Back to Claude Code tools</button>
+          </div>
+
+          <section class="component-library-notice" aria-label="Component installation guidance">
+            <strong>These are app packages, not Claude Code plugins.</strong> Add them to a project plan, choose the project folder yourself, and review the exact npm command before the app runs it.
+          </section>
+
+          <div class="component-filters">
+            <label class="search-field" for="component-search">Find a component
+              <input id="component-search" type="search" placeholder="Search by name, package, category, or use case" autocomplete="off" />
+            </label>
+            <label class="filter-field" for="component-category">Category
+              <select id="component-category"><option value="">All categories</option></select>
+            </label>
+          </div>
+
+          <div class="component-layout">
+            <section id="component-results" class="component-results" aria-live="polite"></section>
+            <aside id="component-detail" class="component-detail" aria-live="polite">
+              <h3>Select a component</h3>
+              <p>Choose <strong>Details</strong> to see its package identity and project requirements.</p>
+            </aside>
+          </div>
+
+          <section class="project-plan" aria-labelledby="project-plan-heading">
+            <div>
+              <h3 id="project-plan-heading">Your project component plan</h3>
+              <p id="project-plan-summary">No Convex Components are in your project plan yet.</p>
+            </div>
+            <div class="project-plan-actions">
+              <button id="choose-project-button" class="button button-secondary" type="button">Choose project folder</button>
+              <button id="preview-components-button" class="button button-secondary" type="button" disabled>Preview project plan</button>
+              <button id="install-components-button" class="button button-primary" type="button" disabled>Install project components</button>
+            </div>
+            <p id="project-path-note" class="project-path-note">No project folder selected.</p>
+            <pre id="component-plan-output" class="component-plan-output">Select components, then choose the project folder where they belong.</pre>
+          </section>
+        </section>
+
+        <section class="install-panel" aria-labelledby="review-heading">
+          <div class="step-heading">
+            <span class="step-number">3</span>
+            <div>
+              <h2 id="review-heading">Review and run</h2>
+              <p id="install-description">Select tools to see the installation plan.</p>
+            </div>
+          </div>
+          <div class="install-actions">
+            <label class="dry-run-toggle"><input id="dry-run" type="checkbox" /> Preview changes only</label>
+            <button id="install-button" class="button button-primary" type="button" disabled>Install selected tools</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="completion-panel" class="completion-panel is-hidden" aria-labelledby="completion-heading">
+        <h2 id="completion-heading">Setup complete</h2>
+        <p>Some plugins must be added inside Claude Code. The app saved those simple copy-and-paste commands in your completion checklist. Open Claude Code, then follow only the items listed there.</p>
+        <section class="anonymous-success" aria-labelledby="anonymous-success-heading">
+          <h3 id="anonymous-success-heading">Optional anonymous success count</h3>
+          <p>You can choose to count one setup action that ended without an error. It sends only that action type—no name, email, device ID, folder path, tool list, log, or event ID. It is not an install count or proof that Claude Code will keep working.</p>
+          <button id="report-anonymous-success-button" class="button button-secondary" type="button">Count this anonymous success</button>
+          <p id="anonymous-success-message" class="anonymous-success-message" aria-live="polite"></p>
+        </section>
+      </section>
+
+      <section class="activity-panel" aria-labelledby="activity-heading">
+        <div class="activity-header">
+          <h2 id="activity-heading">Installation activity</h2>
+          <span id="run-status">Waiting for your first choice</span>
+        </div>
+        <pre id="output" aria-live="polite">Clear, technical details will appear here while the app checks Claude Code or installs the tools you selected.</pre>
+      </section>
+    </main>
+
+    <aside id="compass-panel" class="compass-panel is-hidden" aria-labelledby="compass-heading">
+      <div class="compass-header">
+        <div>
+          <p class="eyebrow">TOOL ADVISOR</p>
+          <h2 id="compass-heading">Compass</h2>
+          <p id="compass-status">Private Guide · works from this verified catalog</p>
+        </div>
+        <button id="compass-minimize" class="icon-button" type="button" aria-label="Minimize Compass">×</button>
+      </div>
+      <div id="compass-messages" class="compass-messages" aria-live="polite"></div>
+      <div class="compass-prompts" aria-label="Compass quick questions">
+        <button class="prompt-chip" type="button" data-compass-prompt="I am new to Claude Code. What is a simple starter setup?">Simple starter setup</button>
+        <button class="prompt-chip" type="button" data-compass-prompt="Compare the tools I selected and tell me which ones overlap.">Compare my choices</button>
+        <button class="prompt-chip" type="button" data-compass-prompt="I need a real-time backend. What should I look at?">I need a backend</button>
+      </div>
+      <form id="compass-form" class="compass-form">
+        <label class="sr-only" for="compass-input">Ask Compass a question</label>
+        <input id="compass-input" maxlength="4000" placeholder="What are you trying to build or improve?" autocomplete="off" />
+        <button class="button button-primary" type="submit">Ask</button>
+      </form>
+      <div id="compass-connected-controls" class="compass-connected-controls">
+        <button id="open-compass-connect" class="button button-ghost" type="button">Need a deeper answer? Ask online Compass</button>
+        <div id="compass-connect-form" class="compass-connect-form is-hidden">
+          <p><strong>Online Compass is free to use.</strong> Your next question and a small amount of recent chat context will leave this computer so Compass can give a deeper answer. It does not install or change anything.</p>
+          <div class="button-group">
+            <button id="connect-compass-button" class="button button-secondary" type="button">Continue online</button>
+            <button id="cancel-compass-connect" class="button button-ghost" type="button">Stay private</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <button id="compass-toggle" class="compass-toggle" type="button" aria-label="Open Compass tool advisor">?</button>
+
+    <script src="app.js"></script>
+  </body>
+</html>

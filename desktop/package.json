@@ -1,0 +1,99 @@
+{
+  "name": "claude-code-tools-installer-desktop",
+  "version": "2026.8.26",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "A safe desktop installer for a curated Claude Code tool stack.",
+  "main": "src/main.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "electron .",
+    "catalog:check": "node ../scripts/validate-catalog.js",
+    "components:check": "node ../scripts/validate-components-catalog.js",
+    "release:check": "node ../scripts/validate-macos-release-config.js",
+    "ui:check": "node ../scripts/validate-desktop-ui.js",
+    "setup-manager:check": "node ../scripts/test-setup-manager.js",
+    "check": "npm run catalog:check && npm run components:check && npm run ui:check && npm run setup-manager:check && npm run release:check && node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check build/notarize.js && node --check ../scripts/prepare-msix-config.js",
+    "dist": "electron-builder --publish never",
+    "dist:mac": "electron-builder --mac dmg zip --publish never",
+    "dist:mac:signed": "electron-builder --mac dmg zip --publish never --config.forceCodeSigning=true",
+    "dist:mac:release": "NOTARIZE=1 electron-builder --mac dmg zip --publish never --config.forceCodeSigning=true",
+    "dist:win": "electron-builder --win nsis --publish never",
+    "msix:prepare": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json",
+    "dist:win:store": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json && electron-builder --win appx --config build/appx-store.resolved.json --publish never",
+    "dist:linux": "electron-builder --linux tar.gz --publish never"
+  },
+  "devDependencies": {
+    "@electron/notarize": "^3.1.0",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.skamerica.claudecodetoolsinstaller",
+    "productName": "Claude Code Tools Installer",
+    "forceCodeSigning": false,
+    "afterSign": "build/notarize.js",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "../releases/test-builds"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../setup-my-claude.sh",
+        "to": "installers/setup-my-claude.sh"
+      },
+      {
+        "from": "../setup-my-claude-linux.sh",
+        "to": "installers/setup-my-claude-linux.sh"
+      },
+      {
+        "from": "../setup-my-claude.ps1",
+        "to": "installers/setup-my-claude.ps1"
+      },
+      {
+        "from": "catalog.json",
+        "to": "catalog.json"
+      },
+      {
+        "from": "convex-components.json",
+        "to": "convex-components.json"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Claude Code Tools Installer"
+    },
+    "linux": {
+      "target": [
+        "tar.gz"
+      ]
+    }
+  }
+}

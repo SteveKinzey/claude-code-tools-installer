@@ -6,10 +6,21 @@
 
 > The app never installs anything just because it is shown. You choose the item, review the plan, and confirm the exact action before it runs.
 
+## Live Product Site and Current Releases
+
+The public product site is [claudetool.app](https://claudetool.app/). It includes the plain-language walkthrough, searchable catalog, private-first Compass help, release sign-up, public user manual, Privacy Policy, Terms, Disclaimer, and four captioned product videos.
+
+The current public release is [v2026.08.12](https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.08.12). Its Windows file is a **ZIP download**, not a signed EXE installer. The release provider reports the direct file as `claude-code-tools-installer-windows.zip`, 1,819,520 bytes. Its published SHA-256 is:
+
+```text
+9811d14d9048440b77a96504197656aeb7411c45c8812d33916187957bd28a60
+```
+
+Download only from the [release page](https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.08.12), then compare the file digest if you know how. The site and release record are checked separately. A release download is not evidence of a completed setup, active user, or vote.
+
 ## What You See in the GUI
 
 The main window is a guided flow with a separate library for project-level Convex packages. The app treats a **Claude Code tool** and a **Convex Component** differently because they install in different places.
-
 | Area | What you see | What it means |
 |---|---|---|
 | **Step 1 — Set up Claude Code** | A status check with a Complete setup action | The app can provision its managed Node.js runtime, Git if needed, Claude Code, and the recommended local-tool stack without sending users to a web page or requiring terminal commands. |
@@ -27,7 +38,7 @@ Download the package for your computer from [Releases](https://github.com/SteveK
 
 | Your computer | Package | What to do next |
 |---|---|---|
-| **Windows** | Signed `.exe` installer — coming soon | A verified signed Windows installer has not been released yet. When it is published on Releases, run it, open the app from the Start menu, then choose **Complete setup**. Do not treat a ZIP download as the signed EXE installer. |
+| **Windows** | [ZIP download](https://github.com/SteveKinzey/claude-code-tools-installer/releases/download/v2026.08.12/claude-code-tools-installer-windows.zip) | Save the ZIP, unzip it into a folder you can find, read the included guide, then open the app. This is not a signed EXE installer. |
 | **macOS** | `.dmg` | Open the DMG, drag the app to Applications, launch it, then use the same Step 1 choice. |
 | **Linux** | `.tar.gz` application archive | Extract the archive, run the desktop app, then use the same Step 1 choice. |
 
@@ -167,9 +178,22 @@ Open Claude Code, open the checklist, and run only the commands for plugins you 
 | Previews the exact package command | Run an unreviewed project command |
 | Saves plugin commands and sensitive follow-up steps to a checklist | Paste slash commands or inject credentials silently |
 | Offers free site-powered online Compass only after you choose it | Ask for a visitor API key or silently send every question online |
+| Lets you voluntarily count a completed CCTI setup action | Send setup telemetry automatically, or include a name, email, device ID, path, tool list, log, or event ID |
+| Lets you answer one optional post-download question | Store an individual response, a free-text comment, or browser identity with the answer |
 
 Review each optional item before adding it. A memory utility, provider router, web-crawling tool, or package with an external integration can change local behavior, project dependencies, data flow, or permissions.
 
+## Anonymous Success Counts and One-Question Feedback
+
+After CCTI reports that a completed setup action ended without an error, the desktop app offers a separate **Count this anonymous success** button. It sends only one of three action labels: complete setup, selected tools, or project components. It does not send a name, email address, device ID, folder path, tool list, installation log, or event ID. This optional count is a product signal, not proof that an installation remains successful or that a person became an active user.
+
+The website also offers one optional question: **After your download, were you able to open CCTI?** Its three answers are “I downloaded it and opened CCTI,” “I downloaded it but have not opened it yet,” and “I got stuck and need help.” The site stores only daily totals for the chosen answer. It has no free-text field and does not store an answer with a name, email, device ID, path, or browser identifier. The private owner summary keeps these totals separate from GitHub download counts and release-email signups.
+
+## Dry-Run and Release Checks
+
+The macOS, Linux, and Windows setup adapters support dry-run checking. A dry run exits without writing a setup directory, manifest, checklist, log, backup, or Claude Code state. The documented verification procedure uses a disposable home and project folder and confirms that the temporary home remains empty after the command finishes. See [`docs/dry-run-safety-verification.md`](docs/dry-run-safety-verification.md).
+
+Before public release language is changed, verify the custom site domain, managed site domain, exact release asset, redirect response, byte size, and SHA-256. Keep counts distinct: GitHub file downloads are downloads; email opt-ins are signups; voluntary success counts are reported CCTI completion actions; survey answers are answers. None alone proves installations, active users, or demand.
 ## Development and Packaging
 
 The desktop app is an Electron application in `desktop/`. Release resources include the curated catalog, the 145-entry Convex component library, and the macOS, Windows, and Linux setup adapters.
@@ -196,6 +220,19 @@ npm run dist:linux
 
 Public releases must be code-signed and, on macOS, notarized before distribution. The app downloads Claude Code only after the user selects **Complete setup** or **Install or update Claude Code only**; it does not redistribute Claude Code inside this repository.
 
+### Microsoft Store MSIX path
+
+The repository includes the required AppX tile images under `desktop/build/appx/`, an identity-placeholder template, and a guarded `msix:prepare` command. It intentionally does **not** contain Partner Center identity values. The owner must reserve the app in Partner Center and provide the exact Identity name, Application ID, and Publisher value before a Windows build can happen. The generated local configuration is ignored by Git.
+
+On a Windows build machine, only after those exact values are supplied, run:
+
+```powershell
+cd desktop
+npm run msix:prepare
+npm run dist:win:store
+```
+
+The command creates an AppX/MSIX package for Store review. It does not submit anything, set a price, replace the ZIP, or turn a separately hosted EXE into a signed file. Microsoft Store delivery signs a certified Store package; it does not sign the direct ZIP or an EXE. See [`docs/windows-msix-store-readiness.md`](docs/windows-msix-store-readiness.md) for the owner-controlled steps.
 ## Repository Layout
 
 | Path | Purpose |
@@ -210,6 +247,10 @@ Public releases must be code-signed and, on macOS, notarized before distribution
 | `setup-my-claude-linux.sh` | Linux adapter. |
 | `setup-my-claude.ps1` | Windows PowerShell adapter. |
 | `scripts/validate-catalog.js` | Validates that each curated GUI tool exists in every platform adapter. |
+| `scripts/prepare-msix-config.js` | Writes an ignored Store-only AppX/MSIX configuration only when all exact Partner Center values are present. |
+| `docs/dry-run-safety-verification.md` | Records the no-write dry-run verification procedure and result. |
+| `docs/windows-msix-store-readiness.md` | Explains the free Microsoft Store MSIX preparation and owner-controlled next steps. |
+| `desktop/build/appx/` | The required 50×50, 44×44, 150×150, and 310×150 Microsoft Store tile images. |
 
 ## License
 
