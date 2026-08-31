@@ -22,6 +22,7 @@
     "dist:mac:signed": "electron-builder --mac dmg zip --publish never --config.forceCodeSigning=true",
     "dist:mac:release": "NOTARIZE=1 electron-builder --mac dmg zip --publish never --config.forceCodeSigning=true",
     "dist:win": "electron-builder --win nsis --publish never",
+    "dist:win:zip": "electron-builder --win zip --publish never",
     "msix:prepare": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json",
     "dist:win:store": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json && electron-builder --win appx --config build/appx-store.resolved.json --publish never",
     "dist:linux": "electron-builder --linux tar.gz --publish never"
