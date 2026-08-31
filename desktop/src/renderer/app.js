@@ -166,14 +166,17 @@ function renderCatalog() {
     const grid = document.createElement('div');
     grid.className = 'tool-grid';
     for (const tool of tools) {
-      const card = document.createElement('label');
+      const card = document.createElement('article');
       card.className = 'tool-card';
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.checked = state.selected.has(tool.id);
-      input.addEventListener('change', () => {
-        if (input.checked) state.selected.add(tool.id);
-        else state.selected.delete(tool.id);
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'tool-toggle';
+      toggle.setAttribute('role', 'switch');
+      toggle.setAttribute('aria-checked', String(state.selected.has(tool.id)));
+      toggle.textContent = state.selected.has(tool.id) ? 'On' : 'Off';
+      toggle.addEventListener('click', () => {
+        if (state.selected.has(tool.id)) state.selected.delete(tool.id);
+        else state.selected.add(tool.id);
         renderCatalog();
         updateSummary();
       });
@@ -196,7 +199,7 @@ function renderCatalog() {
       action.className = 'tool-action';
       action.textContent = tool.action;
       body.append(name, classification, action);
-      card.append(input, body);
+      card.append(body, toggle);
       grid.append(card);
     }
     section.append(heading, grid);

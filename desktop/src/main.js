@@ -11,6 +11,19 @@ const discoveredSkillCleanup = new Map();
 const reviewedCleanupPlans = new Map();
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
+const reviewedPluginPlans = {
+  superpowers: [['plugin', 'marketplace', 'add', 'obra/superpowers-marketplace'], ['plugin', 'install', 'superpowers@superpowers-marketplace', '--scope', 'user']],
+  ecc: [['plugin', 'marketplace', 'add', 'https://github.com/affaan-m/ECC'], ['plugin', 'install', 'ecc@ecc', '--scope', 'user']],
+  'anthropic-skills': [['plugin', 'marketplace', 'add', 'anthropics/skills']],
+  'wshobson-agents': [['plugin', 'marketplace', 'add', 'https://github.com/wshobson/agents'], ['plugin', 'install', 'claude-code-essentials', '--scope', 'user']],
+  'claude-plugins-official': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official']],
+  'frontend-design': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'frontend-design@claude-plugins-official', '--scope', 'user']],
+  'code-review': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'code-review@claude-plugins-official', '--scope', 'user']],
+  context7: [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'context7@claude-plugins-official', '--scope', 'user']],
+  'skill-creator': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'skill-creator@claude-plugins-official', '--scope', 'user']],
+  convex: [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'convex@claude-plugins-official', '--scope', 'user']],
+  'claude-hud': [['plugin', 'marketplace', 'add', 'jarrodwatts/claude-hud'], ['plugin', 'install', 'claude-hud', '--scope', 'user']],
+};
 
 function setupManagerDir() {
   return path.join(app.getPath('home'), '.setup-my-claude');
@@ -76,6 +89,19 @@ function runProcess(command, args, options = {}) {
 
 async function readCatalog() {
   return JSON.parse(await fs.readFile(catalogResource(), 'utf8'));
+}
+
+async function installReviewedPlugins(selectedIds) {
+  for (const id of selectedIds) {
+    for (const args of reviewedPluginPlans[id] || []) {
+      emit('installer:output', { stream: 'stdout', text: `[CCTI] Running reviewed plugin action: claude ${args.join(' ')}\n` });
+      const result = await runProcess('claude', args, { cwd: app.getPath('home'), env: claudeProcessEnv() });
+      if (result.stdout) emit('installer:output', { stream: 'stdout', text: result.stdout });
+      if (result.stderr) emit('installer:output', { stream: result.code === 0 ? 'stdout' : 'stderr', text: result.stderr });
+      if (result.code !== 0 && args[1] !== 'marketplace') throw new Error(`CCTI could not install ${id}. Claude Code returned exit code ${result.code}.`);
+      if (result.code !== 0) emit('installer:output', { stream: 'stdout', text: '[CCTI] Marketplace was already available or could not refresh. Continuing with the named plugin install.\n' });
+    }
+  }
 }
 
 async function readComponentCatalog() {
@@ -369,7 +395,7 @@ async function reviewCustomAddOn({ source, scope, projectPath }) {
     }
   }
   if (validRepository(cleanSource)) {
-    return { ok: true, kind: 'marketplace', source: cleanSource, scope: 'user', command: `claude plugin marketplace add ${cleanSource}`, description: 'Adds this GitHub marketplace source to your Claude Code checklist. You will run the shown command only after a final confirmation.' };
+    return { ok: true, kind: 'marketplace', source: cleanSource, scope: 'user', description: 'Adds this reviewed GitHub marketplace to your Claude Code setup after one final confirmation.' };
   }
   const sourcePath = path.resolve(cleanSource);
   try {
@@ -383,7 +409,7 @@ async function reviewCustomAddOn({ source, scope, projectPath }) {
     } catch {
       try {
         await fs.access(path.join(sourcePath, '.claude-plugin', 'marketplace.json'));
-        return { ok: true, kind: 'marketplace', source: sourcePath, scope: 'user', command: `claude plugin marketplace add ${sourcePath}`, description: 'Adds this local plugin marketplace to your Claude Code checklist. You will run the shown command only after a final confirmation.' };
+        return { ok: true, kind: 'marketplace', source: sourcePath, scope: 'user', description: 'Adds this reviewed local plugin marketplace to your Claude Code setup after one final confirmation.' };
       } catch {
         return { ok: false, error: 'This folder is not a skill (SKILL.md) or a plugin marketplace (.claude-plugin/marketplace.json).' };
       }
@@ -406,9 +432,13 @@ async function applyCustomAddOn(payload) {
       return { ok: true, message: `Added your skill to ${review.scope === 'user' ? 'your Claude Code setup' : 'the selected project'}.` };
     }
   }
-  await fs.mkdir(setupManagerDir(), { recursive: true });
-  await fs.appendFile(pluginChecklistPath(), `\n## Custom marketplace\n\nSource: ${review.source}\n\nRun inside Claude Code after reviewing:\n\n\`\`\`text\n${review.command}\n\`\`\`\n`);
-  return { ok: true, message: 'The reviewed marketplace command was added to your Claude Code checklist. The app did not run it for you.' };
+  try {
+    const result = await runProcess('claude', ['plugin', 'marketplace', 'add', review.source], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+    if (result.code !== 0) return { ok: false, error: result.stderr.trim() || 'CCTI could not add this marketplace.' };
+    return { ok: true, message: 'CCTI added the reviewed marketplace to your Claude Code setup. No plugin from it was installed yet.' };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not add this marketplace: ${error.message}` };
+  }
 }
 
 async function reviewCleanup({ discoveryId, findingId }) {
@@ -537,6 +567,7 @@ app.whenReady().then(async () => {
     emit('installer:state', { running: true });
     try {
       const result = await spawnInstaller('install', selectedIds, Boolean(dryRun));
+      if (result.code === 0 && !dryRun) await installReviewedPlugins(selectedIds);
       return { ok: result.code === 0, code: result.code };
     } catch (error) {
       return { ok: false, error: error.message };

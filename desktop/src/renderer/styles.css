@@ -56,11 +56,14 @@ h3 { margin: 0; font-size: 1rem; }
 .category-heading { display: flex; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid #273955; color: #ced9ed; }
 .category-heading span { color: #8092b2; font-size: 0.86rem; }
 .tool-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.tool-card { display: flex; min-height: 124px; gap: 11px; padding: 15px 16px; border-right: 1px solid #273955; border-bottom: 1px solid #273955; cursor: pointer; }
+.tool-card { display: flex; min-height: 124px; gap: 11px; padding: 15px 16px; border-right: 1px solid #273955; border-bottom: 1px solid #273955; }
 .tool-card:nth-child(3n) { border-right: 0; }
 .tool-card:hover { background: #15233e; }
-.tool-card input, .component-select input { width: 17px; height: 17px; margin-top: 2px; accent-color: #7cc4ff; }
+.component-select input { width: 17px; height: 17px; margin-top: 2px; accent-color: #7cc4ff; }
 .tool-card-body { display: grid; align-content: start; gap: 5px; }
+.tool-toggle { align-self: center; min-width: 4rem; padding: 0.48rem 0.75rem; border: 1px solid #3d5478; border-radius: 999px; background: #111d32; color: #aebed7; cursor: pointer; font: inherit; font-weight: 800; }
+.tool-toggle[aria-checked="true"] { border-color: #69b9fa; background: #1e5b80; color: #f1fbff; }
+.tool-toggle:hover { border-color: #a8dcff; }
 .tool-title { color: #f4f7ff; font-size: 0.96rem; font-weight: 760; }
 .recommended { margin-left: 8px; padding: 3px 7px; background: #233e67; color: #b9dcff; vertical-align: middle; }
 .tool-classification { color: #9dafcb; font-size: 0.83rem; }

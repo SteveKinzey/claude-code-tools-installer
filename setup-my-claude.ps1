@@ -617,7 +617,7 @@ function Install-Item {
       }
       $setup = Join-Path $dest "setup"
       if (Test-Path $setup) {
-        Write-Log "gstack setup exists but is a Unix script; run it under WSL/Git Bash if required."
+        Write-Log "gstack's final setup is Unix-only. CCTI did not run it on Windows; a future Windows-compatible app path is required."
       }
       else {
         Write-Log "gstack setup script not found at $setup"
@@ -698,8 +698,7 @@ function Install-Item {
       Write-Log "CC Switch install is not automated on Windows. Review releases manually: https://github.com/farion1231/cc-switch/releases"
     }
     "vibe-kanban" {
-      Write-Log "Vibe Kanban repository says the product is sunsetting; install is skipped unless you run npm manually."
-      Write-Log "Verified npm package: npm install -g vibe-kanban"
+      Write-Log "Vibe Kanban is sunsetting, so CCTI did not install it."
     }
     "github-mcp" {
       Add-PluginCommand "GitHub MCP" "# Credential-sensitive. Prefer Claude's built-in connector or run a scoped PAT setup manually.`n# claude mcp add github -e GITHUB_PERSONAL_ACCESS_TOKEN=YOUR_TOKEN -- docker run -i --rm -e GITHUB_PERSONAL_ACCESS_TOKEN ghcr.io/github/github-mcp-server" "https://github.com/github/github-mcp-server"

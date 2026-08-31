@@ -52,6 +52,12 @@ if (renderer.includes('startBootstrap') || preload.includes('startBootstrap') ||
 if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('claude-only')") || !main.includes("option('-ClaudeOnly', '--claude-only')")) {
   throw new Error('The in-app Claude-only installation path must wait for the official installer and re-check the result.');
 }
+if (!renderer.includes("setAttribute('role', 'switch')") || !renderer.includes("toggle.textContent = state.selected.has(tool.id) ? 'On' : 'Off'")) {
+  throw new Error('Curated extra tools must use clear accessible On/Off controls.');
+}
+if (!main.includes('const reviewedPluginPlans') || !main.includes('installReviewedPlugins(selectedIds)') || !main.includes("runProcess('claude', args")) {
+  throw new Error('Supported fixed plugin choices must run inside CCTI after the approved tool plan succeeds.');
+}
 for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
   const source = fs.readFileSync(path.join(root, adapter), 'utf8');
   const claudeOnlyOption = adapter.endsWith('.ps1') ? source.includes('-ClaudeOnly') : source.includes('--claude-only');

@@ -67,8 +67,10 @@ The first catalog contains **35 curated workflow choices**. These are grouped in
 | **Use recommended setup** | Selects eight practical starting tools: Superpowers, gstack, taste-skill, Anthropic Skills, Planning with Files, Repomix, Playwright MCP, and Claude HUD. **Complete setup** applies this same set automatically. |
 | **Select all curated tools** | Selects all 35 local workflow choices. This is available for deliberate review, not recommended as a first run. |
 | **Clear selection** | Removes every local-tool selection. |
-| **Tick an individual card** | Adds or removes that exact local workflow tool. |
+| **On / Off on an individual card** | On adds that reviewed extra to the app-run plan. Off leaves it out. It does not remove an extra already on the computer. |
 | **Browse Convex Components** | Opens the project-level component library without adding anything to the local-tool plan. |
+
+For supported skills, CLIs, MCP servers, and fixed plugin choices, CCTI runs the reviewed installation action after you review and confirm the plan. You do not need to open Terminal, PowerShell, or copy a command. Plugin choices run at user scope, so they do not change a shared project. A plugin that needs a sign-in, secret, account approval, or its own separate setup stops at that safe in-app boundary; CCTI does not collect or fill credentials for it. Anthropic documents `claude plugin install` as the supported noninteractive plugin command. [2]
 
 ### Curated Tool Catalog
 

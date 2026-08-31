@@ -72,7 +72,8 @@ async function run() {
   assert.equal(githubSource.ok, true);
   assert.equal(githubSource.kind, 'marketplace');
   assert.equal(githubSource.scope, 'user');
-  assert.match(githubSource.command, /^claude plugin marketplace add owner\/trusted-marketplace$/);
+  assert.match(githubSource.description, /after one final confirmation/);
+  assert.doesNotMatch(githubSource.description, /checklist|terminal|PowerShell/i);
 
   const report = await discover(null, { projectPath: project });
   assert.ok(report.discoveryId, 'a discovery session is required for cleanup');
