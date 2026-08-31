@@ -32,6 +32,23 @@ jobs:
       - name: Build unsigned macOS DMG and ZIP
         run: npm run dist:mac
 
+      - name: Verify DMG contains the CCTI app
+        run: |
+          dmg="$(find ../releases/test-builds -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$dmg"
+          attach_output="$(hdiutil attach -readonly -nobrowse "$dmg")"
+          mount_point="$(printf '%s\n' "$attach_output" | awk -F'\t' '/\/Volumes\// { print $NF; exit }')"
+          test -d "$mount_point/Claude Code Tools Installer.app"
+          test ! -e "$mount_point/README.md"
+          test ! -e "$mount_point/setup-my-claude.md"
+          hdiutil detach "$mount_point"
+
+      - name: Verify ZIP contains the CCTI app
+        run: |
+          zip="$(find ../releases/test-builds -maxdepth 1 -name '*.zip' -print -quit)"
+          test -n "$zip"
+          unzip -l "$zip" | grep -q 'Claude Code Tools Installer.app/Contents/MacOS/'
+
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
         with:
