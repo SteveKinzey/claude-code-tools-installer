@@ -9,6 +9,7 @@ let activeInstall = false;
 let activeComponentInstall = false;
 const discoveredSkillCleanup = new Map();
 const reviewedCleanupPlans = new Map();
+const reviewedPluginChanges = new Map();
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
 const reviewedPluginPlans = {
@@ -342,9 +343,11 @@ async function discoverClaudeSetup(projectPath = '') {
   }));
   const discoveryId = randomUUID();
   const skills = findings.filter((item) => item.type === 'skill');
+  const manageablePlugins = findings.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
   discoveredSkillCleanup.set(discoveryId, {
     createdAt: Date.now(),
     skills: new Map(skills.map((item) => [item.id, { path: item.path, scope: item.scope }])),
+    plugins: new Map(manageablePlugins.map((item) => [item.id, { name: item.name, scope: item.scope }])),
     projectPath: resolvedProjectPath,
   });
   for (const [id, report] of discoveredSkillCleanup) {
@@ -354,6 +357,28 @@ async function discoverClaudeSetup(projectPath = '') {
     discoveredSkillCleanup.delete(discoveredSkillCleanup.keys().next().value);
   }
   return { discoveryId, checkedAt: new Date().toISOString(), projectPath: resolvedProjectPath, findings, duplicates };
+}
+
+async function reviewPluginChange({ discoveryId, findingId, action }) {
+  const finding = discoveredSkillCleanup.get(discoveryId)?.plugins?.get(findingId);
+  if (!finding || !['enable', 'disable'].includes(action)) return { ok: false, error: 'Run the checkup again before changing an add-on.' };
+  const scope = finding.scope === 'This project' ? 'project' : finding.scope === 'Only you in this project' ? 'local' : 'user';
+  const reviewId = randomUUID();
+  reviewedPluginChanges.set(reviewId, { name: finding.name, scope, action, createdAt: Date.now() });
+  return { ok: true, reviewId, name: finding.name, scope: finding.scope, action, description: `${action === 'enable' ? 'Turn on' : 'Turn off'} this add-on for ${finding.scope.toLowerCase()}. This does not uninstall it.` };
+}
+
+async function applyPluginChange({ reviewId }) {
+  const plan = reviewedPluginChanges.get(reviewId);
+  if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) return { ok: false, error: 'This review has expired. Run the checkup again.' };
+  reviewedPluginChanges.delete(reviewId);
+  try {
+    const result = await runProcess('claude', ['plugin', plan.action, plan.name, '--scope', plan.scope], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+    if (result.code !== 0) return { ok: false, error: result.stderr.trim() || `Claude Code could not ${plan.action} this add-on.` };
+    return { ok: true, message: `${plan.name} is now ${plan.action === 'enable' ? 'enabled' : 'disabled'} for the selected scope.` };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not ${plan.action} this add-on: ${error.message}` };
+  }
 }
 
 async function chooseSetupProject() {
@@ -638,6 +663,8 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('telemetry:report-setup-success', async (_event, payload) => reportAnonymousSetupSuccess(payload));
+  ipcMain.handle('setup-manager:review-plugin-change', async (_event, payload) => reviewPluginChange(payload));
+  ipcMain.handle('setup-manager:apply-plugin-change', async (_event, payload) => applyPluginChange(payload));
   ipcMain.handle('compass:status', async () => ({ onlineAvailable: true, provider: 'Site-powered Compass', model: 'Claude Haiku 4.5' }));
   ipcMain.handle('compass:ask', async (_event, payload) => askSitePoweredCompass(payload));
 

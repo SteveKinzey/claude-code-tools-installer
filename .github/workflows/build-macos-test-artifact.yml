@@ -1,0 +1,43 @@
+name: Build macOS CCTI test artifact
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build unsigned macOS artifact
+    runs-on: macos-14
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install desktop dependencies
+        run: npm install
+
+      - name: Validate desktop contracts
+        run: npm run check
+
+      - name: Build unsigned macOS DMG and ZIP
+        run: npm run dist:mac
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccti-macos-unsigned-test-${{ github.sha }}
+          path: |
+            releases/test-builds/*.dmg
+            releases/test-builds/*.zip
+          if-no-files-found: error
+          retention-days: 7

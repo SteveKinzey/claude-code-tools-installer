@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('installer', {
   applyCustomAddOn: (payload) => ipcRenderer.invoke('setup-manager:apply-custom', payload),
   reviewCleanup: (payload) => ipcRenderer.invoke('setup-manager:review-cleanup', payload),
   applyCleanup: (payload) => ipcRenderer.invoke('setup-manager:apply-cleanup', payload),
+  reviewPluginChange: (payload) => ipcRenderer.invoke('setup-manager:review-plugin-change', payload),
+  applyPluginChange: (payload) => ipcRenderer.invoke('setup-manager:apply-plugin-change', payload),
   onOutput: (callback) => ipcRenderer.on('installer:output', (_event, payload) => callback(payload)),
   onState: (callback) => ipcRenderer.on('installer:state', (_event, payload) => callback(payload)),
   onComponentOutput: (callback) => ipcRenderer.on('component:output', (_event, payload) => callback(payload)),

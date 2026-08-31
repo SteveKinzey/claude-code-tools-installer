@@ -528,6 +528,19 @@ function renderSetupManager(report) {
     location.className = 'manager-path';
     location.textContent = item.path;
     card.append(title, meta, copy, location);
+    if (item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope)) {
+      const controls = document.createElement('div');
+      controls.className = 'plugin-controls';
+      for (const action of ['enable', 'disable']) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = action === 'enable' ? 'button button-secondary' : 'button button-ghost';
+        button.textContent = action === 'enable' ? 'Turn on' : 'Turn off';
+        button.addEventListener('click', () => reviewAndApplyPluginChange(item, action));
+        controls.append(button);
+      }
+      card.append(controls);
+    }
     setupManagerResultsElement.append(card);
   }
   if (items.length > 80) {
@@ -602,6 +615,15 @@ async function reviewAndApplyCleanup(finding) {
 async function chooseCustomSource() {
   const result = await window.installer.chooseCustomSource();
   if (!result.canceled) customAddOnSourceElement.value = result.source;
+}
+
+async function reviewAndApplyPluginChange(finding, action) {
+  const review = await window.installer.reviewPluginChange({ discoveryId: state.managerReport?.discoveryId, findingId: finding.id, action });
+  if (!review.ok) return appendOutput(`[Checkup] ${review.error}\n`, 'stderr');
+  if (!window.confirm(`${review.description}\n\nAdd-on: ${review.name}\nScope: ${review.scope}\n\nNothing else will change.`)) return;
+  const result = await window.installer.applyPluginChange({ reviewId: review.reviewId });
+  appendOutput(`[Checkup] ${result.ok ? result.message : result.error}\n`, result.ok ? 'stdout' : 'stderr');
+  if (result.ok) await scanSetup();
 }
 
 async function reviewCustomAddOn() {
@@ -799,7 +821,12 @@ document.querySelector('#connect-compass-button').addEventListener('click', asyn
 window.installer.onOutput(({ stream, text }) => appendOutput(text, stream));
 window.installer.onState(({ running }) => {
   state.running = running;
-  if (running) runStatusElement.textContent = 'Installer running';
+  if (running) {
+    runStatusElement.textContent = 'Installing selected extras…';
+    runStatusElement.classList.add('is-loading');
+  } else {
+    runStatusElement.classList.remove('is-loading');
+  }
   completeSetupButton.disabled = running;
   startFreshButton.disabled = running || !state.claudeInstalled;
   installClaudeButton.disabled = running || state.claudeInstalled;

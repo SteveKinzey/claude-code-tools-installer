@@ -49,6 +49,8 @@ async function run() {
   await writeSkill(path.join(home, '.claude', 'skills', 'duplicate-skill'), 'Duplicate');
   await writeSkill(path.join(project, '.claude', 'skills', 'duplicate-skill'), 'Duplicate');
   await writeSkill(sourceSkill, 'My skill');
+  await fsp.mkdir(path.join(home, '.claude'), { recursive: true });
+  await fsp.writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: { 'review-tool@marketplace': true } }), 'utf8');
 
   require(path.join(root, 'desktop', 'src', 'main.js'));
   await readyCallback();
@@ -58,8 +60,10 @@ async function run() {
   const discover = handlers.get('setup-manager:discover');
   const reviewCleanup = handlers.get('setup-manager:review-cleanup');
   const applyCleanup = handlers.get('setup-manager:apply-cleanup');
+  const reviewPluginChange = handlers.get('setup-manager:review-plugin-change');
+  const applyPluginChange = handlers.get('setup-manager:apply-plugin-change');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup, 'all setup-manager handlers should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange, 'all setup-manager handlers should be registered');
 
   const missingProject = await reviewCustom(null, { source: sourceSkill, scope: 'project', projectPath: '' });
   assert.equal(missingProject.ok, false);
@@ -80,6 +84,14 @@ async function run() {
   assert.equal(report.duplicates.length, 1);
   const userSkill = report.findings.find((item) => item.type === 'skill' && item.scope === 'Just you');
   assert.ok(userSkill, 'the user skill should be found');
+  const userPlugin = report.findings.find((item) => item.type === 'plugin' && item.scope === 'Just you');
+  assert.ok(userPlugin, 'a user-scope plugin should be found');
+  const forgedPlugin = await reviewPluginChange(null, { discoveryId: report.discoveryId, findingId: 'plugin:/etc', action: 'disable' });
+  assert.equal(forgedPlugin.ok, false);
+  const pluginPlan = await reviewPluginChange(null, { discoveryId: report.discoveryId, findingId: userPlugin.id, action: 'disable' });
+  assert.equal(pluginPlan.ok, true);
+  assert.equal(pluginPlan.scope, 'Just you');
+  assert.match(pluginPlan.description, /does not uninstall/i);
 
   const forgedCleanup = await reviewCleanup(null, { discoveryId: report.discoveryId, findingId: 'skill:/etc' });
   assert.equal(forgedCleanup.ok, false);
@@ -101,7 +113,7 @@ async function run() {
   await fsp.access(path.join(copyReview.destination, 'SKILL.md'));
   await fsp.access(path.join(sourceSkill, 'SKILL.md'));
 
-  console.log('Setup-manager behavior passed: discovery sessions, backup-only cleanup, and reviewed custom additions are enforced.');
+  console.log('Setup-manager behavior passed: discovery sessions, backup-only cleanup, reviewed custom additions, and opaque plugin-change reviews are enforced.');
 }
 
 run().finally(async () => {
