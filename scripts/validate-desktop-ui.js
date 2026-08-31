@@ -42,6 +42,8 @@ for (const channel of [
   'setup-manager:apply-custom',
   'setup-manager:review-cleanup',
   'setup-manager:apply-cleanup',
+  'setup-manager:review-plugin-change',
+  'setup-manager:apply-plugin-change',
 ]) {
   if (!main.includes(`'${channel}'`)) throw new Error(`Missing main-process handler for ${channel}.`);
 }
@@ -57,6 +59,12 @@ if (!renderer.includes("setAttribute('role', 'switch')") || !renderer.includes("
 }
 if (!main.includes('const reviewedPluginPlans') || !main.includes('installReviewedPlugins(selectedIds)') || !main.includes("runProcess('claude', args")) {
   throw new Error('Supported fixed plugin choices must run inside CCTI after the approved tool plan succeeds.');
+}
+if (!main.includes('const reviewedPluginChanges') || !main.includes("['plugin', plan.action, plan.name, '--scope', plan.scope]") || !renderer.includes("reviewAndApplyPluginChange(item, action)")) {
+  throw new Error('Installed plugin changes must use a reviewed, scope-aware Electron action rather than renderer shell access.');
+}
+if (!html.includes('aria-busy="false"') || !renderer.includes("runStatusElement.classList.add('is-loading')") || !renderer.includes("runStatusElement.setAttribute('aria-busy', 'true')") || !fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'styles.css'), 'utf8').includes('prefers-reduced-motion')) {
+  throw new Error('Extra installation must show an accessible loading state that respects reduced-motion preferences.');
 }
 for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
   const source = fs.readFileSync(path.join(root, adapter), 'utf8');

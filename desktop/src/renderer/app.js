@@ -824,8 +824,10 @@ window.installer.onState(({ running }) => {
   if (running) {
     runStatusElement.textContent = 'Installing selected extras…';
     runStatusElement.classList.add('is-loading');
+    runStatusElement.setAttribute('aria-busy', 'true');
   } else {
     runStatusElement.classList.remove('is-loading');
+    runStatusElement.setAttribute('aria-busy', 'false');
   }
   completeSetupButton.disabled = running;
   startFreshButton.disabled = running || !state.claudeInstalled;
