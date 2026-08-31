@@ -1,8 +1,8 @@
 # Claude Code Tools Installer Desktop
 
-This directory contains the native desktop installer for the complete Claude Code Tools Installer product. It presents the **same original 30-tool curated catalog** as the platform scripts, while treating Claude Code itself as a required core capability.
+This directory contains the native desktop installer for the complete Claude Code Tools Installer product. It presents the **35-choice curated catalog** used by the platform scripts, while treating Claude Code itself as a required core capability.
 
-The desktop app does not embed third-party tools or credentials. On launch, it calls the bundled platform installer in `--bootstrap-only` mode. That installer detects and opens Claude Code when available or starts Anthropic's official native installer in the background. The user can then select any combination of the original tools in the desktop interface and explicitly confirm the installation.
+The desktop app does not embed third-party tools or credentials. On launch, it checks whether Claude Code is installed and says either **Yes, Claude Code is installed** or **No, Claude Code is not installed**. When a person chooses **Yes, install Claude Code**, the app runs the bundled platform adapter in `--claude-only` mode, which invokes Anthropic’s official installer, waits until `claude --version` succeeds, and reports the final result. It does not add optional tools in this path. The separate complete-setup option remains available for people who explicitly want the recommended tool set.
 
 ## Local development
 

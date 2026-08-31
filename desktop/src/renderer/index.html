@@ -26,21 +26,21 @@
           <span class="step-number">1</span>
           <div>
             <h2 id="setup-heading">Set up Claude Code</h2>
-            <p id="claude-status-text">Checking whether Claude Code is already available…</p>
+            <p id="claude-status-text">Checking whether Claude Code is installed…</p>
           </div>
         </div>
         <div class="setup-options">
-          <button id="complete-setup-button" class="setup-option setup-option-primary" type="button">
-            <span class="setup-option-title">Complete setup</span>
-            <span class="setup-option-copy">Installs Node.js and Git if needed, installs Claude Code, adds the recommended tools, and opens Claude Code for sign-in.</span>
+          <button id="install-claude-button" class="setup-option setup-option-primary" type="button" disabled>
+            <span class="setup-option-title">Yes, install Claude Code</span>
+            <span class="setup-option-copy">Runs Anthropic’s official installer inside this app, waits until Claude Code is ready, and does not add extra tools.</span>
           </button>
           <button id="use-existing-button" class="setup-option" type="button" disabled>
-            <span class="setup-option-title">I already have Claude Code</span>
+            <span class="setup-option-title">Yes, Claude Code is installed</span>
             <span class="setup-option-copy">Use the Claude Code already on this computer, then choose exactly which tools to add.</span>
           </button>
-          <button id="install-claude-button" class="setup-option" type="button">
-            <span class="setup-option-title">Install or update Claude Code only</span>
-            <span class="setup-option-copy">Runs Anthropic’s official installer without installing any extra development tools.</span>
+          <button id="complete-setup-button" class="setup-option" type="button">
+            <span class="setup-option-title">Set up Claude Code and recommended tools</span>
+            <span class="setup-option-copy">Installs Claude Code plus the recommended tool set. Review this option before choosing it.</span>
           </button>
           <button id="browse-button" class="setup-option" type="button">
             <span class="setup-option-title">Browse tools first</span>
@@ -51,7 +51,7 @@
             <span class="setup-option-copy">Deletes local Claude Code versions, settings, session history, MCP configuration, and this app’s tool stack before Complete setup runs again.</span>
           </button>
         </div>
-        <p id="setup-note" class="setup-note">Choose Complete setup for the no-terminal first-run path. Start fresh requires a separate typed confirmation.</p>
+        <p id="setup-note" class="setup-note">You will see either “Yes, Claude Code is installed” or “No, Claude Code is not installed.” If it is not installed, choose “Yes, install Claude Code.” This app does not send you to a Claude Code webpage.</p>
       </section>
 
       <section id="setup-manager" class="setup-manager" aria-labelledby="setup-manager-heading">

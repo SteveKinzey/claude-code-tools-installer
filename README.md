@@ -42,21 +42,21 @@ Download the package for your computer from [Releases](https://github.com/SteveK
 | **macOS** | `.dmg` | Open the DMG, drag the app to Applications, launch it, then use the same Step 1 choice. |
 | **Linux** | `.tar.gz` application archive | Extract the archive, run the desktop app, then use the same Step 1 choice. |
 
-The first-run path is intentionally plain: you do **not** need to find a terminal, choose a package manager, visit an installation page, or paste a command. **Complete setup** uses Anthropic’s official Claude Code installer, adds a verified Node.js 22 LTS runtime only for this app’s optional tools, and requests approval to install Git only when it is missing. Native Windows is supported by Claude Code; Git for Windows improves Bash-tool availability. [1]
+The first-run path is intentionally plain: you do **not** need to find a terminal, choose a package manager, visit an installation page, or paste a command. The app checks first and answers **Yes, Claude Code is installed** or **No, Claude Code is not installed**. If the answer is no, choose **Yes, install Claude Code**. The app runs Anthropic’s official installer, waits for it to finish, then checks again before reporting that Claude Code is installed. It does not add optional tools in that path. [1]
 
 ## Step 1: Set Up Claude Code
 
-The first screen makes the preferred no-terminal path explicit before any optional tool configuration appears.
+The first screen gives the Claude Code answer before any optional tool choice appears. It does not send you to a Claude Code webpage.
 
 | Choice | Use it when | Result |
 |---|---|---|
-| **Complete setup** | You want the app to prepare a usable Claude Code workflow | Installs a verified Node.js 22 LTS runtime and Git when required, runs Anthropic’s official Claude Code installer, applies the recommended eight-tool setup, then opens Claude Code for sign-in. [1] |
-| **I already have Claude Code** | The app detects a working local installation | Confirms the existing installation and unlocks manual tool selection. |
-| **Install or update Claude Code only** | You want Claude Code without the optional curated stack | Runs Anthropic’s official installer and leaves optional tool choices to you. [1] |
+| **Yes, install Claude Code** | The check says Claude Code is not installed and you want it | Runs Anthropic’s official installer inside the app, waits until the check can find Claude Code, and adds no extra tools. [1] |
+| **Yes, Claude Code is installed** | The check found a working local installation | Opens the optional tool choices. Nothing is installed by this button. |
+| **Set up Claude Code and recommended tools** | You want Claude Code plus the reviewed starter setup | Installs a verified Node.js 22 LTS runtime and Git when required, runs Anthropic’s official Claude Code installer, applies the recommended eight-tool setup, then opens Claude Code for sign-in. [1] |
 | **Browse tools first** | You only want to understand the choices | Opens the catalogs but keeps local-tool installation disabled. Nothing changes. |
 | **Start fresh** | A detected Claude Code installation needs a clean rebuild | Requires typing `DELETE CLAUDE DATA`, then removes local CLI versions, settings, session history, MCP configuration, the app-managed tool stack, and its managed Node.js runtime before Complete setup rebuilds them. It does not delete project files. [1] |
 
-The status chip uses simple wording: **Claude Code ready**, **Claude Code not installed**, **Complete setup finished**, or **Setup needs attention**. Detailed output stays in the activity panel instead of blocking the user with terminal messages.
+The status chip uses simple wording: **Claude Code installed**, **Claude Code not installed**, **Complete setup finished**, or **Setup needs attention**. Detailed output stays in the activity panel instead of blocking the user with terminal messages.
 
 ## Step 2: Choose Your Claude Code Tools
 

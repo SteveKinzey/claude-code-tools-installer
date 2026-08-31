@@ -26,6 +26,7 @@ for (const asset of ['StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.
 }
 
 for (const channel of [
+  'claude:install-only',
   'setup:complete',
   'components:get',
   'components:choose-project',
@@ -43,6 +44,20 @@ for (const channel of [
   'setup-manager:apply-cleanup',
 ]) {
   if (!main.includes(`'${channel}'`)) throw new Error(`Missing main-process handler for ${channel}.`);
+}
+
+if (renderer.includes('startBootstrap') || preload.includes('startBootstrap') || main.includes("'bootstrap:start'")) {
+  throw new Error('The user-facing Claude Code check must not use the background bootstrap-only path.');
+}
+if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('claude-only')") || !main.includes("option('-ClaudeOnly', '--claude-only')")) {
+  throw new Error('The in-app Claude-only installation path must wait for the official installer and re-check the result.');
+}
+for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
+  const source = fs.readFileSync(path.join(root, adapter), 'utf8');
+  const claudeOnlyOption = adapter.endsWith('.ps1') ? source.includes('-ClaudeOnly') : source.includes('--claude-only');
+  if (!claudeOnlyOption || !source.includes('Ensure-ClaudeReady') && !source.includes('ensure_claude_ready')) {
+    throw new Error(`${adapter} must support the Claude-only mode and wait for Claude Code readiness.`);
+  }
 }
 
 if (preload.includes('connectCompass') || preload.includes('disconnectCompass') || main.includes("'compass:connect'") || main.includes("'compass:disconnect'")) {

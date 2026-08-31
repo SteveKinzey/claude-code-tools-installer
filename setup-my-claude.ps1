@@ -3,6 +3,7 @@ param(
   [switch]$Defaults,
   [switch]$All,
   [switch]$BootstrapOnly,
+  [switch]$ClaudeOnly,
   [switch]$Complete,
   [switch]$Fresh,
   [switch]$FreshConfirmed,
@@ -47,6 +48,7 @@ Usage:
   pwsh -File .\setup-my-claude.ps1 -Category cat           Install a category: harness,skills,memory,tools,cost
   pwsh -File .\setup-my-claude.ps1 -All                    Select every installable item
   pwsh -File .\setup-my-claude.ps1 -BootstrapOnly          Start or open Claude Code, then exit
+  pwsh -File .\setup-my-claude.ps1 -ClaudeOnly             Install Claude Code only and wait until it is ready
   pwsh -File .\setup-my-claude.ps1 -Complete               Install prerequisites, Claude Code, and curated defaults
   pwsh -File .\setup-my-claude.ps1 -Fresh                  Remove Claude Code and its local data before setup (requires -Complete)
   pwsh -File .\setup-my-claude.ps1 -NoLaunch               Do not open a PowerShell window after preparation
@@ -808,6 +810,12 @@ if ($Complete) {
 }
 
 Start-ClaudeBootstrap
+if ($ClaudeOnly) {
+  Ensure-ClaudeReady
+  if ($DryRun) { Write-Host "Dry run: Claude Code installation would run and be checked before this command finishes." }
+  else { Write-Host "Claude Code is installed and ready." }
+  exit 0
+}
 if ($BootstrapOnly) {
   Write-Host "Claude Code preparation has started. You can continue selecting tools in the desktop installer."
   exit 0

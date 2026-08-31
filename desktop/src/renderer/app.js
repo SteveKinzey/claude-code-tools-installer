@@ -116,11 +116,10 @@ function revealCatalog() {
 
 function setSetupSelection(mode, note) {
   state.setupMode = mode;
-  state.claudeApproved = mode === 'existing' || mode === 'install' || mode === 'complete';
+  state.claudeApproved = mode === 'existing' || mode === 'complete';
   setupNoteElement.textContent = note;
   completeSetupButton.classList.toggle('is-selected', mode === 'complete');
   useExistingButton.classList.toggle('is-selected', mode === 'existing');
-  installClaudeButton.classList.toggle('is-selected', mode === 'install');
   browseButton.classList.toggle('is-selected', mode === 'browse');
   revealCatalog();
   updateSummary();
@@ -139,8 +138,6 @@ function updateSummary() {
     installDescriptionElement.textContent = `Preview the exact changes for ${selected.length} selected option${selected.length === 1 ? '' : 's'}. Nothing will be installed.`;
   } else if (state.setupMode === 'complete') {
     installDescriptionElement.textContent = `Complete setup has selected and installed the ${selected.length} recommended option${selected.length === 1 ? '' : 's'}. You can add or remove tools here later.`;
-  } else if (state.setupMode === 'install' && !state.claudeInstalled) {
-    installDescriptionElement.textContent = `Claude Code is being installed from Anthropic’s official source. Your ${selected.length} selected option${selected.length === 1 ? '' : 's'} will run after that is ready.`;
   } else {
     installDescriptionElement.textContent = `Install ${selected.length} selected option${selected.length === 1 ? '' : 's'}. You will confirm the list before anything changes.`;
   }
@@ -212,52 +209,47 @@ async function refreshClaudeStatus() {
   state.claudeInstalled = result.installed;
   useExistingButton.disabled = !result.installed;
   startFreshButton.disabled = !result.installed || state.running;
+  installClaudeButton.hidden = result.installed;
+  installClaudeButton.disabled = result.installed || state.running;
 
   if (result.installed) {
     const version = result.version ? ` (${result.version})` : '';
-    claudeStatusTextElement.textContent = `Claude Code is ready on this computer${version}.`;
-    bootstrapStatusElement.textContent = 'Claude Code ready';
+    claudeStatusTextElement.textContent = `Yes, Claude Code is installed${version}.`;
+    bootstrapStatusElement.textContent = 'Claude Code installed';
     bootstrapStatusElement.className = 'status-chip status-ready';
-    if (!state.setupMode) setupNoteElement.textContent = 'Choose Complete setup to add the recommended tool stack, use the existing installation to choose manually, or Start fresh to erase local Claude Code data before reinstalling.';
+    if (!state.setupMode) setupNoteElement.textContent = 'You can now choose tools, or choose the recommended setup. Nothing else will change until you choose an action.';
   } else {
-    claudeStatusTextElement.textContent = 'Claude Code was not found on this computer.';
+    claudeStatusTextElement.textContent = 'No, Claude Code is not installed.';
     bootstrapStatusElement.textContent = 'Claude Code not installed';
     bootstrapStatusElement.className = 'status-chip status-pending';
-    if (!state.setupMode) setupNoteElement.textContent = 'Choose Complete setup for the recommended no-terminal installation path.';
+    if (!state.setupMode) setupNoteElement.textContent = 'Would you like to install Claude Code now? Choose “Yes, install Claude Code.” The app will use the official installer and wait until the check says it is installed.';
   }
   updateSummary();
 }
 
-async function startClaudeSetup() {
+async function installClaudeCode() {
   clearOutput();
-  appendOutput('Starting Claude Code setup through Anthropic’s official installer…\n');
-  setSetupSelection('install', 'Claude Code setup has started. You can choose your tools while it finishes.');
-  runStatusElement.textContent = 'Setting up Claude Code';
+  appendOutput('Installing Claude Code through Anthropic’s official installer…\n');
+  setupNoteElement.textContent = 'Installing Claude Code now. This app will wait and check that Claude Code is installed before it says the step is finished.';
+  runStatusElement.textContent = 'Installing Claude Code';
   installClaudeButton.disabled = true;
 
-  const result = await window.installer.startBootstrap();
+  const result = await window.installer.installClaudeOnly();
   installClaudeButton.disabled = false;
   if (result.ok) {
-    if (result.installed) {
-      state.claudeInstalled = true;
-      claudeStatusTextElement.textContent = `Claude Code is ready${result.version ? ` (${result.version})` : ''}.`;
-      bootstrapStatusElement.textContent = 'Claude Code ready';
-      bootstrapStatusElement.className = 'status-chip status-ready';
-      setupNoteElement.textContent = 'Claude Code is ready. Choose your tools in Step 2.';
-      runStatusElement.textContent = 'Ready to choose tools';
-    } else {
-      bootstrapStatusElement.textContent = 'Claude Code setup started';
-      bootstrapStatusElement.className = 'status-chip status-pending';
-      setupNoteElement.textContent = 'Claude Code is downloading. Choose your tools now; the app will wait for Claude Code before it applies them.';
-      runStatusElement.textContent = 'Claude Code is installing';
-    }
+    state.claudeInstalled = true;
+    claudeStatusTextElement.textContent = `Yes, Claude Code is installed${result.version ? ` (${result.version})` : ''}.`;
+    bootstrapStatusElement.textContent = 'Claude Code installed';
+    bootstrapStatusElement.className = 'status-chip status-ready';
+    setSetupSelection('existing', 'Claude Code is installed. You can now choose tools in Step 2, or stop here.');
+    runStatusElement.textContent = 'Claude Code installed';
   } else {
     state.claudeApproved = false;
     state.setupMode = '';
     bootstrapStatusElement.textContent = 'Claude Code needs attention';
     bootstrapStatusElement.className = 'status-chip status-error';
-    setupNoteElement.textContent = 'Claude Code could not be started. Read the activity details, then try again.';
-    appendOutput(`${result.error || 'Claude Code setup could not be started.'}\n`, 'stderr');
+    setupNoteElement.textContent = 'Claude Code was not installed. Read the activity details, then try “Yes, install Claude Code” again.';
+    appendOutput(`${result.error || 'Claude Code installation could not be completed.'}\n`, 'stderr');
     runStatusElement.textContent = 'Needs attention';
   }
   updateSummary();
@@ -307,9 +299,7 @@ async function runInstallation() {
   const preview = document.querySelector('#dry-run').checked;
   const action = preview ? 'preview' : 'install';
   const names = selected.map((tool) => `• ${tool.name}`).join('\n');
-  const claudeMessage = state.setupMode === 'install' && !state.claudeInstalled
-    ? 'Claude Code will finish installing first. Then your selected tools will be applied.'
-    : 'Claude Code is ready. Then the app will apply your selected tools.';
+  const claudeMessage = 'Claude Code is installed. Then the app will apply your selected tools.';
   if (!window.confirm(`Confirm ${action} for ${selected.length} option${selected.length === 1 ? '' : 's'}?\n\n${names}\n\n${claudeMessage}\n\nPlugin commands and credential-sensitive tools are saved as clear follow-up steps instead of being silently configured.`)) return;
 
   clearOutput();
@@ -758,7 +748,7 @@ useExistingButton.addEventListener('click', () => {
   setSetupSelection('existing', 'Claude Code is already available. Choose your tools in Step 2.');
   runStatusElement.textContent = 'Ready to choose tools';
 });
-installClaudeButton.addEventListener('click', startClaudeSetup);
+installClaudeButton.addEventListener('click', installClaudeCode);
 browseButton.addEventListener('click', () => {
   setSetupSelection('browse', 'You are browsing only. No changes will be made until you choose a Claude Code setup option.');
   runStatusElement.textContent = 'Browsing options only';
@@ -809,6 +799,7 @@ window.installer.onState(({ running }) => {
   if (running) runStatusElement.textContent = 'Installer running';
   completeSetupButton.disabled = running;
   startFreshButton.disabled = running || !state.claudeInstalled;
+  installClaudeButton.disabled = running || state.claudeInstalled;
   updateSummary();
 });
 window.installer.onComponentOutput(({ stream, text }) => appendOutput(`[Project components] ${text}`, stream));

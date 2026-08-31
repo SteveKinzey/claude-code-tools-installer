@@ -100,6 +100,8 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false) {
 
   if (mode === 'bootstrap') {
     args.push(option('-NoLaunch', '--no-launch'), option('-BootstrapOnly', '--bootstrap-only'));
+  } else if (mode === 'claude-only') {
+    args.push(option('-NoLaunch', '--no-launch'), option('-ClaudeOnly', '--claude-only'), option('-Yes', '--yes'));
   } else if (mode === 'complete' || mode === 'fresh-complete') {
     args.push(option('-Complete', '--complete'));
     if (mode === 'fresh-complete') args.push(option('-Fresh', '--fresh'), option('-FreshConfirmed', '--fresh-confirmed'));
@@ -485,20 +487,27 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup-manager:review-cleanup', async (_event, payload) => reviewCleanup(payload || {}));
   ipcMain.handle('setup-manager:apply-cleanup', async (_event, payload) => applyCleanup(payload || {}));
 
-  ipcMain.handle('bootstrap:start', async () => {
+  ipcMain.handle('claude:install-only', async () => {
+    if (activeInstall) return { ok: false, error: 'An installation is already running.', installed: false, version: '' };
     try {
       const before = await claudeStatus();
-      const result = await spawnInstaller('bootstrap');
+      if (before.installed) return { ok: true, installed: true, version: before.version, alreadyInstalled: true };
+      activeInstall = true;
+      emit('installer:state', { running: true });
+      const result = await spawnInstaller('claude-only');
       const after = await claudeStatus();
       return {
-        ok: result.code === 0,
+        ok: result.code === 0 && after.installed,
         code: result.code,
         installed: after.installed,
         version: after.version,
-        startedOfficialInstall: !before.installed && result.code === 0,
+        error: result.code === 0 && !after.installed ? 'Claude Code did not appear after the official installer finished.' : '',
       };
     } catch (error) {
       return { ok: false, error: error.message, installed: false, version: '' };
+    } finally {
+      activeInstall = false;
+      emit('installer:state', { running: false });
     }
   });
 

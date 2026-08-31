@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld('installer', {
   getCatalog: () => ipcRenderer.invoke('catalog:get'),
   getComponentCatalog: () => ipcRenderer.invoke('components:get'),
   getClaudeStatus: () => ipcRenderer.invoke('claude:status'),
-  startBootstrap: () => ipcRenderer.invoke('bootstrap:start'),
+  installClaudeOnly: () => ipcRenderer.invoke('claude:install-only'),
   runCompleteSetup: (payload) => ipcRenderer.invoke('setup:complete', payload),
   runInstall: (payload) => ipcRenderer.invoke('install:run', payload),
   chooseComponentProject: () => ipcRenderer.invoke('components:choose-project'),

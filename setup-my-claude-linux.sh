@@ -14,6 +14,7 @@ CLAUDE_BOOTSTRAP_OWNED=0
 CLAUDE_BOOTSTRAP_LOG=""
 CLAUDE_LAUNCHED=0
 BOOTSTRAP_ONLY=0
+CLAUDE_ONLY=0
 COMPLETE=0
 FRESH=0
 FRESH_CONFIRMED=0
@@ -43,6 +44,7 @@ Usage:
   ./setup-my-claude-linux.sh --category cat  Install a category: harness,skills,memory,tools,cost
   ./setup-my-claude-linux.sh --all           Select every installable item
   ./setup-my-claude-linux.sh --bootstrap-only Start or open Claude Code, then exit
+  ./setup-my-claude-linux.sh --claude-only    Install Claude Code only and wait until it is ready
   ./setup-my-claude-linux.sh --complete      Install prerequisites, Claude Code, and curated defaults
   ./setup-my-claude-linux.sh --fresh         Remove Claude Code and its local data before setup (requires --complete)
   ./setup-my-claude-linux.sh --no-launch     Do not open a terminal window after preparation
@@ -59,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     --defaults) DEFAULTS=1 ;;
     --all) ALL=1 ;;
     --bootstrap-only) BOOTSTRAP_ONLY=1 ;;
+    --claude-only) CLAUDE_ONLY=1 ;;
     --complete) COMPLETE=1 ;;
     --fresh) FRESH=1 ;;
     --fresh-confirmed) FRESH_CONFIRMED=1 ;;
@@ -831,6 +834,15 @@ main() {
   fi
 
   start_claude_bootstrap
+  if [[ "$CLAUDE_ONLY" -eq 1 ]]; then
+    ensure_claude_ready
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      echo "Dry run: Claude Code installation would run and be checked before this command finishes."
+    else
+      echo "Claude Code is installed and ready."
+    fi
+    exit 0
+  fi
   if [[ "$BOOTSTRAP_ONLY" -eq 1 ]]; then
     echo "Claude Code preparation has started. You can continue selecting tools in the desktop installer."
     exit 0
