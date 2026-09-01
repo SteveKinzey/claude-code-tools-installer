@@ -20,7 +20,7 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_NOTARY_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_NOTARY_APP_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
-      NOTARIZE: "1"
+      NOTARIZE: "0"
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -53,14 +53,15 @@ jobs:
       - name: Validate desktop contracts
         run: npm run check
 
-      - name: Build signed and notarized macOS DMG and ZIP
-        run: npm run dist:mac:release
+      - name: Build signed macOS DMG and ZIP
+        run: npm run dist:mac:signed
 
-      - name: Staple final DMG and verify notarization
+      - name: Notarize final DMG, staple, and verify
         shell: bash
         run: |
           dmg="$(find ../releases/test-builds -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "$dmg"
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
           xcrun stapler staple "$dmg"
           bash ../scripts/verify-signed-macos-dmg.sh "$dmg"
 
