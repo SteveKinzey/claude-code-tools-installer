@@ -114,9 +114,14 @@ async function claudeStatus() {
   try {
     const result = await runProcess('claude', ['--version'], { cwd: home, env: claudeProcessEnv() });
     const version = result.stdout.trim() || result.stderr.trim();
-    return { installed: result.code === 0, version: result.code === 0 ? version : '' };
+    const installed = result.code === 0 && version.length > 0;
+    return {
+      installed,
+      version: installed ? version : '',
+      reason: installed ? '' : (result.code === 0 ? 'Claude Code did not return a version.' : 'Claude Code could not be run.'),
+    };
   } catch {
-    return { installed: false, version: '' };
+    return { installed: false, version: '', reason: 'Claude Code could not be run.' };
   }
 }
 
@@ -146,7 +151,7 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false) {
     const child = spawn(definition.command, args, {
       cwd: app.getPath('home'),
       windowsHide: true,
-      env: { ...process.env },
+      env: claudeProcessEnv(),
     });
 
     child.stdout.on('data', (chunk) => emit('installer:output', { stream: 'stdout', text: chunk.toString() }));

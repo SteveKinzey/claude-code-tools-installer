@@ -54,6 +54,15 @@ if (renderer.includes('startBootstrap') || preload.includes('startBootstrap') ||
 if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('claude-only')") || !main.includes("option('-ClaudeOnly', '--claude-only')")) {
   throw new Error('The in-app Claude-only installation path must wait for the official installer and re-check the result.');
 }
+if (!main.includes('const installed = result.code === 0 && version.length > 0')) {
+  throw new Error('Claude Code status must reject an empty successful command response.');
+}
+if (!html.includes('id="recheck-claude-button"') || !renderer.includes("recheckClaudeButton.addEventListener('click'")) {
+  throw new Error('The first-run flow must offer a plain in-app Claude Code recheck.');
+}
+if (!fs.readFileSync(path.join(root, 'setup-my-claude.sh'), 'utf8').includes('claude_is_ready()') || !fs.readFileSync(path.join(root, 'setup-my-claude-linux.sh'), 'utf8').includes('claude_is_ready()') || !fs.readFileSync(path.join(root, 'setup-my-claude.ps1'), 'utf8').includes('function Test-ClaudeReady')) {
+  throw new Error('Every platform adapter must verify that the Claude command runs before reporting it ready.');
+}
 if (!renderer.includes("setAttribute('role', 'switch')") || !renderer.includes("toggle.textContent = state.selected.has(tool.id) ? 'On' : 'Off'")) {
   throw new Error('Curated extra tools must use clear accessible On/Off controls.');
 }

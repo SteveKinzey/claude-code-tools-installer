@@ -268,6 +268,14 @@ claude_path() {
   command -v claude 2>/dev/null || true
 }
 
+claude_is_ready() {
+  local claude_bin="$1" version_output
+  [[ -n "$claude_bin" ]] || return 1
+  version_output="$("$claude_bin" --version 2>&1)" || return 1
+  [[ -n "${version_output//[[:space:]]/}" ]] || return 1
+  log "Verified Claude Code command: ${version_output//$'\n'/ }"
+}
+
 launch_claude_code() {
   local claude_bin="$1"
   local launch_file="${BASE_DIR}/launch-claude-code.sh"
@@ -329,14 +337,17 @@ start_claude_bootstrap() {
   local claude_bin
   refresh_claude_path
   claude_bin="$(claude_path)"
-  if [[ -n "$claude_bin" ]]; then
-    log "Existing Claude Code detected: $claude_bin"
+  if [[ -n "$claude_bin" ]] && claude_is_ready "$claude_bin"; then
+    log "Existing working Claude Code detected: $claude_bin"
     if [[ "$COMPLETE" -eq 1 ]]; then
       log "Complete setup will open Claude Code after the recommended tools are ready."
     else
       launch_claude_code "$claude_bin"
     fi
     return 0
+  fi
+  if [[ -n "$claude_bin" ]]; then
+    log "A command named claude was found at $claude_bin, but it did not return a working version. Running the official installer."
   fi
   if reuse_active_claude_bootstrap; then
     return 0
@@ -384,8 +395,8 @@ ensure_claude_ready() {
     fi
     rm -f "$CLAUDE_BOOTSTRAP_STATE"
     claude_bin="$(claude_path)"
-    if [[ -z "$claude_bin" ]]; then
-      echo "Claude Code finished installing but is not available in this shell. Restart your terminal, then rerun the installer. Bootstrap log: $CLAUDE_BOOTSTRAP_LOG" >&2
+    if [[ -z "$claude_bin" ]] || ! claude_is_ready "$claude_bin"; then
+      echo "Claude Code finished installing but could not run a version check. Try the in-app install again. Bootstrap log: $CLAUDE_BOOTSTRAP_LOG" >&2
       return 1
     fi
     record_manifest "manual-review" "$claude_bin" "Installed by Claude Code's official native installer; manage updates and removal with Claude Code's documented commands." "claude-code"
@@ -399,7 +410,7 @@ ensure_claude_ready() {
   fi
 
   claude_bin="$(claude_path)"
-  if [[ -n "$claude_bin" ]]; then
+  if [[ -n "$claude_bin" ]] && claude_is_ready "$claude_bin"; then
     if [[ "$COMPLETE" -eq 0 ]]; then
       launch_claude_code "$claude_bin"
     fi

@@ -240,6 +240,20 @@ function Get-ClaudeCommand {
   return Get-Command claude -ErrorAction SilentlyContinue
 }
 
+function Test-ClaudeReady {
+  param($Claude)
+  if (-not $Claude -or -not $Claude.Source) { return $false }
+  try {
+    $version = (& $Claude.Source --version 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($version)) { return $false }
+    Write-Log "Verified Claude Code command: $version"
+    return $true
+  }
+  catch {
+    return $false
+  }
+}
+
 function Start-ClaudeCode {
   param([string]$ClaudePath)
 
@@ -292,8 +306,8 @@ function Reuse-ActiveClaudeBootstrap {
 
 function Start-ClaudeBootstrap {
   $claude = Get-ClaudeCommand
-  if ($claude) {
-    Write-Log "Existing Claude Code detected: $($claude.Source)"
+  if ($claude -and (Test-ClaudeReady -Claude $claude)) {
+    Write-Log "Existing working Claude Code detected: $($claude.Source)"
     if ($Complete) {
       Write-Log "Complete setup will open Claude Code after the recommended tools are ready."
     }
@@ -301,6 +315,9 @@ function Start-ClaudeBootstrap {
       Start-ClaudeCode -ClaudePath $claude.Source
     }
     return
+  }
+  if ($claude) {
+    Write-Log "A command named claude was found at $($claude.Source), but it did not return a working version. Running the official installer."
   }
   if (Reuse-ActiveClaudeBootstrap) { return }
 
@@ -342,8 +359,8 @@ function Ensure-ClaudeReady {
     Remove-Item -Path $ClaudeBootstrapState -Force -ErrorAction SilentlyContinue
 
     $claude = Get-ClaudeCommand
-    if (-not $claude) {
-      throw "Claude Code finished installing but is not available in this PowerShell session. Restart PowerShell, then rerun the installer. Logs: $($script:ClaudeBootstrapStdOut) and $($script:ClaudeBootstrapStdErr)"
+    if (-not $claude -or -not (Test-ClaudeReady -Claude $claude)) {
+      throw "Claude Code finished installing but could not run a version check. Try the in-app install again. Logs: $($script:ClaudeBootstrapStdOut) and $($script:ClaudeBootstrapStdErr)"
     }
 
     Add-Manifest -Kind "manual-review" -Target $claude.Source -Extra "Installed by Claude Code's official native installer; manage updates and removal with Claude Code's documented commands." -ItemId "claude-code"
@@ -358,7 +375,7 @@ function Ensure-ClaudeReady {
   }
 
   $claude = Get-ClaudeCommand
-  if ($claude) {
+  if ($claude -and (Test-ClaudeReady -Claude $claude)) {
     if (-not $Complete) {
       Start-ClaudeCode -ClaudePath $claude.Source
     }
