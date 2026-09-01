@@ -1,0 +1,75 @@
+name: Build signed notarized macOS CCTI test artifact
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Sign, notarize, and verify macOS artifact
+    runs-on: macos-14
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      CSC_NAME: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_NOTARY_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_NOTARY_APP_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
+      NOTARIZE: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Confirm managed secrets are available
+        shell: bash
+        run: |
+          for value in "${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}" "$CSC_KEY_PASSWORD" "$CSC_NAME" "$APPLE_ID" "$APPLE_APP_SPECIFIC_PASSWORD" "$APPLE_TEAM_ID"; do
+            test -n "$value" || { echo "A required macOS signing or notarization secret is unavailable." >&2; exit 2; }
+          done
+
+      - name: Prepare ephemeral signing certificate
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+        run: |
+          certificate_path="$RUNNER_TEMP/ccti-developer-id.p12"
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | { base64 --decode 2>/dev/null || base64 -D; } > "$certificate_path"
+          test -s "$certificate_path"
+          echo "CSC_LINK=$certificate_path" >> "$GITHUB_ENV"
+
+      - name: Install desktop dependencies
+        run: npm install
+
+      - name: Validate desktop contracts
+        run: npm run check
+
+      - name: Build signed and notarized macOS DMG and ZIP
+        run: npm run dist:mac:release
+
+      - name: Staple final DMG and verify notarization
+        shell: bash
+        run: |
+          dmg="$(find ../releases/test-builds -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$dmg"
+          xcrun stapler staple "$dmg"
+          bash ../scripts/verify-signed-macos-dmg.sh "$dmg"
+
+      - name: Upload signed test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccti-macos-signed-notarized-test-${{ github.sha }}
+          path: |
+            releases/test-builds/*.dmg
+            releases/test-builds/*.zip
+          if-no-files-found: error
+          retention-days: 7

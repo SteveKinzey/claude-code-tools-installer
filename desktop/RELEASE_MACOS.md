@@ -45,7 +45,18 @@ The command prompts for an Apple app-specific password, validates it, and saves 
 xcrun notarytool history --keychain-profile "claude-tools-notary"
 ```
 
-For CI, use an App Store Connect API key injected from the CI secret manager. Keep the `.p8` key outside the repository and pass it to `notarytool` at runtime with `--key`, `--key-id`, and `--issuer`.
+For the managed GitHub Actions release-candidate workflow, use the Apple app-specific password authentication path. Store the following values only as repository Actions secrets; never commit them, put them in `.env` files, or paste them into a terminal command:
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE_P12_BASE64` | Base64 text of the password-protected `.p12` export containing the Developer ID certificate and its private key. |
+| `MACOS_CERTIFICATE_PASSWORD` | The export password chosen for that `.p12` file. |
+| `MACOS_CODESIGN_IDENTITY` | The exact Developer ID Application identity shown by Keychain Access. |
+| `APPLE_NOTARY_ID` | The Apple Account email used to create the app-specific password. |
+| `APPLE_NOTARY_APP_PASSWORD` | The app-specific password created for CCTI notarization. |
+| `APPLE_NOTARY_TEAM_ID` | The Apple Developer Team ID. |
+
+Run **Build signed notarized macOS CCTI test artifact** manually after all six secrets exist. This workflow fails closed if any secret is unavailable, signs the app, waits for Apple notarization, staples the final DMG, checks Gatekeeper, and uploads a seven-day test artifact. It never creates or changes a public GitHub release.
 
 ## 4. Build a signed release candidate
 
@@ -58,13 +69,13 @@ npm run dist:mac:signed
 cd ..
 ```
 
-For an automated app-bundle notarization build, provide an App Store Connect API key at runtime. `APPLE_API_KEY` must be a local temporary path to the `.p8` file, never a repository path or committed secret.
+For a local automated app-bundle notarization build, provide an Apple ID, an app-specific password, and the Developer Team ID only through the environment. Do not store them in this repository.
 
 ```bash
 export CSC_NAME="Developer ID Application: YOUR LEGAL ENTITY (YOUR_TEAM_ID)"
-export APPLE_API_KEY="/secure/runtime/AuthKey_XXXXXXXXXX.p8"
-export APPLE_API_KEY_ID="XXXXXXXXXX"
-export APPLE_API_ISSUER="YOUR_ISSUER_UUID"
+export APPLE_ID="YOUR_APPLE_ACCOUNT_EMAIL"
+export APPLE_APP_SPECIFIC_PASSWORD="YOUR_APP_SPECIFIC_PASSWORD"
+export APPLE_TEAM_ID="YOUR_TEAM_ID"
 cd desktop
 npm run dist:mac:release
 cd ..

@@ -14,7 +14,7 @@ exports.default = async function notarizeMacApp(context) {
     return;
   }
   if (process.env.NOTARIZE !== '1') {
-    console.log('Skipping notarization. Set NOTARIZE=1 with Apple API-key environment variables for a release build.');
+    console.log('Skipping notarization. Set NOTARIZE=1 with managed Apple credential environment variables for a release build.');
     return;
   }
 
@@ -25,8 +25,8 @@ exports.default = async function notarizeMacApp(context) {
   await notarize({
     tool: 'notarytool',
     appPath,
-    appleApiKey: required('APPLE_API_KEY'),
-    appleApiKeyId: required('APPLE_API_KEY_ID'),
-    appleApiIssuer: required('APPLE_API_ISSUER'),
+    appleId: required('APPLE_ID'),
+    appleIdPassword: required('APPLE_APP_SPECIFIC_PASSWORD'),
+    teamId: required('APPLE_TEAM_ID'),
   });
 };
