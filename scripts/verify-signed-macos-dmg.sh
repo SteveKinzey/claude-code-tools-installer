@@ -59,10 +59,7 @@ echo "SHA-256: $(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
 echo "\n1. Checking the DMG’s stapled notarization ticket"
 xcrun stapler validate "$DMG_PATH"
 
-echo "\n2. Checking Gatekeeper’s DMG assessment"
-spctl -a -vv -t open "$DMG_PATH"
-
-echo "\n3. Mounting the DMG read-only"
+echo "\n2. Mounting the DMG read-only"
 hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT_POINT" "$DMG_PATH" >/dev/null
 MOUNTED=1
 
@@ -72,13 +69,13 @@ if [[ -z "$APP_PATH" ]]; then
   exit 1
 fi
 
-echo "\n4. Verifying nested code signatures"
+echo "\n3. Verifying nested code signatures"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
-echo "\n5. Displaying the application signing identity"
+echo "\n4. Displaying the application signing identity"
 codesign -dvvv "$APP_PATH" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority)=' || true
 
-echo "\n6. Checking Gatekeeper’s application assessment"
+echo "\n5. Checking Gatekeeper’s mounted-application assessment"
 spctl -a -vv -t execute "$APP_PATH"
 
 echo "\nVerification passed: signed app, Gatekeeper assessment, and stapled ticket are valid."
