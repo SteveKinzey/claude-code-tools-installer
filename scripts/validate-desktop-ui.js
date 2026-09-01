@@ -57,8 +57,21 @@ if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('c
 if (!renderer.includes("setAttribute('role', 'switch')") || !renderer.includes("toggle.textContent = state.selected.has(tool.id) ? 'On' : 'Off'")) {
   throw new Error('Curated extra tools must use clear accessible On/Off controls.');
 }
-if (!main.includes('const reviewedPluginPlans') || !main.includes('installReviewedPlugins(selectedIds)') || !main.includes("runProcess('claude', args")) {
+if (!main.includes('const reviewedPluginPlans') || !main.includes('const reviewedPluginIds') || !main.includes('installReviewedPlugins(reviewedPluginIds)') || !main.includes("runProcess('claude', args")) {
   throw new Error('Supported fixed plugin choices must run inside CCTI after the approved tool plan succeeds.');
+}
+const catalog = fs.readFileSync(path.join(root, 'desktop', 'catalog.json'), 'utf8');
+if (!catalog.includes('"prerequisites":["Node.js","Git","Bun"]') || !renderer.includes('CCTI will check and prepare:') || !renderer.includes('Preparing prerequisites and installing selected tools')) {
+  throw new Error('Prerequisite-aware CCTI plans must show ordered in-app preparation before the selected extra runs.');
+}
+for (const adapter of ['setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
+  const source = fs.readFileSync(path.join(root, adapter), 'utf8');
+  if (!source.includes('ensure_bun')) {
+    throw new Error(`${adapter} must install Bun before the supported gstack setup path.`);
+  }
+}
+if (!fs.readFileSync(path.join(root, 'setup-my-claude.ps1'), 'utf8').includes("gstack's final setup is Unix-only")) {
+  throw new Error('Windows must keep gstack in a clear in-app pause state until its upstream source supports that platform.');
 }
 if (!main.includes('const reviewedPluginChanges') || !main.includes("['plugin', plan.action, plan.name, '--scope', plan.scope]") || !renderer.includes("reviewAndApplyPluginChange(item, action)")) {
   throw new Error('Installed plugin changes must use a reviewed, scope-aware Electron action rather than renderer shell access.');

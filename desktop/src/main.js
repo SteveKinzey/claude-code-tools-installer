@@ -591,8 +591,15 @@ app.whenReady().then(async () => {
     activeInstall = true;
     emit('installer:state', { running: true });
     try {
-      const result = await spawnInstaller('install', selectedIds, Boolean(dryRun));
-      if (result.code === 0 && !dryRun) await installReviewedPlugins(selectedIds);
+      const reviewedPluginIds = selectedIds.filter((id) => Object.prototype.hasOwnProperty.call(reviewedPluginPlans, id));
+      const adapterIds = selectedIds.filter((id) => !Object.prototype.hasOwnProperty.call(reviewedPluginPlans, id));
+      const result = adapterIds.length > 0
+        ? await spawnInstaller('install', adapterIds, Boolean(dryRun))
+        : { code: 0 };
+      if (result.code === 0 && !dryRun) await installReviewedPlugins(reviewedPluginIds);
+      if (result.code === 0 && dryRun && reviewedPluginIds.length > 0) {
+        emit('installer:output', { stream: 'stdout', text: `[CCTI] Preview: ${reviewedPluginIds.length} selected plugin action${reviewedPluginIds.length === 1 ? '' : 's'} would run inside CCTI after Claude Code is ready.\n` });
+      }
       return { ok: result.code === 0, code: result.code };
     } catch (error) {
       return { ok: false, error: error.message };

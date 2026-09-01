@@ -149,6 +149,9 @@ refresh_claude_path() {
   if [[ -d "${NODE_RUNTIME_DIR}/bin" && ":${PATH}:" != *":${NODE_RUNTIME_DIR}/bin:"* ]]; then
     export PATH="${NODE_RUNTIME_DIR}/bin:${PATH}"
   fi
+  if [[ -d "${HOME}/.bun/bin" && ":${PATH}:" != *":${HOME}/.bun/bin:"* ]]; then
+    export PATH="${HOME}/.bun/bin:${PATH}"
+  fi
 }
 
 ensure_node_runtime() {
@@ -213,6 +216,28 @@ ensure_git() {
   fi
   echo "Git is required but macOS could not start the Command Line Tools installer." >&2
   return 1
+}
+
+ensure_bun() {
+  refresh_claude_path
+  if command -v bun >/dev/null 2>&1; then
+    log "Bun detected: $(bun --version 2>/dev/null || echo unknown)"
+    return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Dry run: would install Bun with npm after the managed Node.js check"
+    return 0
+  fi
+  ensure_node_runtime
+  log "Installing Bun for the selected gstack setup"
+  run_cmd npm install -g bun
+  refresh_claude_path
+  if ! command -v bun >/dev/null 2>&1; then
+    echo "CCTI installed Bun, but it is not available in this setup session." >&2
+    return 1
+  fi
+  record_manifest "npm-global" "bun" "bun" "bun-runtime"
+  log "Bun is ready: $(bun --version 2>/dev/null || echo unknown)"
 }
 
 fresh_claude_code() {
@@ -497,6 +522,7 @@ install_item() {
       ;;
     gstack)
       local dest="${HOME}/.claude/skills/gstack"
+      ensure_bun
       version="$(source_version https://github.com/garrytan/gstack)"
       log "Source gstack HEAD: ${version:-unknown}"
       if already_path "$dest/.git"; then
@@ -820,7 +846,7 @@ main() {
   if [[ "$FRESH" -eq 1 ]]; then
     fresh_claude_code
   fi
-  if [[ "$COMPLETE" -eq 1 ]]; then
+  if [[ "$CLAUDE_ONLY" -eq 0 && "$BOOTSTRAP_ONLY" -eq 0 ]]; then
     ensure_node_runtime
     ensure_git
   fi

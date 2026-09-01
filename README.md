@@ -70,7 +70,7 @@ The first catalog contains **35 curated workflow choices**. These are grouped in
 | **On / Off on an individual card** | On adds that reviewed extra to the app-run plan. Off leaves it out. It does not remove an extra already on the computer. |
 | **Browse Convex Components** | Opens the project-level component library without adding anything to the local-tool plan. |
 
-For supported skills, CLIs, MCP servers, and fixed plugin choices, CCTI runs the reviewed installation action after you review and confirm the plan. You do not need to open Terminal, PowerShell, or copy a command. Plugin choices run at user scope, so they do not change a shared project. A plugin that needs a sign-in, secret, account approval, or its own separate setup stops at that safe in-app boundary; CCTI does not collect or fill credentials for it. Anthropic documents `claude plugin install` as the supported noninteractive plugin command. [2]
+For supported skills, CLIs, MCP servers, and fixed plugin choices, CCTI runs the reviewed installation action after you review and confirm the plan. It checks and installs each supported prerequisite first; for example, gstack on macOS and Linux receives Node.js, Git, and Bun before its own setup begins. You do not need to open Terminal, PowerShell, or copy a command. Plugin choices run at user scope, so they do not change a shared project. A plugin that needs a sign-in, secret, account approval, license, or unsupported platform stops at that clear in-app boundary; CCTI does not collect or fill credentials for it. Anthropic documents `claude plugin install` as the supported noninteractive plugin command. [2]
 
 ### Curated Tool Catalog
 
@@ -84,7 +84,7 @@ For supported skills, CLIs, MCP servers, and fixed plugin choices, CCTI runs the
 | **MCP & Automation** | Playwright MCP, Claude Code Router, Awesome MCP Servers |
 | **Cost & Reference** | System Prompts AI, Claude Code Best Practice, Codex in Claude, Claude HUD, Caveman |
 
-Some cards run a supported local install. Others save a safe follow-up command or checklist item because a plugin must be installed **inside Claude Code**, or because a service needs credentials that this app should never collect automatically.
+Some cards run a supported local install entirely in CCTI. Others pause safely because a service needs credentials, a separate license, or platform support that is not available yet. CCTI does not ask ordinary users to paste a terminal command as a workaround.
 
 ### Convex for Claude Code
 
@@ -153,20 +153,13 @@ The final local-tool panel says how many curated tools are selected and whether 
 |---|---|
 | **Preview changes only** | Shows planned local-tool changes without installing anything. Use this first if you are unsure. |
 | **Install selected tools** | Opens a confirmation dialog listing every selected local tool. Nothing runs until you approve it. |
-| **Installation activity** | Shows Claude Code preparation, install progress, queued follow-ups, project-component output, and plain-language errors. |
+| **Installation activity** | Shows Claude Code preparation, prerequisite checks, installation progress, project-component output, and plain-language errors. |
 
-The confirmation dialog reminds you that slash-command plugins and credential-sensitive integrations can create a follow-up task instead of a silent configuration. This is intentional.
+The confirmation dialog shows the supported prerequisite work before it starts. A plugin can still show its own in-Claude-Code welcome or setup prompt after installation, while credential-sensitive integrations remain paused rather than silently configured. This is intentional.
 
-## After Installation: Completion Checklist
+## After Installation
 
-Some Claude Code plugins require a slash command inside Claude Code. The app saves those commands in a local completion checklist rather than trying to type into your active Claude Code session.
-
-| Platform | Checklist location |
-|---|---|
-| macOS and Linux | `~/.setup-my-claude/claude-plugin-commands.md` |
-| Windows | `%USERPROFILE%\.setup-my-claude\claude-plugin-commands.md` |
-
-Open Claude Code, open the checklist, and run only the commands for plugins you chose. The app also records an activity log and rollback manifest under `~/.setup-my-claude/` so you can review local changes and remove supported shell-installed items later.
+CCTI completes supported prerequisite and plugin installation steps itself. A plugin may show its own welcome screen or request a setup choice inside Claude Code after it has installed. Services that need credentials remain paused for a later, visible in-app setup flow; CCTI does not put credential commands in front of ordinary users. The app records an activity log and rollback manifest under `~/.setup-my-claude/` so you can review local changes and remove supported shell-installed items later.
 
 ## Safety and Privacy Boundaries
 

@@ -128,6 +128,8 @@ function setSetupSelection(mode, note) {
 function updateSummary() {
   const selected = selectedItems();
   const recommendedCount = selected.filter((tool) => tool.default).length;
+  const prerequisites = [...new Set(selected.flatMap((tool) => Array.isArray(tool.prerequisites) ? tool.prerequisites : []))];
+  const prerequisiteNote = prerequisites.length ? ` CCTI will check and prepare: ${prerequisites.join(', ')}.` : '';
   summaryElement.textContent = `${selected.length} of ${state.catalog.length} curated options selected${recommendedCount ? `, including ${recommendedCount} recommended` : ''}.`;
 
   if (selected.length === 0) {
@@ -135,11 +137,11 @@ function updateSummary() {
   } else if (!state.claudeApproved) {
     installDescriptionElement.textContent = 'Choose “I already have Claude Code” or “Install Claude Code now” in Step 1 before running a tool setup.';
   } else if (document.querySelector('#dry-run').checked) {
-    installDescriptionElement.textContent = `Preview the exact changes for ${selected.length} selected option${selected.length === 1 ? '' : 's'}. Nothing will be installed.`;
+    installDescriptionElement.textContent = `Preview the exact changes for ${selected.length} selected option${selected.length === 1 ? '' : 's'}. Nothing will be installed.${prerequisiteNote}`;
   } else if (state.setupMode === 'complete') {
     installDescriptionElement.textContent = `Complete setup has selected and installed the ${selected.length} recommended option${selected.length === 1 ? '' : 's'}. You can add or remove tools here later.`;
   } else {
-    installDescriptionElement.textContent = `Install ${selected.length} selected option${selected.length === 1 ? '' : 's'}. You will confirm the list before anything changes.`;
+    installDescriptionElement.textContent = `Install ${selected.length} selected option${selected.length === 1 ? '' : 's'}. You will confirm the list before anything changes.${prerequisiteNote}`;
   }
 
   installButton.disabled = state.running || selected.length === 0 || !state.claudeApproved;
@@ -199,6 +201,18 @@ function renderCatalog() {
       action.className = 'tool-action';
       action.textContent = tool.action;
       body.append(name, classification, action);
+      if (Array.isArray(tool.prerequisites) && tool.prerequisites.length > 0) {
+        const prerequisites = document.createElement('span');
+        prerequisites.className = 'tool-action';
+        prerequisites.textContent = `CCTI checks first: ${tool.prerequisites.join(', ')}.`;
+        body.append(prerequisites);
+      }
+      if (tool.platformNote) {
+        const platformNote = document.createElement('span');
+        platformNote.className = 'tool-action';
+        platformNote.textContent = tool.platformNote;
+        body.append(platformNote);
+      }
       card.append(body, toggle);
       grid.append(card);
     }
@@ -302,20 +316,30 @@ async function runInstallation() {
   const preview = document.querySelector('#dry-run').checked;
   const action = preview ? 'preview' : 'install';
   const names = selected.map((tool) => `• ${tool.name}`).join('\n');
+  const prerequisiteNames = [...new Set(selected.flatMap((tool) => Array.isArray(tool.prerequisites) ? tool.prerequisites : []))];
+  const prerequisitePlan = prerequisiteNames.length ? `\n\nBefore those tools, CCTI checks and prepares: ${prerequisiteNames.join(', ')}.` : '';
   const claudeMessage = 'Claude Code is installed. Then the app will apply your selected tools.';
-  if (!window.confirm(`Confirm ${action} for ${selected.length} option${selected.length === 1 ? '' : 's'}?\n\n${names}\n\n${claudeMessage}\n\nPlugin commands and credential-sensitive tools are saved as clear follow-up steps instead of being silently configured.`)) return;
+  if (!window.confirm(`Confirm ${action} for ${selected.length} option${selected.length === 1 ? '' : 's'}?\n\n${names}\n\n${claudeMessage}${prerequisitePlan}\n\nSupported plugins install inside CCTI. Tools that need a sign-in, key, license, or unsupported platform pause clearly instead of pretending to finish.`)) return;
 
   clearOutput();
   appendOutput(`${preview ? 'Previewing' : 'Installing'} ${selected.length} selected option${selected.length === 1 ? '' : 's'}…\n`);
-  const result = await window.installer.runInstall({ selectedIds: selected.map((tool) => tool.id), dryRun: preview });
-  if (result.ok) {
-    appendOutput(`\n${preview ? 'Preview' : 'Installation'} completed successfully.\n`);
-    runStatusElement.textContent = preview ? 'Preview complete' : 'Installation complete';
-    if (!preview) completionPanelElement.classList.remove('is-hidden');
-    if (!preview) offerAnonymousSuccessCount('selected_tools');
-  } else {
-    appendOutput(`\nThe installer stopped: ${result.error || `exit code ${result.code}`}. Review the activity details above.\n`, 'stderr');
-    runStatusElement.textContent = 'Needs attention';
+  state.running = true;
+  runStatusElement.textContent = preview ? 'Previewing your plan' : 'Preparing prerequisites and installing selected tools';
+  updateSummary();
+  try {
+    const result = await window.installer.runInstall({ selectedIds: selected.map((tool) => tool.id), dryRun: preview });
+    if (result.ok) {
+      appendOutput(`\n${preview ? 'Preview' : 'Installation'} completed successfully.\n`);
+      runStatusElement.textContent = preview ? 'Preview complete' : 'Installation complete';
+      if (!preview) completionPanelElement.classList.remove('is-hidden');
+      if (!preview) offerAnonymousSuccessCount('selected_tools');
+    } else {
+      appendOutput(`\nThe installer stopped: ${result.error || `exit code ${result.code}`}. Review the activity details above.\n`, 'stderr');
+      runStatusElement.textContent = 'Needs attention';
+    }
+  } finally {
+    state.running = false;
+    updateSummary();
   }
 }
 

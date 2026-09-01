@@ -803,7 +803,7 @@ if ($Uninstall) {
 }
 
 if ($Fresh) { Start-FreshClaudeCode }
-if ($Complete) {
+if (-not $ClaudeOnly -and -not $BootstrapOnly) {
   Ensure-NodeRuntime
   Ensure-Git
 }

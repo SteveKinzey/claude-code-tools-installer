@@ -4,7 +4,7 @@ This directory contains the native desktop installer for the complete Claude Cod
 
 The desktop app does not embed third-party tools or credentials. On launch, it checks whether Claude Code is installed and says either **Yes, Claude Code is installed** or **No, Claude Code is not installed**. When a person chooses **Yes, install Claude Code**, the app runs the bundled platform adapter in `--claude-only` mode, which invokes Anthropic’s official installer, waits until `claude --version` succeeds, and reports the final result. It does not add optional tools in this path. The separate complete-setup option remains available for people who explicitly want the recommended tool set.
 
-Every curated extra uses an **On** or **Off** control. On adds the reviewed extra to the in-app plan; Off leaves it out and never removes existing software. After confirmation, CCTI runs supported skills, CLIs, MCP servers, and fixed plugin installations itself. Users do not need to open Terminal or PowerShell. Account, secret, paid, or unverified actions remain clear in-app review states and are never silently configured.
+Every curated extra uses an **On** or **Off** control. On adds the reviewed extra to the in-app plan; Off leaves it out and never removes existing software. After confirmation, CCTI checks and prepares supported prerequisites before it runs the extra: for example, gstack on macOS and Linux receives managed Node.js, Git, and Bun setup before gstack runs. Supported skills, CLIs, MCP servers, and fixed plugin installations run inside CCTI. Users do not need to open Terminal or PowerShell. Account, secret, paid, or unsupported-platform actions remain clear in-app pause states and are never silently configured.
 
 ## Local development
 
