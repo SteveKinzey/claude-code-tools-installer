@@ -104,7 +104,7 @@ A Convex Component is a package added to one backend project. It can have its ow
 | **Category** | Filter by AI, authentication, backend, collaboration, database, durable functions, integrations, messaging, storage, payments, or another directory category | Narrows the library to the task you are considering. |
 | **Details** | Open a component detail panel | Shows the package identity, version, source URL, and the exact project command. |
 | **Add to project plan** | Mark one or more components | Creates a separate project plan. It does not install yet. |
-| **Choose project folder** | Pick the application folder in the normal file picker | The app requires a folder containing `package.json` so it does not install packages in the wrong place. |
+| **Choose project folder** | Pick the application folder in the normal file picker | CCTI keeps the install in that folder. If its `package.json` file is missing, CCTI prepares Node.js when needed and creates a small private project file automatically. It never overwrites an existing project file. |
 | **Preview project plan** | Review the project plan | Shows the exact `npm install` command without running it. |
 | **Install project components** | Confirm the project path, named packages, and command | Runs the reviewed package install only in that chosen folder. Component-specific setup remains a separate, visible task. |
 
@@ -133,9 +133,13 @@ When the private guide cannot answer a broader, open-ended question, it offers *
 
 Online Compass gives advice only. It does not execute installations, create accounts, add credentials, or modify a project without the same explicit confirmations used everywhere else in the app.
 
+### Project Interview — optional private first draft
+
+Before choosing tools, a person can open **Project Interview** and answer five short questions about the idea, intended users, first problem, smallest first version, and limits. CCTI turns those answers into a private, reviewable PRD draft and shows scope-labeled suggestions. It does not send the answers online, select suggestions, create a project, or install anything. The person can save the draft as a Markdown file, revise the answers, then choose only the tools and components that fit.
+
 ## Optional Setup Manager
 
-The checkup is available before setup, after setup, or whenever you want to tidy a Claude Code workspace. It searches the usual user and project Claude Code locations for skills, enabled add-ons, and saved connections. It can also ask Claude Code for its own plugin and connection lists when Claude Code is available. The checkup is read-only.
+The checkup is available before setup, after setup, or whenever you want to tidy a Claude Code workspace. It searches the usual user and project Claude Code locations for skills, enabled add-ons, and saved connections. It also labels CCTI-managed runtimes and Claude Code as items for **this computer**, project packages and project files as **this project**, and an app-created checklist as **your action may be needed**. It can also ask Claude Code for its own plugin and connection lists when Claude Code is available. The checkup is read-only.
 
 | Checkup action | What happens |
 |---|---|

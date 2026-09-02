@@ -16,12 +16,15 @@ The app reads only the known Claude Code locations after the person chooses **Ch
 | `<chosen project>/.claude/settings.json` | Settings shared with a project team | Lists enabled plugins and connections |
 | `<chosen project>/.claude/settings.local.json` | Personal settings for one project | Lists enabled plugins and connections |
 | `~/.claude.json` | Claude Code’s own local record | Lists known add-on references where safely readable |
+| CCTI’s managed Node.js location | Runtime CCTI prepared for supported installs | Lists it as **This computer** only when CCTI created it |
+| `<chosen project>/package.json` | Project package list | Lists it and its declared packages as **This project**; when missing, explains that CCTI will create it only during an approved project-package install |
+| CCTI follow-up checklist | Items that cannot finish without a sign-in, key, license, or upstream support | Lists the checklist as **Your action may be needed** without exposing credentials |
 
 The app never scans the entire computer, reads a project without the person selecting it, or changes a file during discovery.
 
 ## How the app presents results
 
-The first view groups findings into **Already set up**, **May be duplicated**, **Needs attention**, and **Custom additions**. Every entry says where it was found, what it does in everyday language, and whether it affects only the person or everyone in a selected project.
+The first view groups findings into **This computer**, **This project**, **Your action may be needed**, **May be duplicated**, and **Needs attention**. Every entry says where it was found, what it does in everyday language, and whether it affects only the person or everyone in a selected project.
 
 An item is marked **May be duplicated** only when the same plugin, skill folder name, or connection name appears in more than one supported location. An item is marked **Needs attention** only when its settings JSON cannot be read, a configured source is missing, or two matching connection names point to different values. The app explains that a duplicate is not automatically an error because user, project, and personal-project settings can have different purposes.
 

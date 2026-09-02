@@ -3,6 +3,7 @@ param(
   [switch]$Defaults,
   [switch]$All,
   [switch]$BootstrapOnly,
+  [switch]$ProjectPrerequisites,
   [switch]$ClaudeOnly,
   [switch]$Complete,
   [switch]$Fresh,
@@ -820,6 +821,11 @@ if ($Uninstall) {
 }
 
 if ($Fresh) { Start-FreshClaudeCode }
+if ($ProjectPrerequisites) {
+  Ensure-NodeRuntime
+  Write-Log "Project package prerequisites are ready."
+  exit 0
+}
 if (-not $ClaudeOnly -and -not $BootstrapOnly) {
   Ensure-NodeRuntime
   Ensure-Git

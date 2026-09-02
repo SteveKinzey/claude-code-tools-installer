@@ -14,6 +14,7 @@ CLAUDE_BOOTSTRAP_OWNED=0
 CLAUDE_BOOTSTRAP_LOG=""
 CLAUDE_LAUNCHED=0
 BOOTSTRAP_ONLY=0
+PROJECT_PREREQUISITES=0
 CLAUDE_ONLY=0
 COMPLETE=0
 FRESH=0
@@ -61,6 +62,7 @@ while [[ $# -gt 0 ]]; do
     --defaults) DEFAULTS=1 ;;
     --all) ALL=1 ;;
     --bootstrap-only) BOOTSTRAP_ONLY=1 ;;
+    --project-prerequisites) PROJECT_PREREQUISITES=1 ;;
     --claude-only) CLAUDE_ONLY=1 ;;
     --complete) COMPLETE=1 ;;
     --fresh) FRESH=1 ;;
@@ -856,6 +858,11 @@ main() {
 
   if [[ "$FRESH" -eq 1 ]]; then
     fresh_claude_code
+  fi
+  if [[ "$PROJECT_PREREQUISITES" -eq 1 ]]; then
+    ensure_node_runtime
+    log "Project package prerequisites are ready."
+    exit 0
   fi
   if [[ "$CLAUDE_ONLY" -eq 0 && "$BOOTSTRAP_ONLY" -eq 0 ]]; then
     ensure_node_runtime

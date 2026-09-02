@@ -65,7 +65,7 @@
             <div>
               <p class="eyebrow">OPTIONAL CHECKUP</p>
               <h2 id="setup-manager-heading">See what you already have</h2>
-              <p>Use this at any time. It looks for Claude Code skills, add-ons, and saved connections on this computer or in one project. It changes nothing while checking.</p>
+              <p>Use this at any time. It shows CCTI tools, skills, add-ons, project packages, and saved connections by where they live: this computer, one selected project, or a step that still needs your action. It changes nothing while checking.</p>
             </div>
           </div>
           <div class="button-group">
@@ -124,6 +124,28 @@
           <strong>Turn extras on or off for this plan.</strong> On means CCTI will add that reviewed extra after you confirm. Off means leave it out. It does not remove software already on your computer. Supported extras install inside CCTI; tools that need an account or secret pause safely instead of asking you to use a terminal.
         </section>
 
+        <section id="project-interview" class="project-interview" aria-labelledby="project-interview-heading">
+          <div>
+            <p class="eyebrow">OPTIONAL FIRST STEP</p>
+            <h2 id="project-interview-heading">Not sure what your project needs?</h2>
+            <p>Start with a short private interview. CCTI will turn your answers into a simple first-draft project plan and show tools you may want to review. It does not select or install anything.</p>
+          </div>
+          <button id="start-project-interview-button" class="button button-secondary" type="button">Start Project Interview</button>
+          <div id="project-interview-panel" class="project-interview-panel is-hidden">
+            <p id="project-interview-progress" class="project-interview-progress"></p>
+            <h3 id="project-interview-question"></h3>
+            <p id="project-interview-help"></p>
+            <label class="sr-only" for="project-interview-answer">Your answer</label>
+            <textarea id="project-interview-answer" rows="4" maxlength="2000" placeholder="Write a short answer in your own words."></textarea>
+            <div class="button-group">
+              <button id="project-interview-back-button" class="button button-ghost" type="button">Back</button>
+              <button id="project-interview-next-button" class="button button-primary" type="button">Next question</button>
+            </div>
+            <pre id="project-interview-output" class="project-interview-output is-hidden" aria-live="polite"></pre>
+            <button id="export-project-prd-button" class="button button-secondary is-hidden" type="button">Save draft PRD</button>
+          </div>
+        </section>
+
         <section id="catalog" class="catalog" aria-live="polite"></section>
 
         <section class="components-entry" aria-labelledby="components-entry-heading">
@@ -146,7 +168,7 @@
           </div>
 
           <section class="component-library-notice" aria-label="Component installation guidance">
-            <strong>These are app packages, not Claude Code plugins.</strong> Add them to a project plan, choose the project folder yourself, and review the exact npm command before the app runs it.
+            <strong>These are app packages, not Claude Code plugins.</strong> Add them to a project plan and choose the project folder yourself. CCTI prepares Node.js and creates package.json there when it is missing, then runs the reviewed package install.
           </section>
 
           <div class="component-filters">
@@ -249,6 +271,7 @@
     </aside>
     <button id="compass-toggle" class="compass-toggle" type="button" aria-label="Open Compass tool advisor">?</button>
 
+    <script src="../project-interview.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

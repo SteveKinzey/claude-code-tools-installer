@@ -99,6 +99,15 @@ h3 { margin: 0; font-size: 1rem; }
 .project-path-note { width: 100%; margin: 0 !important; color: #89b3c6 !important; font: 0.78rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
 .component-plan-output { width: 100%; min-height: 72px; max-height: 210px; margin: 0; overflow: auto; padding: 12px; border-radius: 8px; background: #08131f; color: #bad0e2; font: 0.78rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; }
 .component-plan-output.has-error { color: #ffc2d0; }
+.project-interview { margin: 18px 0; padding: 17px; border: 1px solid #46617e; border-radius: 11px; background: linear-gradient(135deg, #132440 0%, #102036 100%); }
+.project-interview > p, .project-interview > div > p { color: #bdcfe4; line-height: 1.5; }
+.project-interview > .button { margin-top: 10px; }
+.project-interview-panel { display: grid; gap: 10px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #39536f; }
+.project-interview-panel h3 { margin: 0; color: #e6f5ff; }
+.project-interview-progress { margin: 0; color: #8fc8e8 !important; font-weight: 750; font-size: 0.8rem; letter-spacing: 0.02em; }
+.project-interview-panel textarea { width: 100%; resize: vertical; border: 1px solid #426780; border-radius: 8px; background: #091726; color: #e7f1ff; padding: 10px; font: 0.9rem/1.5 system-ui, sans-serif; }
+.project-interview-panel textarea:focus { outline: 2px solid #82d1f8; outline-offset: 2px; }
+.project-interview-output { max-height: 340px; margin: 4px 0 0; overflow: auto; padding: 12px; border: 1px solid #315d79; border-radius: 8px; background: #08131f; color: #c8deef; font: 0.78rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; }
 .setup-manager { border-color: #3f6b7d; background: linear-gradient(135deg, #102b35 0%, #0d1b32 100%); }
 .manager-header { align-items: flex-start; }
 .manager-header .step-heading { max-width: 760px; }

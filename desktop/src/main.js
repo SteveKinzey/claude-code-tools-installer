@@ -3,6 +3,7 @@ const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
 
 let mainWindow;
 let activeInstall = false;
@@ -42,9 +43,13 @@ function installerResource(...segments) {
 function claudeProcessEnv() {
   const home = app.getPath('home');
   const nativeBin = process.platform === 'win32' ? '' : path.join(home, '.local', 'bin');
+  const managedNodeBin = process.platform === 'win32'
+    ? path.join(setupManagerDir(), 'node-runtime')
+    : path.join(setupManagerDir(), 'node-runtime', 'bin');
+  const paths = [nativeBin, managedNodeBin, process.env.PATH || ''].filter(Boolean);
   return {
     ...process.env,
-    PATH: nativeBin ? `${nativeBin}${path.delimiter}${process.env.PATH || ''}` : process.env.PATH,
+    PATH: [...new Set(paths.join(path.delimiter).split(path.delimiter).filter(Boolean))].join(path.delimiter),
   };
 }
 
@@ -109,19 +114,31 @@ async function readComponentCatalog() {
   return JSON.parse(await fs.readFile(componentCatalogResource(), 'utf8'));
 }
 
+async function commandLocation(command) {
+  const locator = process.platform === 'win32' ? 'where.exe' : 'which';
+  try {
+    const result = await runProcess(locator, [command], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+    return result.code === 0 ? result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || '' : '';
+  } catch {
+    return '';
+  }
+}
+
 async function claudeStatus() {
   const home = app.getPath('home');
   try {
     const result = await runProcess('claude', ['--version'], { cwd: home, env: claudeProcessEnv() });
     const version = result.stdout.trim() || result.stderr.trim();
     const installed = result.code === 0 && version.length > 0;
+    const installedPath = installed ? await commandLocation('claude') : '';
     return {
       installed,
       version: installed ? version : '',
+      path: installedPath,
       reason: installed ? '' : (result.code === 0 ? 'Claude Code did not return a version.' : 'Claude Code could not be run.'),
     };
   } catch {
-    return { installed: false, version: '', reason: 'Claude Code could not be run.' };
+    return { installed: false, version: '', path: '', reason: 'Claude Code could not be run.' };
   }
 }
 
@@ -132,6 +149,8 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false) {
 
   if (mode === 'bootstrap') {
     args.push(option('-NoLaunch', '--no-launch'), option('-BootstrapOnly', '--bootstrap-only'));
+  } else if (mode === 'project-prerequisites') {
+    args.push(option('-NoLaunch', '--no-launch'), option('-ProjectPrerequisites', '--project-prerequisites'));
   } else if (mode === 'claude-only') {
     args.push(option('-NoLaunch', '--no-launch'), option('-ClaudeOnly', '--claude-only'), option('-Yes', '--yes'));
   } else if (mode === 'complete' || mode === 'fresh-complete') {
@@ -161,29 +180,8 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false) {
   });
 }
 
-async function validateProjectFolder(projectPath) {
-  if (typeof projectPath !== 'string' || projectPath.length === 0) {
-    throw new Error('Choose a project folder before continuing.');
-  }
-  const resolved = path.resolve(projectPath);
-  const info = await fs.stat(resolved);
-  if (!info.isDirectory()) throw new Error('The selected project path is not a folder.');
-  try {
-    await fs.access(path.join(resolved, 'package.json'));
-  } catch {
-    throw new Error('Choose a JavaScript or TypeScript project folder that contains package.json.');
-  }
-  return resolved;
-}
-
 async function validateSetupProjectFolder(projectPath) {
-  if (typeof projectPath !== 'string' || projectPath.trim().length === 0) {
-    throw new Error('Choose a project folder before continuing.');
-  }
-  const resolved = path.resolve(projectPath);
-  const info = await fs.stat(resolved);
-  if (!info.isDirectory()) throw new Error('The selected project path is not a folder.');
-  return resolved;
+  return resolveProjectFolder(projectPath);
 }
 
 async function selectedComponents(componentIds) {
@@ -262,6 +260,38 @@ async function readJsonIfPresent(filePath) {
   }
 }
 
+async function managedPrerequisiteFindings() {
+  const home = app.getPath('home');
+  const baseDir = setupManagerDir();
+  const nodeLocation = process.platform === 'win32'
+    ? path.join(baseDir, 'node-runtime', 'node.exe')
+    : path.join(baseDir, 'node-runtime', 'bin', 'node');
+  const findings = [];
+  try {
+    await fs.access(nodeLocation);
+    findings.push({ id: `runtime:${nodeLocation}`, type: 'runtime', name: 'CCTI-managed Node.js', scope: 'This computer', path: nodeLocation, description: 'A runtime CCTI prepared for tools that need Node.js. It is available to this app without changing your project files.' });
+  } catch {
+    // Only CCTI-managed runtime locations are listed; system-wide tools are outside this checkup scope.
+  }
+  try {
+    const checklist = await fs.stat(pluginChecklistPath());
+    if (checklist.size > 0) findings.push({ id: `follow-up:${pluginChecklistPath()}`, type: 'follow-up', name: 'CCTI follow-up checklist', scope: 'Your action may be needed', path: pluginChecklistPath(), description: 'Some selected add-ons need a sign-in, key, license, or upstream step. CCTI did not pretend those steps were finished.' });
+  } catch {
+    // No app-created follow-up checklist exists yet.
+  }
+  const claude = await claudeStatus();
+  if (claude.installed) findings.push({ id: `tool:claude:${claude.path || home}`, type: 'tool', name: 'Claude Code', scope: 'This computer', path: claude.path || 'Claude Code command location', description: `Claude Code can run${claude.version ? `: ${claude.version}` : ''}.` });
+  return findings;
+}
+
+function componentPackageFindings(manifest, packageJsonPath) {
+  const dependencies = Object.entries({ ...(manifest.dependencies || {}), ...(manifest.devDependencies || {}) });
+  return [
+    { id: `project-file:${packageJsonPath}`, type: 'project-file', name: 'Project package file', scope: 'This project', path: packageJsonPath, description: 'This file keeps the project packages CCTI installed in the selected folder.' },
+    ...dependencies.slice(0, 80).map(([name, version]) => ({ id: `project-package:${packageJsonPath}:${name}`, type: 'project-package', name, scope: 'This project', path: packageJsonPath, description: `Project package${version ? ` · ${version}` : ''}.` })),
+  ];
+}
+
 function normalizedFindingName(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
@@ -318,11 +348,24 @@ async function discoverClaudeSetup(projectPath = '') {
     );
   }
 
-  const findings = [];
+  const findings = await managedPrerequisiteFindings();
   for (const location of locations) {
     findings.push(...await listSkillsAt(location.root, location.scope));
     const settings = await readJsonIfPresent(location.settings);
     if (settings.found) findings.push(...settingsFindings(settings.json, location.settings, location.scope));
+  }
+
+  if (resolvedProjectPath) {
+    try {
+      const projectPackage = await inspectProjectPackage(resolvedProjectPath);
+      if (projectPackage.packageState === 'existing') {
+        findings.push(...componentPackageFindings(projectPackage.manifest, projectPackage.packageJsonPath));
+      } else {
+        findings.push({ id: `project-file-missing:${projectPackage.packageJsonPath}`, type: 'attention', name: 'Project package file will be created when needed', scope: 'This project', path: projectPackage.packageJsonPath, description: 'This selected folder is ready. CCTI creates its package file automatically when you install a project component.' });
+      }
+    } catch (error) {
+      findings.push({ id: `project-file-attention:${resolvedProjectPath}`, type: 'attention', name: 'Project package file needs attention', scope: 'This project', path: path.join(resolvedProjectPath, 'package.json'), description: error.message });
+    }
   }
 
   const claude = await claudeStatus();
@@ -621,7 +664,7 @@ app.whenReady().then(async () => {
     });
     if (result.canceled || result.filePaths.length === 0) return { canceled: true };
     try {
-      return { canceled: false, projectPath: await validateProjectFolder(result.filePaths[0]) };
+      return { canceled: false, projectPath: await resolveProjectFolder(result.filePaths[0]) };
     } catch (error) {
       return { canceled: false, error: error.message };
     }
@@ -629,16 +672,20 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('components:preview', async (_event, { projectPath, componentIds }) => {
     try {
-      const [resolvedProjectPath, components] = await Promise.all([
-        validateProjectFolder(projectPath),
+      const [projectPackage, components] = await Promise.all([
+        prepareProjectPackage(projectPath, { dryRun: true }),
         selectedComponents(componentIds),
       ]);
       return {
         ok: true,
-        projectPath: resolvedProjectPath,
+        projectPath: projectPackage.projectPath,
         components,
         command: `npm install ${components.map((component) => component.packageName).join(' ')}`,
-        note: 'This installs package dependencies in the selected project only. Component-specific configuration remains a separate, reviewed step.',
+        packageJsonPath: projectPackage.packageJsonPath,
+        packageState: projectPackage.packageState,
+        note: projectPackage.wouldCreate
+          ? 'CCTI will prepare Node.js if needed, create package.json in this selected project folder, then install these packages here. Component-specific configuration remains a separate, reviewed step.'
+          : 'CCTI will prepare Node.js if needed, then install these packages in the selected project only. Component-specific configuration remains a separate, reviewed step.',
       };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -648,24 +695,30 @@ app.whenReady().then(async () => {
   ipcMain.handle('components:install', async (_event, { projectPath, componentIds, dryRun }) => {
     if (activeComponentInstall) return { ok: false, error: 'A project component installation is already running.' };
     try {
-      const [resolvedProjectPath, components] = await Promise.all([
-        validateProjectFolder(projectPath),
+      const [projectInspection, components] = await Promise.all([
+        inspectProjectPackage(projectPath),
         selectedComponents(componentIds),
       ]);
       const packages = components.map((component) => component.packageName);
       if (dryRun) {
-        return { ok: true, preview: true, command: `npm install ${packages.join(' ')}`, components };
+        return { ok: true, preview: true, command: `npm install ${packages.join(' ')}`, components, packageJsonPath: projectInspection.packageJsonPath, packageState: projectInspection.packageState };
       }
       activeComponentInstall = true;
       emit('component:state', { running: true });
-      const child = spawn('npm', ['install', ...packages], { cwd: resolvedProjectPath, windowsHide: true, env: { ...process.env } });
+      emit('component:output', { stream: 'stdout', text: '[CCTI] Preparing the required project runtime…\n' });
+      const prerequisites = await spawnInstaller('project-prerequisites');
+      if (prerequisites.code !== 0) return { ok: false, code: prerequisites.code, error: 'CCTI could not prepare the required project runtime. Review the activity details and try again.' };
+      const projectPackage = await prepareProjectPackage(projectInspection.projectPath);
+      if (projectPackage.created) emit('component:output', { stream: 'stdout', text: `[CCTI] Created required project file: ${projectPackage.packageJsonPath}\n` });
+      const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+      const child = spawn(npmCommand, ['install', ...packages], { cwd: projectPackage.projectPath, windowsHide: true, env: claudeProcessEnv() });
       child.stdout.on('data', (chunk) => emit('component:output', { stream: 'stdout', text: chunk.toString() }));
       child.stderr.on('data', (chunk) => emit('component:output', { stream: 'stderr', text: chunk.toString() }));
       const result = await new Promise((resolve, reject) => {
         child.on('error', reject);
         child.on('close', (code) => resolve({ code }));
       });
-      return { ok: result.code === 0, code: result.code, components };
+      return { ok: result.code === 0, code: result.code, components, packageJsonPath: projectPackage.packageJsonPath, packageState: projectPackage.packageState };
     } catch (error) {
       return { ok: false, error: error.message };
     } finally {

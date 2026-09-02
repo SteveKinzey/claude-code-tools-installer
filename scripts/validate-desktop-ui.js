@@ -57,6 +57,35 @@ if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('c
 if (!main.includes('const installed = result.code === 0 && version.length > 0')) {
   throw new Error('Claude Code status must reject an empty successful command response.');
 }
+if (!main.includes("require('./project-prerequisites')") || !main.includes('prepareProjectPackage(projectPath, { dryRun: true })') || !main.includes("spawnInstaller('project-prerequisites')") || !main.includes("const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'")) {
+  throw new Error('Project component installs must automatically prepare the safe project manifest and Node runtime before npm runs.');
+}
+if (main.includes('Choose a JavaScript or TypeScript project folder that contains package.json.')) {
+  throw new Error('CCTI must not block an empty selected project folder solely because package.json is missing.');
+}
+if (!renderer.includes('CCTI will prepare required project files and runtime automatically') || !renderer.includes('Preparing project and installing components')) {
+  throw new Error('The project-component UI must clearly describe automatic prerequisite preparation and progress.');
+}
+if (!html.includes('CCTI prepares Node.js and creates package.json there when it is missing') || !renderer.includes("item.type === 'project-package'") || !renderer.includes("item.scope === 'This computer'")) {
+  throw new Error('The UI must distinguish automatic project preparation and global-versus-project inventory scopes.');
+}
+if (!html.includes('id="start-project-interview-button"') || !html.includes('../project-interview.js') || !renderer.includes('function beginProjectInterview()') || !renderer.includes('function exportProjectPrd()')) {
+  throw new Error('CCTI must offer a private optional Project Interview with local draft export.');
+}
+if (!fs.readFileSync(path.join(root, 'desktop', 'src', 'project-interview.js'), 'utf8').includes('Nothing has been selected or installed.') || !renderer.includes('buildProjectInterviewDraft(interview.answers, state.catalog, state.componentCatalog.components)')) {
+  throw new Error('The Project Interview must draft recommendations without selecting or installing tools.');
+}
+if (calledMethods.size !== exposedMethods.size) {
+  throw new Error('The optional Project Interview must not add unused renderer-to-main bridge methods.');
+}
+for (const adapter of ['setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
+  if (!fs.readFileSync(path.join(root, adapter), 'utf8').includes('--project-prerequisites')) {
+    throw new Error(`${adapter} must offer the app-only project prerequisite mode.`);
+  }
+}
+if (!fs.readFileSync(path.join(root, 'setup-my-claude.ps1'), 'utf8').includes('[switch]$ProjectPrerequisites')) {
+  throw new Error('The Windows adapter must offer the app-only project prerequisite mode.');
+}
 if (!html.includes('id="recheck-claude-button"') || !renderer.includes("recheckClaudeButton.addEventListener('click'")) {
   throw new Error('The first-run flow must offer a plain in-app Claude Code recheck.');
 }

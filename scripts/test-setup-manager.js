@@ -62,8 +62,16 @@ async function run() {
   const applyCleanup = handlers.get('setup-manager:apply-cleanup');
   const reviewPluginChange = handlers.get('setup-manager:review-plugin-change');
   const applyPluginChange = handlers.get('setup-manager:apply-plugin-change');
+  const previewComponents = handlers.get('components:preview');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange, 'all setup-manager handlers should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents, 'all setup-manager handlers should be registered');
+
+  const componentCatalog = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
+  const componentPreview = await previewComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id] });
+  assert.equal(componentPreview.ok, true);
+  assert.equal(componentPreview.packageState, 'missing');
+  assert.match(componentPreview.note, /create package\.json/i);
+  await assert.rejects(fsp.access(path.join(project, 'package.json')));
 
   const missingProject = await reviewCustom(null, { source: sourceSkill, scope: 'project', projectPath: '' });
   assert.equal(missingProject.ok, false);
@@ -81,6 +89,7 @@ async function run() {
 
   const report = await discover(null, { projectPath: project });
   assert.ok(report.discoveryId, 'a discovery session is required for cleanup');
+  assert.ok(report.findings.some((item) => item.type === 'attention' && item.name === 'Project package file will be created when needed' && item.scope === 'This project'), 'the inventory should explain automatic package initialization for a selected project');
   assert.equal(report.duplicates.length, 1);
   const userSkill = report.findings.find((item) => item.type === 'skill' && item.scope === 'Just you');
   assert.ok(userSkill, 'the user skill should be found');

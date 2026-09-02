@@ -14,6 +14,7 @@ const state = {
   managerReport: null,
   customAddOnReview: null,
   compass: { online: false, history: [], opened: false },
+  projectInterview: { active: false, step: 0, answers: {}, result: null },
   anonymousSuccess: { kind: '', reported: false },
 };
 
@@ -65,6 +66,16 @@ const customAddOnOutputElement = document.querySelector('#custom-addon-output');
 const applyCustomAddOnButton = document.querySelector('#apply-custom-addon-button');
 const reportAnonymousSuccessButton = document.querySelector('#report-anonymous-success-button');
 const anonymousSuccessMessageElement = document.querySelector('#anonymous-success-message');
+const startProjectInterviewButton = document.querySelector('#start-project-interview-button');
+const projectInterviewPanelElement = document.querySelector('#project-interview-panel');
+const projectInterviewProgressElement = document.querySelector('#project-interview-progress');
+const projectInterviewQuestionElement = document.querySelector('#project-interview-question');
+const projectInterviewHelpElement = document.querySelector('#project-interview-help');
+const projectInterviewAnswerElement = document.querySelector('#project-interview-answer');
+const projectInterviewBackButton = document.querySelector('#project-interview-back-button');
+const projectInterviewNextButton = document.querySelector('#project-interview-next-button');
+const projectInterviewOutputElement = document.querySelector('#project-interview-output');
+const exportProjectPrdButton = document.querySelector('#export-project-prd-button');
 
 function selectedItems() {
   return state.catalog.filter((tool) => state.selected.has(tool.id));
@@ -91,6 +102,95 @@ function offerAnonymousSuccessCount(kind) {
   reportAnonymousSuccessButton.textContent = 'Count this anonymous success';
   anonymousSuccessMessageElement.textContent = '';
   anonymousSuccessMessageElement.className = 'anonymous-success-message';
+}
+
+function projectInterviewApi() {
+  return window.CCTIProjectInterview || { PROJECT_INTERVIEW_QUESTIONS: [], buildProjectInterviewDraft: () => ({ draft: '', recommendations: [] }) };
+}
+
+function renderProjectInterview() {
+  const interview = state.projectInterview;
+  const { PROJECT_INTERVIEW_QUESTIONS: questions } = projectInterviewApi();
+  projectInterviewPanelElement.classList.toggle('is-hidden', !interview.active);
+  startProjectInterviewButton.hidden = interview.active;
+  if (!interview.active || !questions.length) return;
+
+  if (interview.result) {
+    projectInterviewProgressElement.textContent = 'Your private first draft';
+    projectInterviewQuestionElement.textContent = 'Review this before choosing tools';
+    projectInterviewHelpElement.textContent = 'Nothing has been selected or installed. The suggestions are grouped by where they would belong.';
+    projectInterviewAnswerElement.classList.add('is-hidden');
+    projectInterviewNextButton.classList.add('is-hidden');
+    projectInterviewBackButton.textContent = 'Edit my answers';
+    projectInterviewOutputElement.textContent = interview.result.draft;
+    projectInterviewOutputElement.classList.remove('is-hidden');
+    exportProjectPrdButton.classList.remove('is-hidden');
+    return;
+  }
+
+  const question = questions[interview.step];
+  projectInterviewProgressElement.textContent = `Question ${interview.step + 1} of ${questions.length} · stays on this computer`;
+  projectInterviewQuestionElement.textContent = question.title;
+  projectInterviewHelpElement.textContent = question.help;
+  projectInterviewAnswerElement.classList.remove('is-hidden');
+  projectInterviewAnswerElement.value = interview.answers[question.key] || '';
+  projectInterviewBackButton.disabled = interview.step === 0;
+  projectInterviewBackButton.textContent = 'Back';
+  projectInterviewNextButton.textContent = interview.step === questions.length - 1 ? 'Make my draft' : 'Next question';
+  projectInterviewNextButton.classList.remove('is-hidden');
+  projectInterviewOutputElement.classList.add('is-hidden');
+  exportProjectPrdButton.classList.add('is-hidden');
+}
+
+function beginProjectInterview() {
+  state.projectInterview = { active: true, step: 0, answers: {}, result: null };
+  renderProjectInterview();
+  projectInterviewAnswerElement.focus();
+}
+
+function advanceProjectInterview() {
+  const interview = state.projectInterview;
+  const { PROJECT_INTERVIEW_QUESTIONS: questions, buildProjectInterviewDraft } = projectInterviewApi();
+  const question = questions[interview.step];
+  if (!question) return;
+  interview.answers[question.key] = projectInterviewAnswerElement.value.trim();
+  if (interview.step < questions.length - 1) {
+    interview.step += 1;
+    renderProjectInterview();
+    projectInterviewAnswerElement.focus();
+    return;
+  }
+  interview.result = buildProjectInterviewDraft(interview.answers, state.catalog, state.componentCatalog.components);
+  renderProjectInterview();
+}
+
+function goBackInProjectInterview() {
+  const interview = state.projectInterview;
+  const { PROJECT_INTERVIEW_QUESTIONS: questions } = projectInterviewApi();
+  if (interview.result) {
+    interview.result = null;
+    interview.step = questions.length - 1;
+  } else if (interview.step > 0) {
+    const question = questions[interview.step];
+    interview.answers[question.key] = projectInterviewAnswerElement.value.trim();
+    interview.step -= 1;
+  } else {
+    return;
+  }
+  renderProjectInterview();
+  projectInterviewAnswerElement.focus();
+}
+
+function exportProjectPrd() {
+  const draft = state.projectInterview.result?.draft;
+  if (!draft) return;
+  const blob = new Blob([draft], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'ccti-project-requirements-draft.md';
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 async function reportAnonymousSuccess() {
@@ -487,7 +587,7 @@ async function chooseProjectFolder() {
   }
   componentPlanOutputElement.classList.remove('has-error');
   state.projectPath = result.projectPath;
-  componentPlanOutputElement.textContent = 'Project selected. Preview the exact package command before installing anything.';
+  componentPlanOutputElement.textContent = 'Project selected. CCTI will prepare required project files and runtime automatically, then install the selected packages here. Read the activity details at the bottom if you want the technical steps.';
   updateProjectPlan();
 }
 
@@ -510,9 +610,9 @@ async function installProjectComponents() {
     return;
   }
   const names = preview.components.map((component) => `• ${component.name} (${component.packageName})`).join('\n');
-  if (!window.confirm(`Install ${preview.components.length} Convex Component${preview.components.length === 1 ? '' : 's'} in this project only?\n\n${names}\n\nProject folder:\n${preview.projectPath}\n\nExact command:\n${preview.command}\n\nThe packages may require follow-up configuration. Nothing else on this computer will be changed.`)) return;
+  if (!window.confirm(`Install ${preview.components.length} Convex Component${preview.components.length === 1 ? '' : 's'} in this project only?\n\n${names}\n\nProject folder:\n${preview.projectPath}\n\nCCTI will prepare Node.js if needed${preview.packageState === 'missing' ? ' and create package.json in this folder' : ''}, then run:\n${preview.command}\n\nThe packages may require follow-up configuration. Nothing else on this computer will be changed.`)) return;
   componentPlanOutputElement.classList.remove('has-error');
-  componentPlanOutputElement.textContent = `Installing project dependencies in ${preview.projectPath}…`;
+  componentPlanOutputElement.textContent = `Preparing this project and installing components in ${preview.projectPath}…`;
   const result = await window.installer.installComponents({ projectPath: state.projectPath, componentIds: [...state.componentPlan], dryRun: false });
   if (result.ok) {
     componentPlanOutputElement.textContent = `Project component installation completed. Review each component’s configuration before using it.`;
@@ -531,8 +631,11 @@ function renderSetupManager(report) {
   const skills = items.filter((item) => item.type === 'skill').length;
   const plugins = items.filter((item) => item.type === 'plugin').length;
   const connections = items.filter((item) => item.type === 'connection').length;
+  const globalItems = items.filter((item) => item.scope === 'This computer').length;
+  const projectItems = items.filter((item) => item.scope === 'This project' || item.scope === 'Only you in this project').length;
+  const followUps = items.filter((item) => item.scope === 'Your action may be needed').length;
   setupManagerSummaryElement.textContent = items.length
-    ? `Found ${skills} skill${skills === 1 ? '' : 's'}, ${plugins} add-on${plugins === 1 ? '' : 's'}, and ${connections} saved connection${connections === 1 ? '' : 's'}. This list is a checkup only. Nothing was changed.`
+    ? `Found ${globalItems} item${globalItems === 1 ? '' : 's'} for this computer, ${projectItems} item${projectItems === 1 ? '' : 's'} in the selected project, ${skills} skill${skills === 1 ? '' : 's'}, ${plugins} add-on${plugins === 1 ? '' : 's'}, and ${connections} saved connection${connections === 1 ? '' : 's'}${followUps ? `, plus ${followUps} follow-up item${followUps === 1 ? '' : 's'}` : ''}. This list is a checkup only. Nothing was changed.`
     : 'Nothing was found in the places checked. That is okay. You can still add tools or your own skill when ready.';
   setupManagerResultsElement.replaceChildren();
   if (!items.length) {
@@ -547,7 +650,16 @@ function renderSetupManager(report) {
     const title = document.createElement('h3');
     title.textContent = item.name;
     const meta = document.createElement('p');
-    meta.textContent = `${item.type === 'skill' ? 'Skill' : item.type === 'plugin' ? 'Add-on' : item.type === 'connection' ? 'Saved connection' : 'Needs attention'} · ${item.scope}`;
+    const kind = item.type === 'skill' ? 'Skill'
+      : item.type === 'plugin' ? 'Add-on'
+        : item.type === 'connection' ? 'Saved connection'
+          : item.type === 'runtime' ? 'Runtime'
+            : item.type === 'tool' ? 'Tool'
+              : item.type === 'project-file' ? 'Project file'
+                : item.type === 'project-package' ? 'Project package'
+                  : item.type === 'follow-up' ? 'Follow-up'
+                    : 'Needs attention';
+    meta.textContent = `${kind} · ${item.scope}`;
     const copy = document.createElement('p');
     copy.textContent = item.description;
     const location = document.createElement('p');
@@ -819,6 +931,10 @@ document.querySelector('#all-button').addEventListener('click', () => chooseBy((
 document.querySelector('#clear-button').addEventListener('click', () => chooseBy(() => false));
 document.querySelector('#dry-run').addEventListener('change', updateSummary);
 document.querySelector('#install-button').addEventListener('click', runInstallation);
+startProjectInterviewButton.addEventListener('click', beginProjectInterview);
+projectInterviewNextButton.addEventListener('click', advanceProjectInterview);
+projectInterviewBackButton.addEventListener('click', goBackInProjectInterview);
+exportProjectPrdButton.addEventListener('click', exportProjectPrd);
 document.querySelector('#open-components-library').addEventListener('click', openComponentLibrary);
 document.querySelector('#close-components-library').addEventListener('click', () => componentLibraryElement.classList.add('is-hidden'));
 componentSearchElement.addEventListener('input', renderComponents);
@@ -874,8 +990,8 @@ window.installer.onState(({ running }) => {
 window.installer.onComponentOutput(({ stream, text }) => appendOutput(`[Project components] ${text}`, stream));
 window.installer.onComponentState(({ running }) => {
   state.componentRunning = running;
-  if (running) runStatusElement.textContent = 'Installing project components';
-  else if (runStatusElement.textContent === 'Installing project components') runStatusElement.textContent = 'Project component plan finished';
+  if (running) runStatusElement.textContent = 'Preparing project and installing components';
+  else if (runStatusElement.textContent === 'Preparing project and installing components') runStatusElement.textContent = 'Project component plan finished';
   updateProjectPlan();
 });
 
