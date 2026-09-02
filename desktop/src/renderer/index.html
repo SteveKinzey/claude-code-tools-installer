@@ -21,6 +21,29 @@
         <strong>No command-line steps are required in this app.</strong> Start by setting up Claude Code, choose only the tools you want, and review every change before it runs. Project-level Convex packages are kept separate so they never install in the wrong folder.
       </section>
 
+      <section class="references-panel" aria-labelledby="references-heading">
+        <div>
+          <p class="eyebrow">OPTIONAL TECHNICAL HELP</p>
+          <h2 id="references-heading">References</h2>
+          <p>Normal setup and tool details stay in CCTI. Open this only for original source pages, exact package names, and technical words.</p>
+        </div>
+        <button id="toggle-references-button" class="button button-ghost" type="button" aria-expanded="false" aria-controls="references-content">Open References</button>
+        <div id="references-content" class="references-content is-hidden">
+          <section class="reference-terms" aria-label="Technical terms in simple words">
+            <div><strong>Project folder</strong><span>The folder that holds one app you are building. Project features go there.</span></div>
+            <div><strong>Package</strong><span>A small piece of app code. CCTI adds it only to the project folder you choose.</span></div>
+            <div><strong>Plugin or skill</strong><span>An optional helper for Claude Code. It belongs in your Claude Code setup.</span></div>
+            <div><strong>MCP connection</strong><span>A connection between Claude Code and another service. It may require that service’s sign-in.</span></div>
+            <div><strong>Runtime</strong><span>A helper program, such as Node.js, that lets some tools run. CCTI prepares supported ones when needed.</span></div>
+          </section>
+          <label class="search-field" for="reference-search">Find an original source or exact package name
+            <input id="reference-search" type="search" placeholder="Search a tool, component, or package name" autocomplete="off" />
+          </label>
+          <p class="reference-note">These links open websites run by other organizations. They are optional and can use more technical language than CCTI.</p>
+          <div id="reference-results" class="reference-results" aria-live="polite"></div>
+        </div>
+      </section>
+
       <section class="setup-panel" aria-labelledby="setup-heading">
         <div class="step-heading">
           <span class="step-number">1</span>
@@ -49,6 +72,14 @@
           <button id="browse-button" class="setup-option" type="button">
             <span class="setup-option-title">Browse tools first</span>
             <span class="setup-option-copy">Look through every option without installing or changing anything.</span>
+          </button>
+          <button id="run-claude-button" class="setup-option setup-option-run" type="button" hidden disabled>
+            <span class="setup-option-title">Run Claude Code</span>
+            <span class="setup-option-copy">Opens Claude Code for the folder you selected. Claude Code uses a terminal window, but you do not need to type a command to start it.</span>
+          </button>
+          <button id="remove-claude-button" class="setup-option setup-option-danger" type="button" hidden disabled>
+            <span class="setup-option-title">Remove Claude Code from this computer</span>
+            <span class="setup-option-copy">First shows a careful removal list. It does not touch Claude Desktop, Claude in Chrome, browser data, or other Anthropic apps.</span>
           </button>
           <button id="start-fresh-button" class="setup-option setup-option-danger" type="button" disabled>
             <span class="setup-option-title">Start fresh</span>
@@ -121,7 +152,7 @@
         </section>
 
         <section class="selection-explainer" aria-label="Selection guidance">
-          <strong>Turn extras on or off for this plan.</strong> On means CCTI will add that reviewed extra after you confirm. Off means leave it out. It does not remove software already on your computer. Supported extras install inside CCTI; tools that need an account or secret pause safely instead of asking you to use a terminal.
+          <strong>Turn extras on or off for this plan.</strong> On means CCTI will add that reviewed extra after you confirm. Off means leave it out. It does not remove software already on your computer. Choose the clearly marked <strong>See details and example</strong> control on any card to learn what it does first. Supported extras install inside CCTI; tools that need an account or secret pause safely instead of asking you to use a terminal.
         </section>
 
         <section id="project-interview" class="project-interview" aria-labelledby="project-interview-heading">

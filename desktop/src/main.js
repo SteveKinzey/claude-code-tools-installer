@@ -11,6 +11,7 @@ let activeComponentInstall = false;
 const discoveredSkillCleanup = new Map();
 const reviewedCleanupPlans = new Map();
 const reviewedPluginChanges = new Map();
+const reviewedClaudeRemovalPlans = new Map();
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
 const reviewedPluginPlans = {
@@ -149,6 +150,137 @@ async function claudeStatus() {
     };
   } catch {
     return { installed: false, version: '', path: '', reason: 'Claude Code could not be run.' };
+  }
+}
+
+async function pathExists(target) {
+  try {
+    await fs.lstat(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function quotePosix(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function startDetached(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: false, ...options });
+    child.once('error', reject);
+    child.once('spawn', () => { child.unref(); resolve(); });
+  });
+}
+
+async function launchClaudeCode({ projectPath } = {}) {
+  const status = await claudeStatus();
+  if (!status.installed || !status.path) return { ok: false, error: 'Claude Code is not ready yet. Install it first, then choose Run Claude Code.' };
+  let folder = app.getPath('home');
+  if (projectPath) {
+    try { folder = await resolveProjectFolder(projectPath); } catch (error) { return { ok: false, error: error.message }; }
+  }
+  try {
+    if (process.platform === 'darwin') {
+      const command = `cd ${quotePosix(folder)}; exec ${quotePosix(status.path)}`;
+      const result = await runProcess('osascript', ['-e', `tell application "Terminal" to do script ${JSON.stringify(command)}`], { cwd: folder, env: claudeProcessEnv() });
+      if (result.code !== 0) throw new Error(result.stderr.trim() || 'Mac Terminal did not open.');
+      return { ok: true, message: 'Claude Code opened in the Mac Terminal for the selected folder.' };
+    }
+    if (process.platform === 'win32') {
+      const folderArg = folder.replace(/'/g, "''");
+      const claudeArg = status.path.replace(/'/g, "''");
+      await startDetached('pwsh.exe', ['-NoExit', '-Command', `Set-Location -LiteralPath '${folderArg}'; & '${claudeArg}'`], { cwd: folder, env: claudeProcessEnv() });
+      return { ok: true, message: 'Claude Code opened in a PowerShell window for the selected folder.' };
+    }
+    const launchCommand = `cd ${quotePosix(folder)}; exec ${quotePosix(status.path)}`;
+    for (const terminal of [
+      ['x-terminal-emulator', ['-e', 'bash', '-lc', launchCommand]],
+      ['gnome-terminal', ['--', 'bash', '-lc', launchCommand]],
+      ['konsole', ['-e', 'bash', '-lc', launchCommand]],
+      ['xterm', ['-e', 'bash', '-lc', launchCommand]],
+    ]) {
+      if (!await commandLocation(terminal[0])) continue;
+      await startDetached(terminal[0], terminal[1], { cwd: folder, env: claudeProcessEnv() });
+      return { ok: true, message: 'Claude Code opened in a terminal window for the selected folder.' };
+    }
+    return { ok: false, error: 'CCTI could not find a supported Linux terminal window to open Claude Code. Nothing was changed.' };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not open Claude Code: ${error.message}` };
+  }
+}
+
+async function knownClaudeRemovalPlan() {
+  const home = app.getPath('home');
+  const nativeLauncher = path.join(home, '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude');
+  const nativeVersions = path.join(home, '.local', 'share', 'claude');
+  const removable = [];
+  const settings = [];
+  const attention = [];
+  if (await pathExists(nativeLauncher)) removable.push({ kind: 'path', path: nativeLauncher, label: 'Claude Code launcher', scope: 'Claude Code CLI' });
+  if (await pathExists(nativeVersions)) removable.push({ kind: 'path', path: nativeVersions, label: 'Claude Code native versions', scope: 'Claude Code CLI' });
+  for (const target of [path.join(home, '.claude'), path.join(home, '.claude.json')]) {
+    if (await pathExists(target)) settings.push({ kind: 'path', path: target, label: path.basename(target), scope: 'Claude Code settings and history' });
+  }
+  const cctiData = setupManagerDir();
+  if (await pathExists(cctiData)) removable.push({ kind: 'path', path: cctiData, label: 'CCTI-managed setup data and runtime', scope: 'CCTI only' });
+  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  if (await commandLocation(npmCommand)) {
+    const npm = await runProcess(npmCommand, ['list', '-g', '@anthropic-ai/claude-code', '--depth=0'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1 }));
+    if (npm.code === 0) removable.push({ kind: 'command', command: npmCommand, args: ['uninstall', '-g', '@anthropic-ai/claude-code'], label: 'Claude Code installed with npm', scope: 'Claude Code CLI' });
+  }
+  if (process.platform === 'darwin' && await commandLocation('brew')) {
+    for (const cask of ['claude-code', 'claude-code@latest']) {
+      const brew = await runProcess('brew', ['list', '--cask', cask], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1 }));
+      if (brew.code === 0) removable.push({ kind: 'command', command: 'brew', args: ['uninstall', '--cask', cask], label: `Claude Code ${cask === 'claude-code@latest' ? 'latest' : 'stable'} cask`, scope: 'Claude Code CLI' });
+    }
+  }
+  if (process.platform === 'win32' && await commandLocation('winget')) {
+    const winget = await runProcess('winget', ['list', '--id', 'Anthropic.ClaudeCode', '--exact'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1 }));
+    if (winget.code === 0) removable.push({ kind: 'command', command: 'winget', args: ['uninstall', '--id', 'Anthropic.ClaudeCode', '--exact', '--silent', '--accept-source-agreements'], label: 'Claude Code installed with Windows Package Manager', scope: 'Claude Code CLI' });
+  }
+  const status = await claudeStatus();
+  if (status.installed && removable.length === 0) attention.push('CCTI found a working Claude Code command but could not confirm a safe supported removal method, so it will not delete an unknown command path.');
+  if (process.platform === 'linux') attention.push('A Claude Code install made with a system package manager can need an administrator’s approval. CCTI leaves unrecognized system packages unchanged.');
+  if (removable.length === 0 && settings.length === 0) return { ok: false, error: attention[0] || 'CCTI did not find Claude Code files it can safely remove.' };
+  const reviewId = randomUUID();
+  reviewedClaudeRemovalPlans.set(reviewId, { createdAt: Date.now(), removable, settings });
+  for (const [id, plan] of reviewedClaudeRemovalPlans) if (Date.now() - plan.createdAt > 10 * 60 * 1000) reviewedClaudeRemovalPlans.delete(id);
+  const detail = (item) => ({ label: item.label, scope: item.scope, path: item.path || 'Known Claude Code package' });
+  return { ok: true, reviewId, removable: removable.map(detail), settings: settings.map(detail), protected: ['Claude Desktop app and its data', 'Claude in Chrome, browser profiles, and browser extensions', 'VS Code and JetBrains extensions', 'Any unrelated Anthropic app or account'], attention };
+}
+
+async function applyKnownClaudeRemoval({ reviewId, confirmation, removeSettings } = {}) {
+  if (confirmation !== 'REMOVE CLAUDE CODE') return { ok: false, error: 'Type REMOVE CLAUDE CODE exactly before CCTI removes anything.' };
+  const plan = reviewedClaudeRemovalPlans.get(reviewId);
+  if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) return { ok: false, error: 'This removal review has expired. Review the plan again.' };
+  if (activeInstall) return { ok: false, error: 'Another CCTI action is running. Wait for it to finish first.' };
+  reviewedClaudeRemovalPlans.delete(reviewId);
+  activeInstall = true;
+  emit('installer:state', { running: true });
+  try {
+    for (const item of plan.removable) {
+      emit('installer:output', { stream: 'stdout', text: `[CCTI] Removing ${item.label}…\n` });
+      if (item.kind === 'path') await fs.rm(item.path, { recursive: true, force: true });
+      else {
+        const result = await runProcess(item.command, item.args, { cwd: app.getPath('home'), env: claudeProcessEnv() });
+        if (result.stdout) emit('installer:output', { stream: 'stdout', text: result.stdout });
+        if (result.stderr) emit('installer:output', { stream: result.code === 0 ? 'stdout' : 'stderr', text: result.stderr });
+        if (result.code !== 0) throw new Error(`${item.label} could not be removed.`);
+      }
+    }
+    if (removeSettings) for (const item of plan.settings) {
+      emit('installer:output', { stream: 'stdout', text: `[CCTI] Removing ${item.label}…\n` });
+      await fs.rm(item.path, { recursive: true, force: true });
+    }
+    const after = await claudeStatus();
+    return { ok: !after.installed, installed: after.installed, message: after.installed ? 'CCTI removed the reviewed items, but another Claude Code command is still available. It was left in place because CCTI could not verify a safe removal method.' : 'CCTI removed the reviewed Claude Code CLI items. Claude Desktop, Chrome, browser extensions, and unrelated Anthropic products were not touched.' };
+  } catch (error) {
+    return { ok: false, error: `CCTI stopped during removal: ${error.message}` };
+  } finally {
+    activeInstall = false;
+    emit('installer:state', { running: false });
   }
 }
 
@@ -593,6 +725,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('catalog-details:get', readCatalogDetails);
   ipcMain.handle('components:get', readComponentCatalog);
   ipcMain.handle('claude:status', claudeStatus);
+  ipcMain.handle('claude:run', async (_event, payload) => launchClaudeCode(payload || {}));
+  ipcMain.handle('claude:review-removal', knownClaudeRemovalPlan);
+  ipcMain.handle('claude:apply-removal', async (_event, payload) => applyKnownClaudeRemoval(payload || {}));
   ipcMain.handle('setup-manager:choose-project', chooseSetupProject);
   ipcMain.handle('setup-manager:discover', async (_event, { projectPath } = {}) => discoverClaudeSetup(projectPath));
   ipcMain.handle('setup-manager:choose-custom-source', chooseCustomSource);
@@ -600,6 +735,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup-manager:apply-custom', async (_event, payload) => applyCustomAddOn(payload || {}));
   ipcMain.handle('setup-manager:review-cleanup', async (_event, payload) => reviewCleanup(payload || {}));
   ipcMain.handle('setup-manager:apply-cleanup', async (_event, payload) => applyCleanup(payload || {}));
+  ipcMain.handle('claude:run', async (_event, payload) => launchClaudeCode(payload || {}));
+  ipcMain.handle('claude:review-removal', async () => knownClaudeRemovalPlan());
+  ipcMain.handle('claude:apply-removal', async (_event, payload) => applyKnownClaudeRemoval(payload || {}));
 
   ipcMain.handle('claude:install-only', async () => {
     if (activeInstall) return { ok: false, error: 'An installation is already running.', installed: false, version: '' };

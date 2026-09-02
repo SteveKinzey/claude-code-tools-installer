@@ -35,6 +35,12 @@ const useExistingButton = document.querySelector('#use-existing-button');
 const installClaudeButton = document.querySelector('#install-claude-button');
 const recheckClaudeButton = document.querySelector('#recheck-claude-button');
 const browseButton = document.querySelector('#browse-button');
+const runClaudeButton = document.querySelector('#run-claude-button');
+const removeClaudeButton = document.querySelector('#remove-claude-button');
+const toggleReferencesButton = document.querySelector('#toggle-references-button');
+const referencesContentElement = document.querySelector('#references-content');
+const referenceSearchElement = document.querySelector('#reference-search');
+const referenceResultsElement = document.querySelector('#reference-results');
 const completionPanelElement = document.querySelector('#completion-panel');
 const componentCountElement = document.querySelector('#component-count');
 const componentLibraryElement = document.querySelector('#component-library');
@@ -108,12 +114,61 @@ function detailLine(label, value) {
   return row;
 }
 
+function renderReferences() {
+  const term = referenceSearchElement.value.trim().toLowerCase();
+  const entries = [...state.catalog, ...state.componentCatalog.components]
+    .filter((item) => item.sourceUrl)
+    .filter((item) => !term || `${item.name} ${item.packageName || ''} ${item.category || ''}`.toLowerCase().includes(term))
+    .slice(0, 80);
+  referenceResultsElement.replaceChildren();
+  if (!entries.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-results';
+    empty.textContent = 'No original source matches that name. Try a shorter tool or package name.';
+    referenceResultsElement.append(empty);
+    return;
+  }
+  for (const item of entries) {
+    const row = document.createElement('article');
+    row.className = 'reference-item';
+    const title = document.createElement('strong');
+    title.textContent = item.name;
+    const scope = document.createElement('span');
+    scope.textContent = detailFor(item).scope;
+    const link = document.createElement('a');
+    link.href = item.sourceUrl;
+    link.target = '_blank';
+    link.rel = 'noreferrer';
+    link.textContent = 'Open original source (optional)';
+    row.append(title, scope, link);
+    referenceResultsElement.append(row);
+  }
+  if (entries.length === 80) {
+    const more = document.createElement('p');
+    more.className = 'reference-note';
+    more.textContent = 'Showing the first 80 matching sources. Use a more specific search to narrow the list.';
+    referenceResultsElement.append(more);
+  }
+}
+
+function toggleReferences() {
+  const isOpening = referencesContentElement.classList.contains('is-hidden');
+  referencesContentElement.classList.toggle('is-hidden', !isOpening);
+  toggleReferencesButton.setAttribute('aria-expanded', String(isOpening));
+  toggleReferencesButton.textContent = isOpening ? 'Close References' : 'Open References';
+  if (isOpening) {
+    renderReferences();
+    referenceSearchElement.focus();
+  }
+}
+
 function createInlineDetails(item) {
   const detail = detailFor(item);
   const panel = document.createElement('details');
   panel.className = 'catalog-inline-details';
   const summary = document.createElement('summary');
-  summary.textContent = 'Details and example';
+  summary.textContent = 'See details and example';
+  summary.setAttribute('aria-label', `See details and an example for ${item.name}. This does not turn it on.`);
   const content = document.createElement('div');
   content.className = 'catalog-detail-content';
   content.append(
@@ -362,6 +417,10 @@ async function refreshClaudeStatus() {
   state.claudeInstalled = result.installed;
   useExistingButton.disabled = !result.installed;
   startFreshButton.disabled = !result.installed || state.running;
+  runClaudeButton.hidden = !result.installed;
+  runClaudeButton.disabled = !result.installed || state.running;
+  removeClaudeButton.hidden = !result.installed;
+  removeClaudeButton.disabled = !result.installed || state.running;
   installClaudeButton.hidden = result.installed;
   installClaudeButton.disabled = result.installed || state.running;
   recheckClaudeButton.disabled = state.running;
@@ -407,6 +466,55 @@ async function installClaudeCode() {
     runStatusElement.textContent = 'Needs attention';
   }
   updateSummary();
+}
+
+async function runClaudeCode() {
+  runClaudeButton.disabled = true;
+  setupNoteElement.textContent = 'Opening Claude Code now. It will open in your computer’s terminal window for the selected project folder, or your home folder when no project is selected.';
+  runStatusElement.textContent = 'Opening Claude Code';
+  const result = await window.installer.runClaudeCode({ projectPath: state.projectPath || undefined });
+  if (result.ok) {
+    setupNoteElement.textContent = result.message;
+    runStatusElement.textContent = 'Claude Code opened';
+    appendOutput(`[CCTI] ${result.message}\n`);
+  } else {
+    setupNoteElement.textContent = result.error || 'CCTI could not open Claude Code. Nothing was changed.';
+    runStatusElement.textContent = 'Claude Code needs attention';
+    appendOutput(`[CCTI] ${result.error || 'Claude Code could not be opened.'}\n`, 'stderr');
+  }
+  runClaudeButton.disabled = !state.claudeInstalled || state.running;
+}
+
+async function removeClaudeCode() {
+  const review = await window.installer.reviewClaudeRemoval();
+  if (!review.ok) {
+    setupNoteElement.textContent = review.error || 'CCTI could not make a safe removal list. Nothing was changed.';
+    appendOutput(`[CCTI] ${review.error || 'No safe Claude Code removal path was found.'}\n`, 'stderr');
+    return;
+  }
+  const removable = review.removable.length ? review.removable.map((item) => `• ${item.label} (${item.scope})`).join('\n') : '• No removable Claude Code program files were found.';
+  const settings = review.settings.length ? review.settings.map((item) => `• ${item.label} (${item.scope})`).join('\n') : '• No Claude Code settings or history files were found.';
+  const protectedItems = review.protected.map((item) => `• ${item}`).join('\n');
+  const warning = review.attention.length ? `\n\nNeeds attention:\n${review.attention.map((item) => `• ${item}`).join('\n')}` : '';
+  if (!window.confirm(`Review before removal. CCTI can remove only these known Claude Code CLI items:\n${removable}\n\nIt can also remove these Claude Code settings and history items if you choose:\n${settings}\n\nCCTI will NOT touch:\n${protectedItems}${warning}\n\nContinue to choose whether to remove the Claude Code settings and history?`)) return;
+  const removeSettings = review.settings.length > 0 && window.confirm('Remove the shown Claude Code settings and history too?\n\nChoose OK to remove them. Choose Cancel to keep them while removing only the known Claude Code CLI items.');
+  const confirmation = window.prompt('Final check: type REMOVE CLAUDE CODE exactly to remove the reviewed items. Nothing will happen until you type it exactly.');
+  if (confirmation !== 'REMOVE CLAUDE CODE') return;
+  clearOutput();
+  appendOutput('[CCTI] Removing only the reviewed Claude Code CLI items…\n');
+  setupNoteElement.textContent = 'Removing only the reviewed Claude Code items. Claude Desktop, Chrome, browser data, extensions, and other Anthropic apps are protected.';
+  runStatusElement.textContent = 'Removing Claude Code';
+  const result = await window.installer.applyClaudeRemoval({ reviewId: review.reviewId, confirmation, removeSettings });
+  if (result.ok) {
+    setupNoteElement.textContent = result.message;
+    runStatusElement.textContent = 'Claude Code removed';
+    appendOutput(`[CCTI] ${result.message}\n`);
+  } else {
+    setupNoteElement.textContent = result.error || 'CCTI stopped while removing Claude Code. Read the activity details.';
+    runStatusElement.textContent = 'Removal needs attention';
+    appendOutput(`[CCTI] ${result.error || 'Claude Code removal stopped.'}\n`, 'stderr');
+  }
+  await refreshClaudeStatus();
 }
 
 async function runCompleteSetup(fresh = false) {
@@ -600,7 +708,8 @@ function renderComponents() {
     const details = document.createElement('button');
     details.type = 'button';
     details.className = 'button button-ghost';
-    details.textContent = 'Details';
+    details.textContent = 'See details and example';
+    details.setAttribute('aria-label', `See details and an example for ${component.name}. This does not add it to your plan.`);
     details.addEventListener('click', () => {
       state.componentDetailId = component.id;
       renderComponentDetail();
@@ -970,6 +1079,10 @@ useExistingButton.addEventListener('click', () => {
   runStatusElement.textContent = 'Ready to choose tools';
 });
 installClaudeButton.addEventListener('click', installClaudeCode);
+runClaudeButton.addEventListener('click', runClaudeCode);
+removeClaudeButton.addEventListener('click', removeClaudeCode);
+toggleReferencesButton.addEventListener('click', toggleReferences);
+referenceSearchElement.addEventListener('input', renderReferences);
 recheckClaudeButton.addEventListener('click', async () => {
   setupNoteElement.textContent = 'Checking that Claude Code can run…';
   runStatusElement.textContent = 'Checking Claude Code';
@@ -1042,6 +1155,8 @@ window.installer.onState(({ running }) => {
   completeSetupButton.disabled = running;
   startFreshButton.disabled = running || !state.claudeInstalled;
   installClaudeButton.disabled = running || state.claudeInstalled;
+  runClaudeButton.disabled = running || !state.claudeInstalled;
+  removeClaudeButton.disabled = running || !state.claudeInstalled;
   recheckClaudeButton.disabled = running;
   updateSummary();
 });

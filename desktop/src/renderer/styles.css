@@ -24,6 +24,19 @@ h3 { margin: 0; font-size: 1rem; }
 .status-error { background: #431f2c; color: #ffb0c3; border: 1px solid #8c364f; }
 .notice, .selection-explainer, .component-library-notice { margin: 28px 0; padding: 16px 18px; background: #121d34cc; border: 1px solid #2c3d5e; border-radius: 12px; color: #cad5ed; line-height: 1.55; }
 .notice strong, .selection-explainer strong, .component-library-notice strong { color: #f0f4ff; }
+.references-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px 20px; margin: 22px 0; padding: 18px; border: 1px solid #3f617d; border-radius: 12px; background: linear-gradient(135deg, #102034, #0d1829); }
+.references-panel h2 { margin-bottom: 6px; color: #d7efff; }
+.references-panel p { margin-bottom: 0; color: #b6ccde; line-height: 1.5; }
+.references-content { grid-column: 1 / -1; display: grid; gap: 14px; padding-top: 16px; border-top: 1px solid #31516d; }
+.reference-terms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.reference-terms div { display: grid; gap: 4px; padding: 10px; border: 1px solid #294763; border-radius: 8px; background: #0a1625; }
+.reference-terms strong { color: #bce4fb; font-size: .82rem; }
+.reference-terms span, .reference-note { color: #afc4d7; font-size: .8rem; line-height: 1.45; }
+.reference-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; max-height: 360px; overflow: auto; padding: 2px; }
+.reference-item { display: grid; gap: 5px; padding: 11px; border: 1px solid #294763; border-radius: 8px; background: #0a1625; }
+.reference-item strong { color: #e4f3ff; font-size: .84rem; }
+.reference-item span { color: #83b6d3; font-size: .76rem; }
+.reference-item a { width: fit-content; color: #8ed8ff; font-size: .78rem; font-weight: 750; }
 .setup-panel, .completion-panel, .components-entry, .component-library, .setup-manager { margin: 28px 0; padding: 22px; background: linear-gradient(135deg, #13213a 0%, #0f1b30 100%); border: 1px solid #38537f; border-radius: 14px; }
 .step-heading { display: flex; gap: 12px; align-items: flex-start; }
 .step-heading h2 { margin-top: 2px; }
@@ -37,6 +50,8 @@ h3 { margin: 0; font-size: 1rem; }
 .setup-option-danger { border-color: #8c364f; background: #2c1823; }
 .setup-option-danger:hover:not(:disabled) { border-color: #ff9cb3; background: #41202d; }
 .setup-option-danger .setup-option-title { color: #ffc1cf; }
+.setup-option-run { border-color: #4f84b1; background: linear-gradient(135deg, #12314d, #10213a); }
+.setup-option-run .setup-option-title { color: #c9e9ff; }
 .setup-option-title { font-size: 0.98rem; font-weight: 800; }
 .setup-option-copy, .setup-note { color: #b5c5e0; font-size: 0.86rem; line-height: 1.45; }
 .setup-note { margin-top: 15px !important; }
@@ -69,9 +84,14 @@ h3 { margin: 0; font-size: 1rem; }
 .tool-classification { color: #9dafcb; font-size: 0.83rem; }
 .tool-action { color: #92a5c6; font-size: 0.78rem; line-height: 1.4; }
 .tool-purpose { color: #d4e5f3; font-size: 0.84rem; line-height: 1.45; }
-.catalog-inline-details { margin-top: 3px; }
-.catalog-inline-details summary { width: fit-content; color: #88cbef; cursor: pointer; font-size: 0.8rem; font-weight: 800; }
-.catalog-inline-details summary:hover { color: #d5f2ff; }
+.catalog-inline-details { margin-top: 8px; border: 1px solid #355b79; border-radius: 8px; background: #102039; }
+.catalog-inline-details summary { display: flex; align-items: center; min-height: 35px; padding: 8px 10px; color: #bfe6ff; cursor: pointer; font-size: 0.8rem; font-weight: 800; list-style: none; }
+.catalog-inline-details summary::-webkit-details-marker { display: none; }
+.catalog-inline-details summary::after { content: '+'; margin-left: auto; color: #86ceff; font: 800 1.1rem/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.catalog-inline-details[open] summary { border-bottom: 1px solid #355b79; background: #183551; }
+.catalog-inline-details[open] summary::after { content: '−'; }
+.catalog-inline-details summary:hover, .catalog-inline-details summary:focus-visible { color: #fff; background: #1a3b59; outline: none; }
+.catalog-inline-details summary:focus-visible { box-shadow: 0 0 0 2px #7cc4ff inset; }
 .catalog-detail-content { display: grid; gap: 9px; margin-top: 10px; padding: 11px; border: 1px solid #345674; border-radius: 8px; background: #091624; }
 .catalog-detail-line { display: grid; grid-template-columns: minmax(112px, 0.52fr) minmax(0, 1fr); gap: 8px; color: #c5d7e7; font-size: 0.8rem; line-height: 1.45; }
 .catalog-detail-line strong { color: #9fdbf6; font-size: 0.76rem; }
@@ -93,6 +113,7 @@ h3 { margin: 0; font-size: 1rem; }
 .component-card .component-purpose { color: #d3e7ef; font-family: inherit; font-size: 0.84rem; }
 .component-card .component-choose-when { color: #8fcae5; font-family: inherit; font-size: 0.78rem; }
 .component-card-actions { display: grid; align-content: start; justify-items: end; gap: 12px; min-width: 168px; }
+.component-card-actions .button { white-space: normal; text-align: center; }
 .component-select { display: flex; align-items: center; gap: 7px; color: #d2e7e9; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
 .component-detail { position: sticky; top: 18px; padding: 17px; border: 1px solid #355a70; border-radius: 10px; background: #122237; }
 .component-detail h3 { color: #dff8f2; margin-bottom: 10px; }
@@ -199,7 +220,7 @@ h3 { margin: 0; font-size: 1rem; }
   .custom-addon-controls { grid-template-columns: minmax(0, 1fr) auto; }
   .custom-addon-controls .filter-field { grid-column: 1; }
 }
-@media (max-width: 760px) {
+@media (max-width: 980px) {
   .manager-header, .duplicate-row { align-items: flex-start; flex-direction: column; }
   .manager-results { grid-template-columns: 1fr; }
   .custom-addon-controls { grid-template-columns: 1fr; }
@@ -208,3 +229,4 @@ h3 { margin: 0; font-size: 1rem; }
   .component-card { flex-direction: column; }
   .component-card-actions { justify-items: start; min-width: 0; }
 }
+@media (max-width: 700px) { .references-panel { grid-template-columns: 1fr; } .references-panel > .button { justify-self: start; } .reference-terms, .reference-results { grid-template-columns: 1fr; } }

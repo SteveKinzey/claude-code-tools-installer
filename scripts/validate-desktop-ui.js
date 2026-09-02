@@ -29,6 +29,9 @@ for (const asset of ['StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.
 
 for (const channel of [
   'catalog-details:get',
+  'claude:run',
+  'claude:review-removal',
+  'claude:apply-removal',
   'claude:install-only',
   'setup:complete',
   'components:get',
@@ -54,8 +57,17 @@ for (const channel of [
 if (!preload.includes('getCatalogDetails: () => ipcRenderer.invoke(\'catalog-details:get\')') || !main.includes('function catalogDetailsResource()') || !main.includes('async function readCatalogDetails()')) {
   throw new Error('Plain-language catalog details must use one read-only main-process and preload lookup.');
 }
-if (!renderer.includes('state.catalogDetails = new Map(catalogDetails.items.map((item) => [item.id, item]))') || !renderer.includes('function createInlineDetails(item)') || !renderer.includes("summary.textContent = 'Details and example'")) {
+if (!renderer.includes('state.catalogDetails = new Map(catalogDetails.items.map((item) => [item.id, item]))') || !renderer.includes('function createInlineDetails(item)') || !renderer.includes("summary.textContent = 'See details and example'")) {
   throw new Error('Every compact catalog card must load and expose its plain-language Details control.');
+}
+if (!renderer.includes('This does not turn it on.') || !renderer.includes('This does not add it to your plan.') || !html.includes('See details and example')) {
+  throw new Error('Catalog Details controls must be clearly discoverable and must not look like selection actions.');
+}
+if (!html.includes('id="toggle-references-button"') || !html.includes('id="references-content"') || !renderer.includes('function renderReferences()') || !renderer.includes('function toggleReferences()')) {
+  throw new Error('CCTI must keep optional original sources and technical terms in a dedicated internal References panel.');
+}
+if (!renderer.includes("link.textContent = 'Open original source (optional)'") || !renderer.includes("toggleReferencesButton.textContent = isOpening ? 'Close References' : 'Open References'")) {
+  throw new Error('References must identify outbound source pages as optional and offer a clear close control.');
 }
 for (const label of ['What it helps with', 'Choose this when', 'Example', 'Where it goes', 'What CCTI does after you approve', 'You may still need to']) {
   if (!renderer.includes(`detailLine('${label}'`)) throw new Error(`The catalog Details view is missing ${label}.`);
@@ -69,6 +81,15 @@ if (renderer.includes('startBootstrap') || preload.includes('startBootstrap') ||
 }
 if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('claude-only')") || !main.includes("option('-ClaudeOnly', '--claude-only')")) {
   throw new Error('The in-app Claude-only installation path must wait for the official installer and re-check the result.');
+}
+if (!html.includes('id="run-claude-button"') || !html.includes('id="remove-claude-button"') || !renderer.includes('async function runClaudeCode()') || !renderer.includes('async function removeClaudeCode()')) {
+  throw new Error('The setup screen must provide visible Run Claude Code and preview-first removal actions.');
+}
+if (!main.includes('async function launchClaudeCode') || !main.includes('async function knownClaudeRemovalPlan') || !main.includes("confirmation !== 'REMOVE CLAUDE CODE'")) {
+  throw new Error('Claude Code lifecycle actions must remain fixed, trusted operations with typed removal confirmation.');
+}
+for (const protectedItem of ['Claude Desktop app and its data', 'Claude in Chrome, browser profiles, and browser extensions', 'Any unrelated Anthropic app or account']) {
+  if (!main.includes(`'${protectedItem}'`)) throw new Error(`Claude Code removal must explicitly protect ${protectedItem}.`);
 }
 if (!main.includes('const installed = result.code === 0 && version.length > 0')) {
   throw new Error('Claude Code status must reject an empty successful command response.');
