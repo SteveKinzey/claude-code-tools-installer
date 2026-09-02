@@ -56,7 +56,7 @@ h3 { margin: 0; font-size: 1rem; }
 .category-heading { display: flex; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid #273955; color: #ced9ed; }
 .category-heading span { color: #8092b2; font-size: 0.86rem; }
 .tool-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.tool-card { display: flex; min-height: 124px; gap: 11px; padding: 15px 16px; border-right: 1px solid #273955; border-bottom: 1px solid #273955; }
+.tool-card { display: flex; min-height: 154px; gap: 11px; padding: 15px 16px; border-right: 1px solid #273955; border-bottom: 1px solid #273955; }
 .tool-card:nth-child(3n) { border-right: 0; }
 .tool-card:hover { background: #15233e; }
 .component-select input { width: 17px; height: 17px; margin-top: 2px; accent-color: #7cc4ff; }
@@ -68,6 +68,13 @@ h3 { margin: 0; font-size: 1rem; }
 .recommended { margin-left: 8px; padding: 3px 7px; background: #233e67; color: #b9dcff; vertical-align: middle; }
 .tool-classification { color: #9dafcb; font-size: 0.83rem; }
 .tool-action { color: #92a5c6; font-size: 0.78rem; line-height: 1.4; }
+.tool-purpose { color: #d4e5f3; font-size: 0.84rem; line-height: 1.45; }
+.catalog-inline-details { margin-top: 3px; }
+.catalog-inline-details summary { width: fit-content; color: #88cbef; cursor: pointer; font-size: 0.8rem; font-weight: 800; }
+.catalog-inline-details summary:hover { color: #d5f2ff; }
+.catalog-detail-content { display: grid; gap: 9px; margin-top: 10px; padding: 11px; border: 1px solid #345674; border-radius: 8px; background: #091624; }
+.catalog-detail-line { display: grid; grid-template-columns: minmax(112px, 0.52fr) minmax(0, 1fr); gap: 8px; color: #c5d7e7; font-size: 0.8rem; line-height: 1.45; }
+.catalog-detail-line strong { color: #9fdbf6; font-size: 0.76rem; }
 .components-entry { display: flex; justify-content: space-between; align-items: center; gap: 24px; border-color: #477a78; background: linear-gradient(135deg, #102a2e 0%, #102039 100%); }
 .components-entry h2 { margin-bottom: 8px; color: #b4f1e2; }
 .components-entry p:last-child { max-width: 730px; margin-bottom: 0; color: #c8e1e0; line-height: 1.5; }
@@ -83,6 +90,8 @@ h3 { margin: 0; font-size: 1rem; }
 .component-card h3 { color: #effaff; margin-bottom: 6px; }
 .component-card p { margin: 0; color: #a8c3d6; font-size: 0.84rem; line-height: 1.45; }
 .component-card p + p { margin-top: 5px; color: #809db3; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.76rem; }
+.component-card .component-purpose { color: #d3e7ef; font-family: inherit; font-size: 0.84rem; }
+.component-card .component-choose-when { color: #8fcae5; font-family: inherit; font-size: 0.78rem; }
 .component-card-actions { display: grid; align-content: start; justify-items: end; gap: 12px; min-width: 168px; }
 .component-select { display: flex; align-items: center; gap: 7px; color: #d2e7e9; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
 .component-detail { position: sticky; top: 18px; padding: 17px; border: 1px solid #355a70; border-radius: 10px; background: #122237; }
@@ -90,7 +99,7 @@ h3 { margin: 0; font-size: 1rem; }
 .component-detail p { color: #b7cce0; font-size: 0.86rem; line-height: 1.5; }
 .package-identity { padding: 9px 10px; border-radius: 7px; background: #081522; color: #aee4fa !important; font: 0.79rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; word-break: break-word; }
 .detail-boundary { color: #f2d998 !important; }
-.source-url { color: #809bb7 !important; font-size: 0.75rem !important; overflow-wrap: anywhere; }
+.source-url { color: #8fcfee !important; font-size: 0.78rem !important; overflow-wrap: anywhere; }
 .empty-results { padding: 20px; border: 1px dashed #3a6274; border-radius: 10px; color: #b6cfdf; }
 .project-plan { margin-top: 18px; padding: 17px; align-items: flex-start; border: 1px solid #355a70; border-radius: 10px; background: #11243a; flex-wrap: wrap; }
 .project-plan h3 { color: #dcf5ee; margin-bottom: 6px; }
@@ -195,4 +204,7 @@ h3 { margin: 0; font-size: 1rem; }
   .manager-results { grid-template-columns: 1fr; }
   .custom-addon-controls { grid-template-columns: 1fr; }
   .custom-addon-controls .filter-field { grid-column: auto; }
+  .catalog-detail-line { grid-template-columns: 1fr; gap: 2px; }
+  .component-card { flex-direction: column; }
+  .component-card-actions { justify-items: start; min-width: 0; }
 }

@@ -1,5 +1,6 @@
 const state = {
   catalog: [],
+  catalogDetails: new Map(),
   componentCatalog: { components: [], count: 0 },
   selected: new Set(),
   componentPlan: new Set(),
@@ -83,6 +84,48 @@ function selectedItems() {
 
 function selectedComponents() {
   return state.componentCatalog.components.filter((component) => state.componentPlan.has(component.id));
+}
+
+function detailFor(item) {
+  return state.catalogDetails.get(item.id) || {
+    plainPurpose: 'A description for this choice is unavailable right now.',
+    chooseWhen: 'Choose this when you have read its source page and know it fits your work.',
+    example: 'Example: You decide this option matches a specific need in your work.',
+    scope: item.packageName ? 'This project' : 'This computer',
+    cctiAction: 'CCTI will show the reviewed action before anything changes.',
+    userAction: 'You still need to read the source page and set up the feature for your own project.',
+  };
+}
+
+function detailLine(label, value) {
+  const row = document.createElement('div');
+  row.className = 'catalog-detail-line';
+  const heading = document.createElement('strong');
+  heading.textContent = label;
+  const copy = document.createElement('span');
+  copy.textContent = value;
+  row.append(heading, copy);
+  return row;
+}
+
+function createInlineDetails(item) {
+  const detail = detailFor(item);
+  const panel = document.createElement('details');
+  panel.className = 'catalog-inline-details';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Details and example';
+  const content = document.createElement('div');
+  content.className = 'catalog-detail-content';
+  content.append(
+    detailLine('What it helps with', detail.plainPurpose),
+    detailLine('Choose this when', detail.chooseWhen),
+    detailLine('Example', detail.example),
+    detailLine('Where it goes', detail.scope),
+    detailLine('What CCTI does after you approve', detail.cctiAction),
+    detailLine('You may still need to', detail.userAction),
+  );
+  panel.append(summary, content);
+  return panel;
 }
 
 function appendOutput(text, stream = 'stdout') {
@@ -269,6 +312,7 @@ function renderCatalog() {
     const grid = document.createElement('div');
     grid.className = 'tool-grid';
     for (const tool of tools) {
+      const detail = detailFor(tool);
       const card = document.createElement('article');
       card.className = 'tool-card';
       const toggle = document.createElement('button');
@@ -297,23 +341,14 @@ function renderCatalog() {
       }
       const classification = document.createElement('span');
       classification.className = 'tool-classification';
-      classification.textContent = tool.classification;
-      const action = document.createElement('span');
-      action.className = 'tool-action';
-      action.textContent = tool.action;
-      body.append(name, classification, action);
-      if (Array.isArray(tool.prerequisites) && tool.prerequisites.length > 0) {
-        const prerequisites = document.createElement('span');
-        prerequisites.className = 'tool-action';
-        prerequisites.textContent = `CCTI checks first: ${tool.prerequisites.join(', ')}.`;
-        body.append(prerequisites);
-      }
-      if (tool.platformNote) {
-        const platformNote = document.createElement('span');
-        platformNote.className = 'tool-action';
-        platformNote.textContent = tool.platformNote;
-        body.append(platformNote);
-      }
+      classification.textContent = detail.scope;
+      const purpose = document.createElement('span');
+      purpose.className = 'tool-purpose';
+      purpose.textContent = detail.plainPurpose;
+      const chooseWhen = document.createElement('span');
+      chooseWhen.className = 'tool-action';
+      chooseWhen.textContent = detail.chooseWhen;
+      body.append(name, classification, purpose, chooseWhen, createInlineDetails(tool));
       card.append(body, toggle);
       grid.append(card);
     }
@@ -470,7 +505,8 @@ function filteredComponents() {
   const term = componentSearchElement.value.trim().toLowerCase();
   const category = componentCategoryElement.value;
   return state.componentCatalog.components.filter((component) => {
-    const haystack = `${component.name} ${component.packageName} ${component.category}`.toLowerCase();
+    const detail = detailFor(component);
+    const haystack = `${component.name} ${component.packageName} ${component.category} ${detail.plainPurpose} ${detail.chooseWhen} ${detail.example}`.toLowerCase();
     return (!term || haystack.includes(term)) && (!category || component.category === category);
   });
 }
@@ -488,20 +524,34 @@ function renderComponentDetail() {
   }
   const heading = document.createElement('h3');
   heading.textContent = component.name;
+  const detail = detailFor(component);
   const summary = document.createElement('p');
-  summary.textContent = `${component.category} · version ${component.version || 'current directory version'}`;
+  summary.textContent = `${component.category} · ${detail.scope}`;
   const packageLabel = document.createElement('p');
   packageLabel.className = 'package-identity';
-  packageLabel.textContent = component.packageName;
-  const install = document.createElement('p');
-  install.textContent = `Project command: ${component.installCommand}`;
+  packageLabel.textContent = `Package name: ${component.packageName}`;
   const boundary = document.createElement('p');
   boundary.className = 'detail-boundary';
-  boundary.textContent = 'This package belongs in one Convex project. You will choose that folder and confirm the command before it runs.';
-  const source = document.createElement('p');
+  boundary.textContent = 'Reading these details does not add this package to your plan or change your project.';
+  const source = document.createElement('a');
   source.className = 'source-url';
-  source.textContent = `Source: ${component.sourceUrl}`;
-  componentDetailElement.append(heading, summary, packageLabel, install, boundary, source);
+  source.href = component.sourceUrl;
+  source.target = '_blank';
+  source.rel = 'noreferrer';
+  source.textContent = 'Read the source page';
+  componentDetailElement.append(
+    heading,
+    summary,
+    detailLine('What it helps with', detail.plainPurpose),
+    detailLine('Choose this when', detail.chooseWhen),
+    detailLine('Example', detail.example),
+    detailLine('Where it goes', detail.scope),
+    detailLine('What CCTI does after you approve', detail.cctiAction),
+    detailLine('You may still need to', detail.userAction),
+    packageLabel,
+    boundary,
+    source,
+  );
 }
 
 function updateProjectPlan() {
@@ -529,16 +579,21 @@ function renderComponents() {
   }
 
   for (const component of matches) {
+    const detail = detailFor(component);
     const card = document.createElement('article');
     card.className = 'component-card';
     const content = document.createElement('div');
     const title = document.createElement('h3');
     title.textContent = component.name;
     const meta = document.createElement('p');
-    meta.textContent = `${component.category} · ${component.packageName}`;
+    meta.textContent = `${component.category} · ${detail.scope}`;
     const description = document.createElement('p');
-    description.textContent = `Install in a chosen project: ${component.installCommand}`;
-    content.append(title, meta, description);
+    description.className = 'component-purpose';
+    description.textContent = detail.plainPurpose;
+    const chooseWhen = document.createElement('p');
+    chooseWhen.className = 'component-choose-when';
+    chooseWhen.textContent = detail.chooseWhen;
+    content.append(title, meta, description, chooseWhen);
 
     const actions = document.createElement('div');
     actions.className = 'component-card-actions';
@@ -818,7 +873,10 @@ function catalogMatches(term) {
   return [
     ...state.catalog.map((item) => ({ ...item, type: 'Claude Code tool' })),
     ...state.componentCatalog.components.map((item) => ({ ...item, type: 'Convex Component', action: item.installCommand })),
-  ].filter((item) => `${item.name} ${item.category} ${item.classification || ''} ${item.packageName || ''} ${item.action || ''}`.toLowerCase().includes(normalized));
+  ].filter((item) => {
+    const detail = detailFor(item);
+    return `${item.name} ${item.category} ${item.classification || ''} ${item.packageName || ''} ${item.action || ''} ${detail.plainPurpose} ${detail.chooseWhen} ${detail.example}`.toLowerCase().includes(normalized);
+  });
 }
 
 function privateCompassReply(question) {
@@ -997,12 +1055,14 @@ window.installer.onComponentState(({ running }) => {
 
 (async () => {
   try {
-    const [catalog, componentCatalog, compassStatus] = await Promise.all([
+    const [catalog, catalogDetails, componentCatalog, compassStatus] = await Promise.all([
       window.installer.getCatalog(),
+      window.installer.getCatalogDetails(),
       window.installer.getComponentCatalog(),
       window.installer.getCompassStatus(),
     ]);
     state.catalog = catalog;
+    state.catalogDetails = new Map(catalogDetails.items.map((item) => [item.id, item]));
     state.componentCatalog = componentCatalog;
     state.compass.online = false;
     componentCountElement.textContent = componentCatalog.count;

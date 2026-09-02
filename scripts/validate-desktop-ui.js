@@ -20,12 +20,15 @@ if (missingBridgeMethods.length) throw new Error(`Renderer calls missing preload
 
 const componentCatalogResource = /from": "convex-components\.json",\s*"to": "convex-components\.json"/.test(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'));
 if (!componentCatalogResource) throw new Error('Component catalog is missing from the packaged resource list.');
+const detailCatalogResource = /from": "catalog-details\.json",\s*"to": "catalog-details\.json"/.test(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'));
+if (!detailCatalogResource) throw new Error('Plain-language catalog details are missing from the packaged resource list.');
 
 for (const asset of ['StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.png', 'Wide310x150Logo.png']) {
   if (!fs.existsSync(path.join(root, 'desktop', 'build', 'appx', asset))) throw new Error(`Missing required Microsoft Store AppX asset: ${asset}.`);
 }
 
 for (const channel of [
+  'catalog-details:get',
   'claude:install-only',
   'setup:complete',
   'components:get',
@@ -46,6 +49,19 @@ for (const channel of [
   'setup-manager:apply-plugin-change',
 ]) {
   if (!main.includes(`'${channel}'`)) throw new Error(`Missing main-process handler for ${channel}.`);
+}
+
+if (!preload.includes('getCatalogDetails: () => ipcRenderer.invoke(\'catalog-details:get\')') || !main.includes('function catalogDetailsResource()') || !main.includes('async function readCatalogDetails()')) {
+  throw new Error('Plain-language catalog details must use one read-only main-process and preload lookup.');
+}
+if (!renderer.includes('state.catalogDetails = new Map(catalogDetails.items.map((item) => [item.id, item]))') || !renderer.includes('function createInlineDetails(item)') || !renderer.includes("summary.textContent = 'Details and example'")) {
+  throw new Error('Every compact catalog card must load and expose its plain-language Details control.');
+}
+for (const label of ['What it helps with', 'Choose this when', 'Example', 'Where it goes', 'What CCTI does after you approve', 'You may still need to']) {
+  if (!renderer.includes(`detailLine('${label}'`)) throw new Error(`The catalog Details view is missing ${label}.`);
+}
+if (!renderer.includes("boundary.textContent = 'Reading these details does not add this package to your plan or change your project.'") || !renderer.includes('detail.plainPurpose') || !renderer.includes('detail.chooseWhen')) {
+  throw new Error('Project-component Details must be explanatory and must stay separate from plan selection.');
 }
 
 if (renderer.includes('startBootstrap') || preload.includes('startBootstrap') || main.includes("'bootstrap:start'")) {

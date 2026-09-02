@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('installer', {
   getCatalog: () => ipcRenderer.invoke('catalog:get'),
+  getCatalogDetails: () => ipcRenderer.invoke('catalog-details:get'),
   getComponentCatalog: () => ipcRenderer.invoke('components:get'),
   getClaudeStatus: () => ipcRenderer.invoke('claude:status'),
   installClaudeOnly: () => ipcRenderer.invoke('claude:install-only'),

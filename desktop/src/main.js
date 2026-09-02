@@ -65,6 +65,12 @@ function componentCatalogResource() {
     : path.resolve(__dirname, '..', 'convex-components.json');
 }
 
+function catalogDetailsResource() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'catalog-details.json')
+    : path.resolve(__dirname, '..', 'catalog-details.json');
+}
+
 function installerDefinition() {
   if (process.platform === 'darwin') {
     return { command: 'bash', script: installerResource('setup-my-claude.sh'), args: [] };
@@ -95,6 +101,10 @@ function runProcess(command, args, options = {}) {
 
 async function readCatalog() {
   return JSON.parse(await fs.readFile(catalogResource(), 'utf8'));
+}
+
+async function readCatalogDetails() {
+  return JSON.parse(await fs.readFile(catalogDetailsResource(), 'utf8'));
 }
 
 async function installReviewedPlugins(selectedIds) {
@@ -580,6 +590,7 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   ipcMain.handle('catalog:get', readCatalog);
+  ipcMain.handle('catalog-details:get', readCatalogDetails);
   ipcMain.handle('components:get', readComponentCatalog);
   ipcMain.handle('claude:status', claudeStatus);
   ipcMain.handle('setup-manager:choose-project', chooseSetupProject);

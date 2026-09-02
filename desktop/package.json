@@ -13,12 +13,13 @@
     "start": "electron .",
     "catalog:check": "node ../scripts/validate-catalog.js",
     "components:check": "node ../scripts/validate-components-catalog.js",
+    "details:check": "node ../scripts/validate-catalog-details.js",
     "release:check": "node ../scripts/validate-macos-release-config.js",
     "ui:check": "node ../scripts/validate-desktop-ui.js",
     "setup-manager:check": "node ../scripts/test-setup-manager.js",
     "project-prerequisites:check": "node ../scripts/test-project-prerequisites.js",
     "project-interview:check": "node ../scripts/test-project-interview.js",
-    "check": "npm run catalog:check && npm run components:check && npm run ui:check && npm run setup-manager:check && npm run project-prerequisites:check && npm run project-interview:check && npm run release:check && node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check src/project-prerequisites.js && node --check src/project-interview.js && node --check build/notarize.js && node --check ../scripts/prepare-msix-config.js",
+    "check": "npm run catalog:check && npm run components:check && npm run details:check && npm run ui:check && npm run setup-manager:check && npm run project-prerequisites:check && npm run project-interview:check && npm run release:check && node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check src/project-prerequisites.js && node --check src/project-interview.js && node --check build/notarize.js && node --check ../scripts/prepare-msix-config.js",
     "dist": "electron-builder --publish never",
     "dist:mac": "electron-builder --mac dmg zip --publish never",
     "dist:mac:signed": "electron-builder --mac dmg zip --publish never --config.forceCodeSigning=true",
@@ -67,6 +68,10 @@
       {
         "from": "convex-components.json",
         "to": "convex-components.json"
+      },
+      {
+        "from": "catalog-details.json",
+        "to": "catalog-details.json"
       }
     ],
     "mac": {
