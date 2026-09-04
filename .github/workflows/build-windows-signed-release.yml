@@ -1,0 +1,193 @@
+name: Build signed Windows release
+
+
+
+on:
+
+  push:
+  
+    tags:
+    
+      - "v*"
+      
+  workflow_dispatch:
+  
+    inputs:
+    
+      tag:
+      
+        description: "Existing version tag to build, for example v2026.09.02"
+        
+        required: true
+        
+        type: string
+        
+      publish_release:
+      
+        description: "Attach the signed ZIP and checksum to the GitHub Release"
+        
+        required: true
+        
+        default: false
+        
+        type: boolean
+        
+
+
+permissions:
+
+  contents: write
+  
+  id-token: write
+  
+
+
+jobs:
+
+  build-sign-package:
+  
+    name: Build, sign, and package Windows x64
+    
+    runs-on: windows-2022
+    
+    timeout-minutes: 30
+    
+    defaults:
+    
+      run:
+      
+        working-directory: desktop
+        
+        shell: pwsh
+        
+
+
+    steps:
+    
+      - name: Check out the release source
+      
+        uses: actions/checkout@v5
+        
+        with:
+        
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          
+          fetch-depth: 0
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, for example v2026.09.02"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build-sign-package:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Validate tag
+        id: release
+        run: |
+          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "${{ inputs.tag }}" } else { "${{ github.ref_name }}" }
+          if ($tag -notmatch '^v\d{4}\.\d{2}\.\d{2}$') { throw "Use vYYYY.MM.DD, for example v2026.09.02." }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install and validate
+        run: |
+          npm install
+          npm run check
+
+      - name: Build unsigned Windows ZIP
+        run: npm run dist:win:zip
+
+      - name: Expand ZIP for signing
+        id: package
+        run: |
+          $source = Get-ChildItem ../releases/test-builds/*.zip | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $source) { throw "No Windows ZIP was produced." }
+          $dir = Join-Path $env:RUNNER_TEMP "ccti-windows-signed"
+          Expand-Archive -Path $source.FullName -DestinationPath $dir -Force
+          "dir=$dir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Authenticate to Azure using GitHub OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign Windows executable files
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
+          files-folder: ${{ steps.package.outputs.dir }}
+          files-folder-filter: exe,dll
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify Authenticode signatures
+        run: |
+          $files = Get-ChildItem -Path "${{ steps.package.outputs.dir }}" -Recurse -Include *.exe,*.dll
+          if (-not $files) { throw "No executable files were found to verify." }
+          $files | ForEach-Object {
+            if ((Get-AuthenticodeSignature $_.FullName).Status -ne "Valid") { throw "Invalid signature: $($_.FullName)" }
+          }
+
+      - name: Create signed ZIP and SHA-256 manifest
+        id: signed
+        run: |
+          $out = "../releases/test-builds/signed"
+          $zip = "$out/claude-code-tools-installer-windows-${{ steps.release.outputs.tag }}.zip"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Remove-Item -Force $zip -ErrorAction SilentlyContinue
+          Compress-Archive -Path "${{ steps.package.outputs.dir }}\*" -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $([System.IO.Path]::GetFileName($zip))" | Set-Content -NoNewline "$out/sha256sums.txt"
+          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "checksum=$out/sha256sums.txt" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload signed Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccti-windows-signed-${{ steps.release.outputs.tag }}
+          path: |
+            releases/test-builds/signed/*.zip
+            releases/test-builds/signed/sha256sums.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Attach signed assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh release view $env:RELEASE_TAG 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create $env:RELEASE_TAG --title $env:RELEASE_TAG --generate-notes }
+          gh release upload $env:RELEASE_TAG "${{ steps.signed.outputs.zip }}" "${{ steps.signed.outputs.checksum }}" --clobber
