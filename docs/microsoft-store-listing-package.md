@@ -65,17 +65,19 @@ Initial Microsoft Store release. Guided Claude Code readiness checks, in-app set
 - **Content rating:** Everyone / General developer audience (no sensitive content)
 
 ### Official support and privacy URLs
-- **Support email:** `support@getphame.app`
-- **Support website:** `https://claudetool.app/#compass`
+- **Support email:** `support@sk-america.com`
+- **Support website:** `https://claudetool.app/user-manual`
 - **Privacy policy URL:** `https://claudetool.app/privacy`
 - **Terms of service URL:** `https://claudetool.app/terms`
 - **Copyright attribution:** `Copyright © 2026 SK America LLC. All rights reserved.`
 
 ---
 
-## 3. Product Screenshot Inventory
+## 3. Planned Screenshot Capture Inventory — No Image Files Yet
 
-Capture these views from the packaged Windows desktop build using the prepared 1366×768 or 1920×1080 desktop frame:
+**None of the seven filenames below exist yet.** They are proposed output names, not attached or generated screenshots. Capture each view only from the final, installed Windows MSIX candidate after the Partner Center identity values are supplied and the clean-machine test has passed. Do not use mockups, composited UI, marketing overlays, or macOS/Linux screens.
+
+The canonical submission record is [`docs/microsoft-store-listing.md`](microsoft-store-listing.md), which contains the approved five-screen requirement and the exact evidence basis for each view.
 
 | Index | File name | Screen / State | Highlighted feature |
 |---|---|---|---|
