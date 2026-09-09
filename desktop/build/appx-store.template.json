@@ -4,9 +4,8 @@
   },
   "appx": {
     "identityName": "[Partner Center identity name]",
-    "applicationId": "[Partner Center application ID]",
     "publisher": "[Partner Center publisher value]",
-    "publisherDisplayName": "SK America LLC",
+    "publisherDisplayName": "[Partner Center PublisherDisplayName value]",
     "displayName": "Claude Code Tools Installer",
     "languages": ["en-US"],
     "capabilities": ["runFullTrust", "internetClient"],

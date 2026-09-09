@@ -9,8 +9,8 @@ const packagePath = path.join(desktopDir, 'package.json');
 const assetDir = path.join(desktopDir, 'build', 'appx');
 const requiredEnvironment = {
   CCTI_APPX_IDENTITY_NAME: 'Partner Center Identity name',
-  CCTI_APPX_APPLICATION_ID: 'Partner Center Application ID',
   CCTI_APPX_PUBLISHER: 'Partner Center Publisher value',
+  CCTI_APPX_PUBLISHER_DISPLAY_NAME: 'Partner Center PublisherDisplayName value',
 };
 
 function readOutPath() {
@@ -31,8 +31,8 @@ function readPartnerCenterValues() {
   }
   const values = {
     identityName: String(process.env.CCTI_APPX_IDENTITY_NAME).trim(),
-    applicationId: String(process.env.CCTI_APPX_APPLICATION_ID).trim(),
     publisher: String(process.env.CCTI_APPX_PUBLISHER).trim(),
+    publisherDisplayName: String(process.env.CCTI_APPX_PUBLISHER_DISPLAY_NAME).trim(),
   };
   if (Object.values(values).some((value) => value.includes('[') || value.includes(']'))) throw new Error('Partner Center values cannot be placeholders. Copy the exact reserved values.');
   return values;
