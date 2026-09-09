@@ -43,10 +43,7 @@ CCTI does not install an item simply because you view it. Features that need a s
 ## 2. Store Metadata
 
 ### What’s new in this version
-Leave blank for the initial submission (recommended by Microsoft Partner Center), or paste:
-```text
-Initial Microsoft Store release. Guided Claude Code readiness checks, in-app setup options, 35 curated workflow tools, 145 project components, backup-only cleanup, and a private Project Interview helper.
-```
+**Leave this field blank for the initial submission.** Microsoft’s MSIX listing guidance reserves this field for updates to an app already in the Store.
 
 ### Search terms (up to 7 terms)
 1. `Claude Code`
