@@ -17,6 +17,8 @@ function expect(condition, message) {
 
 expect(packageJson.build.afterSign === 'build/notarize.js', 'Missing Electron Builder afterSign notarization hook.');
 expect(packageJson.build.mac?.hardenedRuntime === true, 'mac.hardenedRuntime must be true.');
+expect(packageJson.build.mac?.icon === 'build/icon.icns', 'mac.icon must use the custom build/icon.icns asset.');
+expect(fs.existsSync(path.join(desktop, 'build', 'icon.icns')), 'Missing custom macOS icon: desktop/build/icon.icns.');
 expect(packageJson.build.mac?.entitlements === 'build/entitlements.mac.plist', 'Main macOS entitlement path is incorrect.');
 expect(packageJson.build.mac?.entitlementsInherit === 'build/entitlements.mac.inherit.plist', 'Helper entitlement path is incorrect.');
 expect(packageJson.scripts?.['dist:mac:signed']?.includes('forceCodeSigning=true'), 'Signed-only build must require a signing identity.');
@@ -41,4 +43,4 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log('macOS release configuration passed: signing gate, hardened runtime, entitlements, and notarization hook are present.');
+console.log('macOS release configuration passed: custom icon, signing gate, hardened runtime, entitlements, and notarization hook are present.');
