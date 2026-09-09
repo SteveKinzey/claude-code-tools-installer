@@ -1,0 +1,115 @@
+name: Test Microsoft Store MSIX on clean Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      identity_name:
+        description: "Exact Partner Center Package/Identity/Name"
+        required: true
+        type: string
+      publisher:
+        description: "Exact Partner Center Package/Identity/Publisher"
+        required: true
+        type: string
+      publisher_display_name:
+        description: "Exact Partner Center Package/Properties/PublisherDisplayName"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  clean-windows-install-test:
+    name: Sign temporary test bundle and verify install lifecycle
+    runs-on: windows-2022
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: desktop
+        shell: pwsh
+    env:
+      CCTI_APPX_IDENTITY_NAME: ${{ inputs.identity_name }}
+      CCTI_APPX_PUBLISHER: ${{ inputs.publisher }}
+      CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.publisher_display_name }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install desktop dependencies
+        run: npm install
+
+      - name: Validate desktop contracts
+        run: npm run check
+
+      - name: Build Store package candidates
+        run: |
+          npm run msix:prepare
+          npm run dist:win:store -- --x64
+          npm run dist:win:store -- --arm64
+
+      - name: Bundle, temporarily sign, install, launch, and uninstall
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Resolve-Path '../releases/test-builds'
+          $appx = @(Get-ChildItem -Path $output -Filter '*.appx' -File | Sort-Object Name)
+          if ($appx.Count -ne 2) { throw "Expected one x64 and one ARM64 .appx package; found $($appx.Count)." }
+
+          $makeAppx = Get-ChildItem -Path (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Filter 'MakeAppx.exe' -File -Recurse |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          $signTool = Get-ChildItem -Path (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Filter 'signtool.exe' -File -Recurse |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $makeAppx -or -not $signTool) { throw 'Windows App SDK packaging tools were not found on the runner.' }
+
+          $staging = Join-Path $env:RUNNER_TEMP 'ccti-clean-install-bundle-input'
+          $bundle = Join-Path $env:RUNNER_TEMP 'claude-code-tools-installer-clean-install-test.msixbundle'
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+          Copy-Item -Path $appx.FullName -Destination $staging -Force
+          & $makeAppx.FullName bundle /d $staging /p $bundle /o
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bundle)) { throw 'MakeAppx did not create the temporary test bundle.' }
+
+          # Fresh, one-run development certificate. It is not uploaded, reused, or used for Store submission.
+          $certificate = New-SelfSignedCertificate `
+            -Subject $env:CCTI_APPX_PUBLISHER `
+            -Type CodeSigningCert `
+            -CertStoreLocation 'Cert:\CurrentUser\My' `
+            -KeyAlgorithm RSA `
+            -KeyLength 2048 `
+            -HashAlgorithm SHA256 `
+            -NotAfter (Get-Date).AddDays(1)
+          if ($certificate.Subject -ne $env:CCTI_APPX_PUBLISHER) { throw 'Temporary certificate subject does not match the exact Partner Center publisher.' }
+
+          & $signTool.FullName sign /fd SHA256 /sha1 $certificate.Thumbprint $bundle
+          if ($LASTEXITCODE -ne 0) { throw 'SignTool could not sign the temporary MSIX bundle.' }
+          $certificateFile = Join-Path $env:RUNNER_TEMP 'ccti-clean-install-test.cer'
+          Export-Certificate -Cert $certificate -FilePath $certificateFile | Out-Null
+          Import-Certificate -FilePath $certificateFile -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople' | Out-Null
+          & $signTool.FullName verify /pa /v $bundle
+          if ($LASTEXITCODE -ne 0) { throw 'SignTool verification failed for the temporary MSIX bundle.' }
+
+          Add-AppxPackage -Path $bundle
+          $registered = Get-AppxPackage -Name $env:CCTI_APPX_IDENTITY_NAME
+          if (-not $registered) { throw 'The temporary MSIX bundle was not registered after installation.' }
+          $expectedExecutable = Join-Path $registered.InstallLocation 'app\Claude Code Tools Installer.exe'
+          if (-not (Test-Path $expectedExecutable)) { throw "Installed application executable not found: $expectedExecutable" }
+
+          $process = Start-Process -FilePath $expectedExecutable -PassThru
+          Start-Sleep -Seconds 8
+          $process.Refresh()
+          if ($process.HasExited) { throw "Installed desktop process exited before the smoke-test wait elapsed (exit code $($process.ExitCode))." }
+          Stop-Process -Id $process.Id -Force
+
+          Remove-AppxPackage -Package $registered.PackageFullName
+          if (Get-AppxPackage -Name $env:CCTI_APPX_IDENTITY_NAME) { throw 'Package remains registered after uninstall.' }
+          Write-Host 'Clean Windows install, process-start, and uninstall lifecycle passed.'
+
+      - name: Remove generated Store configuration
+        if: always()
+        run: Remove-Item -Force 'build/appx-store.resolved.json' -ErrorAction SilentlyContinue
