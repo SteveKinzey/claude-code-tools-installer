@@ -27,7 +27,7 @@ jobs:
     defaults:
       run:
         working-directory: desktop
-        shell: pwsh
+        shell: powershell
     env:
       CCTI_APPX_IDENTITY_NAME: ${{ inputs.identity_name }}
       CCTI_APPX_PUBLISHER: ${{ inputs.publisher }}
@@ -91,8 +91,13 @@ jobs:
           $certificateFile = Join-Path $env:RUNNER_TEMP 'ccti-clean-install-test.cer'
           Export-Certificate -Cert $certificate -FilePath $certificateFile | Out-Null
           Import-Certificate -FilePath $certificateFile -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople' | Out-Null
+          Import-Certificate -FilePath $certificateFile -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
           & $signTool.FullName verify /pa /v $bundle
           if ($LASTEXITCODE -ne 0) { throw 'SignTool verification failed for the temporary MSIX bundle.' }
+
+          New-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Force | Out-Null
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name 'AllowAllTrustedApps' -Value 1 -Type DWord
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name 'AllowDevelopmentWithoutDevLicense' -Value 1 -Type DWord
 
           Add-AppxPackage -Path $bundle
           $registered = Get-AppxPackage -Name $env:CCTI_APPX_IDENTITY_NAME
