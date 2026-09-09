@@ -735,9 +735,6 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup-manager:apply-custom', async (_event, payload) => applyCustomAddOn(payload || {}));
   ipcMain.handle('setup-manager:review-cleanup', async (_event, payload) => reviewCleanup(payload || {}));
   ipcMain.handle('setup-manager:apply-cleanup', async (_event, payload) => applyCleanup(payload || {}));
-  ipcMain.handle('claude:run', async (_event, payload) => launchClaudeCode(payload || {}));
-  ipcMain.handle('claude:review-removal', async () => knownClaudeRemovalPlan());
-  ipcMain.handle('claude:apply-removal', async (_event, payload) => applyKnownClaudeRemoval(payload || {}));
 
   ipcMain.handle('claude:install-only', async () => {
     if (activeInstall) return { ok: false, error: 'An installation is already running.', installed: false, version: '' };

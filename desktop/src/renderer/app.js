@@ -202,13 +202,13 @@ function offerAnonymousSuccessCount(kind) {
   anonymousSuccessMessageElement.className = 'anonymous-success-message';
 }
 
-function projectInterviewApi() {
+function getProjectInterviewApi() {
   return window.CCTIProjectInterview || { PROJECT_INTERVIEW_QUESTIONS: [], buildProjectInterviewDraft: () => ({ draft: '', recommendations: [] }) };
 }
 
 function renderProjectInterview() {
   const interview = state.projectInterview;
-  const { PROJECT_INTERVIEW_QUESTIONS: questions } = projectInterviewApi();
+  const { PROJECT_INTERVIEW_QUESTIONS: questions } = getProjectInterviewApi();
   projectInterviewPanelElement.classList.toggle('is-hidden', !interview.active);
   startProjectInterviewButton.hidden = interview.active;
   if (!interview.active || !questions.length) return;
@@ -248,7 +248,7 @@ function beginProjectInterview() {
 
 function advanceProjectInterview() {
   const interview = state.projectInterview;
-  const { PROJECT_INTERVIEW_QUESTIONS: questions, buildProjectInterviewDraft } = projectInterviewApi();
+  const { PROJECT_INTERVIEW_QUESTIONS: questions, buildProjectInterviewDraft } = getProjectInterviewApi();
   const question = questions[interview.step];
   if (!question) return;
   interview.answers[question.key] = projectInterviewAnswerElement.value.trim();
@@ -264,7 +264,7 @@ function advanceProjectInterview() {
 
 function goBackInProjectInterview() {
   const interview = state.projectInterview;
-  const { PROJECT_INTERVIEW_QUESTIONS: questions } = projectInterviewApi();
+  const { PROJECT_INTERVIEW_QUESTIONS: questions } = getProjectInterviewApi();
   if (interview.result) {
     interview.result = null;
     interview.step = questions.length - 1;
