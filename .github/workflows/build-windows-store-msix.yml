@@ -1,0 +1,124 @@
+name: Build Microsoft Store MSIX bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      identity_name:
+        description: "Exact Partner Center Package/Identity/Name"
+        required: true
+        type: string
+      publisher:
+        description: "Exact Partner Center Package/Identity/Publisher"
+        required: true
+        type: string
+      publisher_display_name:
+        description: "Exact Partner Center Package/Properties/PublisherDisplayName"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-store-bundle:
+    name: Build unsigned Store submission bundle
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop
+        shell: pwsh
+    env:
+      CCTI_APPX_IDENTITY_NAME: ${{ inputs.identity_name }}
+      CCTI_APPX_PUBLISHER: ${{ inputs.publisher }}
+      CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.publisher_display_name }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install desktop dependencies
+        run: npm install
+
+      - name: Validate desktop contracts
+        run: npm run check
+
+      - name: Prepare Store package configuration
+        run: npm run msix:prepare
+
+      - name: Build x64 Store package
+        run: npm run dist:win:store -- --x64
+
+      - name: Build ARM64 Store package
+        run: npm run dist:win:store -- --arm64
+
+      - name: Bundle and validate packages
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Resolve-Path '../releases/test-builds'
+          $appx = @(Get-ChildItem -Path $output -Filter '*.appx' -File | Sort-Object Name)
+          if ($appx.Count -ne 2) { throw "Expected one x64 and one ARM64 .appx package; found $($appx.Count)." }
+
+          $architectures = @{}
+          foreach ($package in $appx) {
+            if ($package.Name -notmatch '(x64|arm64)') { throw "Package architecture is missing from artifact name: $($package.Name)" }
+            $architectures[$Matches[1]] = $true
+          }
+          if (-not ($architectures.x64 -and $architectures.arm64)) { throw 'Both x64 and ARM64 Store packages are required.' }
+
+          $makeAppx = Get-ChildItem -Path (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Filter 'MakeAppx.exe' -File -Recurse |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $makeAppx) { throw 'MakeAppx.exe was not found on the Windows runner.' }
+
+          $staging = Join-Path $env:RUNNER_TEMP 'ccti-msixbundle-input'
+          $unpacked = Join-Path $env:RUNNER_TEMP 'ccti-msixbundle-unpacked'
+          $bundle = Join-Path $output 'claude-code-tools-installer-store-submission.msixbundle'
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+          Copy-Item -Path $appx.FullName -Destination $staging -Force
+          & $makeAppx.FullName bundle /d $staging /p $bundle /o
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bundle)) { throw 'MakeAppx did not create the MSIX bundle.' }
+
+          & $makeAppx.FullName unbundle /p $bundle /d $unpacked /o
+          if ($LASTEXITCODE -ne 0) { throw 'MakeAppx could not unpack the generated MSIX bundle.' }
+          $bundlePackages = @(Get-ChildItem -Path $unpacked -Filter '*.appx' -File -Recurse)
+          if ($bundlePackages.Count -ne 2) { throw "Expected two packages in the bundle; found $($bundlePackages.Count)." }
+          foreach ($bundlePackage in $bundlePackages) {
+            $packageDirectory = Join-Path $unpacked $bundlePackage.BaseName
+            & $makeAppx.FullName unpack /p $bundlePackage.FullName /d $packageDirectory /o
+            if ($LASTEXITCODE -ne 0) { throw "MakeAppx could not unpack $($bundlePackage.Name)." }
+          }
+          $manifests = @(Get-ChildItem -Path $unpacked -Filter 'AppxManifest.xml' -File -Recurse)
+          if ($manifests.Count -ne 2) { throw "Expected two package manifests in the bundle; found $($manifests.Count)." }
+
+          $expectedApplicationId = $env:CCTI_APPX_IDENTITY_NAME -replace '^\d+', ''
+          foreach ($manifestPath in $manifests) {
+            [xml]$manifest = Get-Content -Path $manifestPath.FullName
+            $ns = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
+            $ns.AddNamespace('f', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
+            $identity = $manifest.SelectSingleNode('/f:Package/f:Identity', $ns)
+            $application = $manifest.SelectSingleNode('/f:Package/f:Applications/f:Application', $ns)
+            $publisherDisplayName = $manifest.SelectSingleNode('/f:Package/f:Properties/f:PublisherDisplayName', $ns)
+            if ($identity.Name -ne $env:CCTI_APPX_IDENTITY_NAME) { throw "Unexpected package identity in $($manifestPath.FullName)." }
+            if ($identity.Publisher -ne $env:CCTI_APPX_PUBLISHER) { throw "Unexpected package publisher in $($manifestPath.FullName)." }
+            if ($application.Id -ne $expectedApplicationId) { throw "Unexpected application ID in $($manifestPath.FullName): $($application.Id)." }
+            if ($publisherDisplayName.InnerText -ne $env:CCTI_APPX_PUBLISHER_DISPLAY_NAME) { throw "Unexpected publisher display name in $($manifestPath.FullName)." }
+          }
+
+          $hash = (Get-FileHash -Path $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $([System.IO.Path]::GetFileName($bundle))" | Set-Content -Path (Join-Path $output 'claude-code-tools-installer-store-submission.sha256') -NoNewline
+          "Store submission bundle verified: $bundle"
+
+      - name: Upload unsigned Store submission bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccti-store-msixbundle-${{ github.sha }}
+          path: |
+            releases/test-builds/claude-code-tools-installer-store-submission.msixbundle
+            releases/test-builds/claude-code-tools-installer-store-submission.sha256
+          if-no-files-found: error
+          retention-days: 14

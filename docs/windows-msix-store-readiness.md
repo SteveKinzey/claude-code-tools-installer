@@ -11,8 +11,8 @@ For an app submitted as **MSIX** through the Microsoft Store, Microsoft signs th
 | Item | Current state | Action before a Store submission |
 |---|---|---|
 | App model | Electron app packaged as an NSIS EXE and ZIP | A Store-only AppX/MSIX build command is prepared; it does not alter the default NSIS/ZIP command. |
-| Store identity | Not reserved | Owner must create or use a Partner Center account and reserve the display name. |
-| Publisher value | Unknown until reservation | Copy the exact Partner Center publisher identity into the package configuration; do not invent it. |
+| Store identity | Reserved in Partner Center | Copy the exact **Identity name**, **Publisher**, and **PublisherDisplayName** values from Product identity into the current build environment. |
+| Publisher value | Reserved in Partner Center | Do not invent, normalize, or substitute any identity value. The manifest is case-sensitive. |
 | AppX tile assets | Required Store logo, square 150, square 44, and wide 310×150 images are in `desktop/build/appx/` | Keep the validated images with the Windows build inputs. |
 | Store configuration | Placeholder template plus guarded local resolver | Set the three exact Partner Center values as environment variables; the resolver refuses to build with blanks or placeholders. |
 | Windows build validation | Not available in this macOS/Linux workspace | Build and test the AppX/MSIX on a Windows build machine after identity values exist. |
@@ -22,7 +22,7 @@ For an app submitted as **MSIX** through the Microsoft Store, Microsoft signs th
 
 1. The owner confirmed that **“M6” means Microsoft Store MSIX**. This remains the free Store-delivery path under evaluation.
 2. The owner opens or uses a Partner Center account and reserves the app identity. This step can involve account and business information, so it must be completed or explicitly approved by the owner.
-3. Copy—not guess—the Partner Center **Identity name**, **Application ID**, and **Publisher** fields. Put them in the three environment variables shown below, not in source control.
+3. Copy—not guess—the Partner Center **Identity name**, **Publisher**, and **PublisherDisplayName** fields. Put them in the three environment variables shown below, not in source control. Electron Builder derives the manifest `Application.Id` from a numeric Store identity name; Partner Center does not provide that field on the Product identity page.
 4. Run the guarded resolver and build the Store-only AppX/MSIX package on Windows.
 5. Test the package on a clean Windows machine. Confirm the app launches, all installer adapters are present, and the app uninstalls cleanly.
 6. Submit the free app for Store certification. Microsoft signs the Store package only after it completes this process.
@@ -36,9 +36,8 @@ Fill the bracketed values only after they come from Partner Center. Keep the exi
   "win": { "target": ["nsis", "appx"] },
   "appx": {
     "identityName": "[Partner Center identity name]",
-    "applicationId": "[Partner Center application ID]",
     "publisher": "[Partner Center publisher value]",
-    "publisherDisplayName": "SK America LLC",
+    "publisherDisplayName": "[Partner Center PublisherDisplayName value]",
     "displayName": "Claude Code Tools Installer",
     "languages": ["en-US"],
     "capabilities": ["runFullTrust", "internetClient"],
@@ -53,8 +52,8 @@ On the Windows build machine, after the owner supplies the exact reserved values
 
 ```powershell
 $env:CCTI_APPX_IDENTITY_NAME = "<exact Partner Center Identity name>"
-$env:CCTI_APPX_APPLICATION_ID = "<exact Partner Center Application ID>"
 $env:CCTI_APPX_PUBLISHER = "<exact Partner Center Publisher>"
+$env:CCTI_APPX_PUBLISHER_DISPLAY_NAME = "<exact Partner Center PublisherDisplayName>"
 
 cd desktop
 npm run msix:prepare
