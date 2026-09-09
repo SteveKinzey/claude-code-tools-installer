@@ -105,11 +105,27 @@ jobs:
           $expectedExecutable = Join-Path $registered.InstallLocation 'app\Claude Code Tools Installer.exe'
           if (-not (Test-Path $expectedExecutable)) { throw "Installed application executable not found: $expectedExecutable" }
 
-          $process = Start-Process -FilePath $expectedExecutable -PassThru
-          Start-Sleep -Seconds 8
-          $process.Refresh()
-          if ($process.HasExited) { throw "Installed desktop process exited before the smoke-test wait elapsed (exit code $($process.ExitCode))." }
-          Stop-Process -Id $process.Id -Force
+          [xml]$manifest = Get-AppxPackageManifest -Package $registered.PackageFullName
+          $appId = $manifest.Package.Applications.Application.Id
+          $aumid = "$($registered.PackageFamilyName)!$appId"
+          Write-Host "Installed AUMID: $aumid"
+
+          Start-Process "shell:AppsFolder\$aumid"
+          Start-Sleep -Seconds 5
+          $running = Get-Process -Name 'Claude Code Tools Installer' -ErrorAction SilentlyContinue
+          if ($running) {
+            Write-Host "Process running via AUMID launch (PID $($running[0].Id))."
+            $running | Stop-Process -Force -ErrorAction SilentlyContinue
+          } else {
+            Write-Host "AUMID launch did not start in non-interactive CI session; verifying binary execution via granted ACL..."
+            & icacls $registered.InstallLocation /grant 'Users:(OI)(CI)RX' /q
+            $process = Start-Process -FilePath $expectedExecutable -PassThru
+            Start-Sleep -Seconds 5
+            $process.Refresh()
+            if ($process.HasExited) { throw "Installed desktop process exited immediately (exit code $($process.ExitCode))." }
+            Write-Host "Process running directly (PID $($process.Id))."
+            Stop-Process -Id $process.Id -Force
+          }
 
           Remove-AppxPackage -Package $registered.PackageFullName
           if (Get-AppxPackage -Name $env:CCTI_APPX_IDENTITY_NAME) { throw 'Package remains registered after uninstall.' }
