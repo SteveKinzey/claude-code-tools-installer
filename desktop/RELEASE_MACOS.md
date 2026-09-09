@@ -51,7 +51,7 @@ For the managed GitHub Actions release-candidate workflow, use the Apple app-spe
 | --- | --- |
 | `MACOS_CERTIFICATE_P12_BASE64` | Base64 text of the password-protected `.p12` export containing the Developer ID certificate and its private key. |
 | `MACOS_CERTIFICATE_PASSWORD` | The export password chosen for that `.p12` file. |
-| `MACOS_CODESIGN_IDENTITY` | The exact Developer ID Application identity shown by Keychain Access. |
+| `MACOS_CODESIGN_IDENTITY` | Certificate common name only, for example `Stephen Kinzey (949XJPESM2)`; omit the `Developer ID Application:` prefix. |
 | `APPLE_NOTARY_ID` | The Apple Account email used to create the app-specific password. |
 | `APPLE_NOTARY_APP_PASSWORD` | The app-specific password created for CCTI notarization. |
 | `APPLE_NOTARY_TEAM_ID` | The Apple Developer Team ID. |
@@ -63,7 +63,8 @@ Run **Build signed notarized macOS CCTI test artifact** manually after all six s
 Choose the Developer ID identity present in Keychain, then build. The signed-only command is the correct local path when you use the Keychain `notarytool` profile from Step 3. It fails if code signing cannot be performed.
 
 ```bash
-export CSC_NAME="Developer ID Application: YOUR LEGAL ENTITY (YOUR_TEAM_ID)"
+# Electron Builder expects the certificate common name only, without "Developer ID Application:"
+export CSC_NAME="YOUR LEGAL ENTITY (YOUR_TEAM_ID)"
 cd desktop
 npm run dist:mac:signed
 cd ..
@@ -72,7 +73,8 @@ cd ..
 For a local automated app-bundle notarization build, provide an Apple ID, an app-specific password, and the Developer Team ID only through the environment. Do not store them in this repository.
 
 ```bash
-export CSC_NAME="Developer ID Application: YOUR LEGAL ENTITY (YOUR_TEAM_ID)"
+# Electron Builder expects the certificate common name only, without "Developer ID Application:"
+export CSC_NAME="YOUR LEGAL ENTITY (YOUR_TEAM_ID)"
 export APPLE_ID="YOUR_APPLE_ACCOUNT_EMAIL"
 export APPLE_APP_SPECIFIC_PASSWORD="YOUR_APP_SPECIFIC_PASSWORD"
 export APPLE_TEAM_ID="YOUR_TEAM_ID"
@@ -81,7 +83,7 @@ npm run dist:mac:release
 cd ..
 ```
 
-The `afterSign` hook notarizes the app bundle in the automated path. The generated DMG and ZIP are written to `releases/test-builds/`. The name is a staging location only; a signed artifact is still a release candidate until the **final DMG itself** passes notarization and Gatekeeper validation.
+Electron Builder requires the certificate common name only in `CSC_NAME`; for example, `Stephen Kinzey (949XJPESM2)`, not `Developer ID Application: Stephen Kinzey (949XJPESM2)`. The `afterSign` hook notarizes the app bundle in the automated path. The generated DMG and ZIP are written to `releases/test-builds/`. The name is a staging location only; a signed artifact is still a release candidate until the **final DMG itself** passes notarization and Gatekeeper validation.
 
 ## 5. Verify the signed application before notarization
 
