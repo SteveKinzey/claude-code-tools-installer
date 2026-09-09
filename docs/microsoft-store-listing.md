@@ -47,13 +47,22 @@ The support email is published in the product Terms and Product Disclaimer. The 
 >
 > CCTI does not install an item merely because it is shown. Features that need a sign-in, credential, license, or unsupported platform remain a visible follow-up step rather than being reported as complete. Claude Code Tools Installer is a setup helper; it is not Claude Code and does not claim affiliation with or endorsement by Anthropic, Convex, GitHub, npm, or other third-party providers.
 
+## Product features
+
+Enter these as individual feature fields in Partner Center. Do not add bullet characters; the Store formats the list.
+
+1. Check Claude Code readiness and choose an official in-app setup path.
+2. Start with a curated recommended tool set or choose workflow tools individually.
+3. Review plain-language details and preview changes before they run.
+4. Browse 145 Convex Components for the project folder you choose.
+5. Review existing skills, add-ons, and connections without changing them.
+6. Preserve a backup when reviewing eligible duplicate local skills.
+7. Get private, catalog-based Compass guidance before choosing a tool.
+8. Draft a private, reviewable project requirements document without installing anything.
+
 ## What’s new in this version
 
-Use this only for the **first Microsoft Store submission**:
-
-> Initial Microsoft Store submission. Includes Claude Code readiness checks, review-first setup choices, a 35-item local workflow catalog, a separate 145-item project component library, setup checkup, Compass guidance, and private Project Interview drafts.
-
-If the Partner Center field is optional and the submission is the first Store submission, leaving it blank is also consistent with Partner Center guidance shown in the listing form. Do not use this text for a later update; replace it with the verified changes in that submitted package.
+**Leave this field blank for the first Microsoft Store submission.** Microsoft’s current MSIX listing guidance explicitly recommends a blank value for an initial submission. Use this field only for verified changes in a later package update.
 
 ## Search terms
 
