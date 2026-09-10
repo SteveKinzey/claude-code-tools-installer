@@ -247,10 +247,11 @@ On a Windows build machine, only after those exact values are supplied, run:
 ```powershell
 cd desktop
 npm run msix:prepare
-npm run dist:win:store
+npm run dist:win:store:x64
+npm run dist:win:store:arm64
 ```
 
-The command creates an AppX/MSIX package for Store review. It does not submit anything, set a price, or replace the legacy ZIP. Microsoft Store delivery signs a certified Store package. See [`docs/windows-msix-store-readiness.md`](docs/windows-msix-store-readiness.md) for the owner-controlled steps.
+The commands create x64 and ARM64 AppX packages for Store review. They do not submit anything, set a price, or replace the legacy ZIP. Microsoft Store delivery signs a certified Store package. See [`docs/windows-msix-store-readiness.md`](docs/windows-msix-store-readiness.md) for the owner-controlled steps.
 ## Repository Layout
 
 | Path | Purpose |

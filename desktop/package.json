@@ -31,6 +31,8 @@
     "dist:win:zip": "electron-builder --win zip --publish never",
     "msix:prepare": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json",
     "dist:win:store": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json && electron-builder --win appx --config build/appx-store.resolved.json --publish never",
+    "dist:win:store:x64": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json && electron-builder --win appx --x64 --config build/appx-store.resolved.json --publish never",
+    "dist:win:store:arm64": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json && electron-builder --win appx --arm64 --config build/appx-store.resolved.json --publish never",
     "dist:linux": "electron-builder --linux tar.gz --publish never"
   },
   "devDependencies": {

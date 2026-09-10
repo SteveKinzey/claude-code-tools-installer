@@ -57,10 +57,11 @@ $env:CCTI_APPX_PUBLISHER_DISPLAY_NAME = "<exact Partner Center PublisherDisplayN
 
 cd desktop
 npm run msix:prepare
-npm run dist:win:store
+npm run dist:win:store:x64
+npm run dist:win:store:arm64
 ```
 
-`msix:prepare` writes an ignored local resolved configuration only after all three values are present and the four required tile images exist. `dist:win:store` makes an AppX/MSIX target only. It does not submit the package, change price, or create a Partner Center account.
+`msix:prepare` writes an ignored local resolved configuration only after all three values are present and the four required tile images exist. The architecture-specific `dist:win:store:*` commands make AppX/MSIX targets only. They do not submit packages, change price, or create a Partner Center account.
 
 ## Cost and user experience
 

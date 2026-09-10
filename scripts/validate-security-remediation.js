@@ -61,6 +61,10 @@ assert.match(storeBundleWorkflow, /CCTI\.LocalValidation/, 'Store bundle test mo
 assert.match(storeBundleWorkflow, /store-test/, 'Store bundle test mode must label its artifact as a test artifact.');
 assert.match(storeBundleWorkflow, /secrets\.CCTI_APPX_IDENTITY_NAME/, 'Store bundle workflow must retain protected identity secrets for final candidates.');
 assert.doesNotMatch(storeBundleWorkflow, /inputs\.(identity_name|publisher|publisher_display_name)/, 'Store bundle workflow must not accept Partner Center identity values through workflow dispatch.');
+assert.match(packageJson.scripts?.['dist:win:store:x64'] || '', /electron-builder --win appx --x64/, 'Store x64 script must explicitly pass --x64 to electron-builder.');
+assert.match(packageJson.scripts?.['dist:win:store:arm64'] || '', /electron-builder --win appx --arm64/, 'Store ARM64 script must explicitly pass --arm64 to electron-builder.');
+assert.match(storeBundleWorkflow, /npm run dist:win:store:x64/, 'Store bundle workflow must use the explicit x64 build script.');
+assert.match(storeBundleWorkflow, /npm run dist:win:store:arm64/, 'Store bundle workflow must use the explicit ARM64 build script.');
 assert.match(storeWindowsTestWorkflow, /workflow_dispatch:/, 'Store MSIX test workflow must be manually dispatched.');
 assert.match(storeWindowsTestWorkflow, /npm run msix:prepare/, 'Store MSIX test workflow must prepare the guarded Store configuration.');
 assert.match(storeWindowsTestWorkflow, /npm run dist:win:store -- --x64/, 'Store MSIX test workflow must build an x64 Store package.');
