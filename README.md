@@ -232,7 +232,11 @@ npm run dist:win
 npm run dist:linux
 ```
 
-macOS releases must be code-signed and notarized before distribution. Windows releases use the Microsoft Store MSIX route; this repository does not maintain a separate Windows code-signing service. The app downloads Claude Code only after the user selects **Complete setup** or **Install or update Claude Code only**; it does not redistribute Claude Code inside this repository.
+macOS releases must be code-signed and notarized before distribution.
+
+Windows releases use the Microsoft Store MSIX route.
+
+The app downloads Claude Code only after the user selects **Complete setup** or **Install or update Claude Code only**; it does not redistribute Claude Code inside this repository.
 
 ### Microsoft Store MSIX path
 
