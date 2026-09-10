@@ -60,10 +60,13 @@ assert.match(signedWindowsTestWorkflow, /workflow_dispatch:/, 'Signed Windows te
 assert.match(signedWindowsTestWorkflow, /azure\/artifact-signing-action@v2/, 'Signed Windows test workflow must use the configured Azure signing route.');
 assert.match(signedWindowsTestWorkflow, /allow-no-subscriptions:\s*true/, 'Signed Windows test workflow must support a subscription-less Artifact Signing identity.');
 assert.doesNotMatch(signedWindowsTestWorkflow, /subscription-id:/, 'Signed Windows test workflow must not bind a subscription for a subscription-less Artifact Signing identity.');
+assert.match(signedWindowsTestWorkflow, /exclude-azure-cli-credential:\s*false/, 'Signed Windows test workflow must explicitly use the OIDC-authenticated Azure CLI credential.');
+assert.match(signedWindowsTestWorkflow, /exclude-environment-credential:\s*true/, 'Signed Windows test workflow must exclude unrelated default credentials.');
 assert.match(signedWindowsTestWorkflow, /Get-AuthenticodeSignature/, 'Signed Windows test workflow must verify every Authenticode signature.');
 assert.match(signedWindowsTestWorkflow, /actions\/upload-artifact@v4/, 'Signed Windows test workflow must retain evidence as an Actions artifact.');
 assert.doesNotMatch(signedWindowsTestWorkflow, /gh release|--clobber/, 'Signed Windows test workflow must never publish or replace release assets.');
 assert.match(signedWindowsReleaseWorkflow, /allow-no-subscriptions:\s*true/, 'Signed Windows release workflow must support a subscription-less Artifact Signing identity.');
 assert.doesNotMatch(signedWindowsReleaseWorkflow, /subscription-id:/, 'Signed Windows release workflow must not bind a subscription for a subscription-less Artifact Signing identity.');
+assert.match(signedWindowsReleaseWorkflow, /exclude-azure-cli-credential:\s*false/, 'Signed Windows release workflow must explicitly use the OIDC-authenticated Azure CLI credential.');
 
 console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}, Dependabot policy, pull-request dependency review, and non-publishing Windows signing verification.`);
