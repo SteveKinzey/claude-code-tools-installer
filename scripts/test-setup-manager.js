@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const Module = require('node:module');
@@ -154,6 +155,11 @@ async function run() {
   assert.match(manifestText, /does not contain credentials/i);
   assert.match(manifestText, /Payload SHA-256: [0-9a-f]{64}/i, 'manifest must include a SHA-256 checksum');
   assert.match(manifestText, /Export timestamp:/, 'manifest must include export timestamp');
+  const recordedDigest = manifestText.match(/Payload SHA-256: ([0-9a-f]{64})/i)?.[1];
+  const payloadOffset = manifestText.indexOf('## Manifest payload\n');
+  assert.ok(recordedDigest && payloadOffset >= 0, 'manifest must identify a canonical payload to verify');
+  const calculatedDigest = createHash('sha256').update(manifestText.slice(payloadOffset), 'utf8').digest('hex');
+  assert.equal(calculatedDigest, recordedDigest, 'manifest SHA-256 digest must cover the exact exported payload');
 
   const folderOpenResult = await openManifestFolder();
   assert.equal(folderOpenResult.ok, true, 'openManifestFolder should succeed after export');

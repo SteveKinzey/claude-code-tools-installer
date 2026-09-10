@@ -598,11 +598,11 @@ async function buildInstallationManifest() {
     ? `- Claude Code: ${claude.version || 'installed'}`
     : '- Claude Code: not detected during export';
 
-  const bodyContent = `Generated: ${generatedAt} (Unix: ${timestampUnix})\nPlatform: ${process.platform}\nCCTI version: ${version}\n\n## Privacy boundary\n\nThis manifest lists only product names, categories, scopes, and available versions. It does not contain credentials, secrets, account information, conversation content, raw settings, logs, or absolute folder paths.\n\n## External developer tool\n\n${claudeLine}\n\n## Active tools and additions\n\n${itemList}\n\n## Uninstall boundary\n\nRemoving Claude Code Tools Installer deletes only CCTI-owned data reviewed in the uninstall flow. Claude Code, installed tools, skills, plugins, MCP connections, project files, and browser data remain untouched.\n`;
+  const payloadContent = `## Manifest payload\n\nGenerated: ${generatedAt} (Unix: ${timestampUnix})\nPlatform: ${process.platform}\nCCTI version: ${version}\n\n## Privacy boundary\n\nThis manifest lists only product names, categories, scopes, and available versions. It does not contain credentials, secrets, account information, conversation content, raw settings, logs, or absolute folder paths.\n\n## External developer tool\n\n${claudeLine}\n\n## Active tools and additions\n\n${itemList}\n\n## Uninstall boundary\n\nRemoving Claude Code Tools Installer deletes only CCTI-owned data reviewed in the uninstall flow. Claude Code, installed tools, skills, plugins, MCP connections, project files, and browser data remain untouched.\n`;
 
-  const sha256Digest = createHash('sha256').update(bodyContent, 'utf8').digest('hex');
+  const sha256Digest = createHash('sha256').update(payloadContent, 'utf8').digest('hex');
 
-  return `# Claude Code Tools Installer installation manifest\n\n## Integrity\n\n- Export timestamp: ${generatedAt}\n- Payload SHA-256: ${sha256Digest}\n\n${bodyContent}`;
+  return `# Claude Code Tools Installer installation manifest\n\n## Integrity\n\n- Export timestamp: ${generatedAt}\n- Payload SHA-256: ${sha256Digest}\n- Verification scope: the exact UTF-8 bytes in the \"Manifest payload\" section below.\n\n${payloadContent}`;
 }
 
 let lastExportedManifestPath = '';
