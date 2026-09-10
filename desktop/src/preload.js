@@ -5,6 +5,10 @@ contextBridge.exposeInMainWorld('installer', {
   getCatalogDetails: () => ipcRenderer.invoke('catalog-details:get'),
   getComponentCatalog: () => ipcRenderer.invoke('components:get'),
   getClaudeStatus: () => ipcRenderer.invoke('claude:status'),
+  runDiagnostics: () => ipcRenderer.invoke('diagnostics:run'),
+  getUpdateStatus: () => ipcRenderer.invoke('updates:get-status'),
+  checkForUpdates: () => ipcRenderer.invoke('updates:check'),
+  openPublishedRelease: () => ipcRenderer.invoke('updates:open-release'),
   runClaudeCode: (payload) => ipcRenderer.invoke('claude:run', payload),
   reviewClaudeRemoval: () => ipcRenderer.invoke('claude:review-removal'),
   applyClaudeRemoval: (payload) => ipcRenderer.invoke('claude:apply-removal', payload),
@@ -34,4 +38,5 @@ contextBridge.exposeInMainWorld('installer', {
   onState: (callback) => ipcRenderer.on('installer:state', (_event, payload) => callback(payload)),
   onComponentOutput: (callback) => ipcRenderer.on('component:output', (_event, payload) => callback(payload)),
   onComponentState: (callback) => ipcRenderer.on('component:state', (_event, payload) => callback(payload)),
+  onUpdateStatus: (callback) => ipcRenderer.on('updates:status', (_event, payload) => callback(payload)),
 });

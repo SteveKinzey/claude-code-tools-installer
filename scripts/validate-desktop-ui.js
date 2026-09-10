@@ -29,6 +29,10 @@ for (const asset of ['StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.
 
 for (const channel of [
   'catalog-details:get',
+  'diagnostics:run',
+  'updates:get-status',
+  'updates:check',
+  'updates:open-release',
   'claude:run',
   'claude:review-removal',
   'claude:apply-removal',
@@ -91,6 +95,15 @@ if (!html.includes('id="run-claude-button"') || !html.includes('id="remove-claud
 }
 if (!main.includes('async function launchClaudeCode') || !main.includes('async function knownClaudeRemovalPlan') || !main.includes("confirmation !== 'REMOVE CLAUDE CODE'")) {
   throw new Error('Claude Code lifecycle actions must remain fixed, trusted operations with typed removal confirmation.');
+}
+if (!html.includes('id="run-diagnostics-button"') || !html.includes('id="check-updates-button"') || !renderer.includes('async function runDiagnostics()') || !renderer.includes('function displayUpdateStatus(status)')) {
+  throw new Error('Desktop settings must provide a local diagnostics control and visible background update status.');
+}
+if (!main.includes('async function runDiagnostics()') || !main.includes('function startBackgroundUpdateChecks()') || !main.includes('async function openPublishedRelease()') || !main.includes("emit('updates:status'")) {
+  throw new Error('Diagnostics and release update status must remain in the main process behind narrow IPC handlers.');
+}
+if (main.includes('autoUpdater') || main.includes('downloadUpdate(') || main.includes('quitAndInstall(')) {
+  throw new Error('CCTI update checks must be notice-only and must never download or install updates automatically.');
 }
 for (const protectedItem of ['Claude Desktop app and its data', 'Claude in Chrome, browser profiles, and browser extensions', 'Any unrelated Anthropic app or account']) {
   if (!main.includes(`'${protectedItem}'`)) throw new Error(`Claude Code removal must explicitly protect ${protectedItem}.`);

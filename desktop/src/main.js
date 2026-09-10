@@ -15,6 +15,19 @@ const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
+const releaseApiEndpoint = 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases/latest';
+const releaseUrlPrefix = 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/';
+const updateCheckIntervalMs = 6 * 60 * 60 * 1000;
+let updateCheckPromise = null;
+let updateCheckTimer = null;
+let updateStatus = {
+  state: 'idle',
+  currentVersion: '',
+  latestVersion: '',
+  releaseUrl: '',
+  checkedAt: '',
+  message: 'Update status has not been checked yet.',
+};
 const reviewedPluginPlans = {
   superpowers: [['plugin', 'marketplace', 'add', 'obra/superpowers-marketplace'], ['plugin', 'install', 'superpowers@superpowers-marketplace', '--scope', 'user']],
   ecc: [['plugin', 'marketplace', 'add', 'https://github.com/affaan-m/ECC'], ['plugin', 'install', 'ecc@ecc', '--scope', 'user']],
@@ -138,6 +151,128 @@ function runProcess(command, args, options = {}) {
   });
 }
 
+function versionSegments(value) {
+  return String(value || '').replace(/^v/i, '').split(/[.-]/).slice(0, 3).map((part) => {
+    const parsed = Number.parseInt(part, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+}
+
+function isNewerVersion(candidate, current) {
+  const candidateParts = versionSegments(candidate);
+  const currentParts = versionSegments(current);
+  for (let index = 0; index < Math.max(candidateParts.length, currentParts.length, 3); index += 1) {
+    const left = candidateParts[index] || 0;
+    const right = currentParts[index] || 0;
+    if (left !== right) return left > right;
+  }
+  return false;
+}
+
+function publishUpdateStatus() {
+  emit('updates:status', { ...updateStatus });
+}
+
+function currentAppVersion() {
+  return typeof app.getVersion === 'function' ? app.getVersion() : 'development';
+}
+
+async function checkForUpdates() {
+  if (updateCheckPromise) return updateCheckPromise;
+  updateCheckPromise = (async () => {
+    const currentVersion = currentAppVersion();
+    updateStatus = {
+      ...updateStatus,
+      state: 'checking',
+      currentVersion,
+      message: 'Checking for a published CCTI release…',
+    };
+    publishUpdateStatus();
+
+    if (typeof fetch !== 'function') {
+      updateStatus = {
+        ...updateStatus,
+        state: 'unavailable',
+        checkedAt: new Date().toISOString(),
+        message: 'Update check unavailable: this app runtime cannot check GitHub releases.',
+      };
+      publishUpdateStatus();
+      return { ...updateStatus };
+    }
+
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeout = setTimeout(() => controller?.abort(), 8000);
+    try {
+      const response = await fetch(releaseApiEndpoint, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'Claude-Code-Tools-Installer',
+        },
+        cache: 'no-store',
+        signal: controller?.signal,
+      });
+      if (!response.ok) throw new Error(response.status === 404 ? 'No public CCTI release is published yet.' : `GitHub returned ${response.status}.`);
+      const release = await response.json();
+      const latestVersion = String(release?.tag_name || '').replace(/^v/i, '');
+      const releaseUrl = String(release?.html_url || '');
+      if (!latestVersion || !releaseUrl.startsWith(releaseUrlPrefix)) throw new Error('GitHub returned an incomplete release record.');
+
+      const available = isNewerVersion(latestVersion, currentVersion);
+      updateStatus = {
+        state: available ? 'available' : 'current',
+        currentVersion,
+        latestVersion,
+        releaseUrl,
+        checkedAt: new Date().toISOString(),
+        message: available
+          ? `CCTI ${latestVersion} is available. Review the release before downloading it.`
+          : latestVersion === currentVersion
+            ? `CCTI ${currentVersion} is the newest published release.`
+            : `This CCTI build (${currentVersion}) is newer than the latest published release (${latestVersion}).`,
+      };
+      publishUpdateStatus();
+      return { ...updateStatus };
+    } catch (error) {
+      updateStatus = {
+        ...updateStatus,
+        state: 'unavailable',
+        currentVersion,
+        checkedAt: new Date().toISOString(),
+        message: `Update check unavailable: ${error.name === 'AbortError' ? 'GitHub did not respond in time.' : error.message}`,
+      };
+      publishUpdateStatus();
+      return { ...updateStatus };
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+
+  try {
+    return await updateCheckPromise;
+  } finally {
+    updateCheckPromise = null;
+  }
+}
+
+function startBackgroundUpdateChecks() {
+  if (typeof app.getVersion !== 'function') return;
+  if (updateCheckTimer) return;
+  checkForUpdates();
+  updateCheckTimer = setInterval(() => { checkForUpdates(); }, updateCheckIntervalMs);
+}
+
+async function openPublishedRelease() {
+  if (!updateStatus.releaseUrl || !updateStatus.releaseUrl.startsWith(releaseUrlPrefix)) {
+    return { ok: false, error: 'There is no verified release page to open yet. Check for updates again.' };
+  }
+  try {
+    await shell.openExternal(updateStatus.releaseUrl);
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'CCTI could not open the verified release page.' };
+  }
+}
+
 async function readCatalog() {
   return JSON.parse(await fs.readFile(catalogResource(), 'utf8'));
 }
@@ -192,18 +327,81 @@ async function claudeStatus() {
     const result = await runProcess(targetCmd, ['--version'], { cwd: home, env: claudeProcessEnv(), timeout: 4000 });
     const version = result.stdout.trim() || result.stderr.trim();
     const installed = result.code === 0 && version.length > 0;
-    const isReady = installed || (Boolean(installedPath) && !result.timedOut);
     return {
-      installed: isReady,
-      version: isReady ? (version || 'detected') : '',
+      installed,
+      version: installed ? version : '',
       path: installedPath,
       timedOut: Boolean(result.timedOut),
-      reason: isReady ? '' : (result.timedOut ? 'Claude Code check took longer than expected.' : result.code === 0 ? 'Claude Code did not return a version.' : 'Claude Code could not be run.'),
+      reason: installed ? '' : (result.timedOut ? 'Claude Code check took longer than expected.' : result.code === 0 ? 'Claude Code did not return a version.' : 'Claude Code could not be run.'),
     };
   } catch {
     const fallbackPath = await commandLocation('claude').catch(() => '');
-    return { installed: Boolean(fallbackPath), version: fallbackPath ? 'detected' : '', path: fallbackPath, reason: 'Claude Code could not be run.' };
+    return { installed: false, version: '', path: fallbackPath, reason: 'Claude Code could not be run.' };
   }
+}
+
+function displayLocalPath(value) {
+  const home = app.getPath('home');
+  return String(value || '').split(home).join('~');
+}
+
+async function diagnosticCommand(command, args) {
+  try {
+    const result = await runProcess(command, args, { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 4000 });
+    const output = (result.stdout || result.stderr || '').trim().replace(/\s+/g, ' ');
+    return result.code === 0
+      ? `Ready${output ? ` — ${output}` : ''}`
+      : `Not ready${result.timedOut ? ' — timed out after 4 seconds' : output ? ` — ${output}` : ''}`;
+  } catch (error) {
+    return `Not ready — ${error.message}`;
+  }
+}
+
+async function runDiagnostics() {
+  const home = app.getPath('home');
+  const env = claudeProcessEnv();
+  const candidatePaths = process.platform === 'win32'
+    ? [path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'), path.join(home, '.local', 'bin', 'claude.exe')]
+    : [path.join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude', path.join(home, '.npm-global', 'bin', 'claude')];
+  const [claude, node, npm, git, resolvedClaude] = await Promise.all([
+    claudeStatus(),
+    diagnosticCommand('node', ['--version']),
+    diagnosticCommand(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['--version']),
+    diagnosticCommand('git', ['--version']),
+    commandLocation('claude'),
+  ]);
+  const candidates = await Promise.all(candidatePaths.map(async (candidate) => `${displayLocalPath(candidate)}: ${await pathExists(candidate) ? 'found' : 'not found'}`));
+  const managedRuntime = process.platform === 'win32'
+    ? path.join(setupManagerDir(), 'node-runtime', 'node.exe')
+    : path.join(setupManagerDir(), 'node-runtime', 'bin', 'node');
+  const report = [
+    'CCTI DIAGNOSTICS — local only; this report is not sent anywhere.',
+    `Checked: ${new Date().toLocaleString()}`,
+    `CCTI version: ${currentAppVersion()}`,
+    `Platform: ${process.platform} ${process.arch}`,
+    `Electron: ${process.versions.electron || 'unknown'} · Node: ${process.versions.node || 'unknown'}`,
+    '',
+    'Claude Code',
+    `Status: ${claude.installed ? `ready${claude.version ? ` — ${claude.version}` : ''}` : `not ready — ${claude.reason || 'not detected'}`}`,
+    `Resolved command: ${displayLocalPath(resolvedClaude || claude.path || 'not found')}`,
+    'Known command locations:',
+    ...candidates.map((entry) => `  ${entry}`),
+    '',
+    'Required commands',
+    `node: ${node}`,
+    `npm: ${npm}`,
+    `git: ${git}`,
+    `CCTI-managed Node.js: ${await pathExists(managedRuntime) ? `found at ${displayLocalPath(managedRuntime)}` : 'not present'}`,
+    '',
+    'PATH used by CCTI',
+    ...(env.PATH || '').split(path.delimiter).filter(Boolean).map((entry) => `  ${displayLocalPath(entry)}`),
+    '',
+    'Next step',
+    claude.installed
+      ? 'Claude Code can run in the CCTI environment. If a later action fails, share this local report with support or compare the command path above with your terminal.'
+      : 'Use “Yes, install Claude Code” to run the official installer, or choose “Yes, Claude Code is installed” to continue browsing while you resolve the command path.',
+  ].join('\n');
+  return { ok: true, report, claudeReady: claude.installed };
 }
 
 async function pathExists(target) {
@@ -994,6 +1192,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('catalog-details:get', readCatalogDetails);
   ipcMain.handle('components:get', readComponentCatalog);
   ipcMain.handle('claude:status', claudeStatus);
+  ipcMain.handle('diagnostics:run', runDiagnostics);
+  ipcMain.handle('updates:get-status', async () => ({ ...updateStatus }));
+  ipcMain.handle('updates:check', checkForUpdates);
+  ipcMain.handle('updates:open-release', openPublishedRelease);
   ipcMain.handle('claude:run', async (_event, payload) => launchClaudeCode(payload || {}));
   ipcMain.handle('claude:review-removal', knownClaudeRemovalPlan);
   ipcMain.handle('claude:apply-removal', async (_event, payload) => applyKnownClaudeRemoval(payload || {}));
@@ -1153,6 +1355,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('app:apply-uninstall', async (_event, payload) => applyAppUninstall(payload));
 
   await createWindow();
+  startBackgroundUpdateChecks();
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) await createWindow();
   });

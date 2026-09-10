@@ -268,6 +268,20 @@
         <pre id="output" aria-live="polite">Clear, technical details will appear here while the app checks Claude Code or installs the tools you selected.</pre>
       </section>
 
+      <section id="desktop-utilities-panel" class="desktop-utilities-panel" aria-labelledby="desktop-utilities-heading">
+        <div>
+          <p class="eyebrow">APP SETTINGS</p>
+          <h2 id="desktop-utilities-heading">Diagnostics and updates</h2>
+          <p>Run a local path and runtime check when Claude Code is not found. CCTI also checks GitHub in the background at launch and about every six hours. It never downloads or installs an update automatically.</p>
+        </div>
+        <div class="desktop-utilities-actions">
+          <button id="run-diagnostics-button" class="button button-secondary" type="button">Run Diagnostics</button>
+          <button id="check-updates-button" class="button button-ghost" type="button">Check for Updates</button>
+          <button id="open-release-button" class="button button-primary" type="button" hidden disabled>View New Version</button>
+        </div>
+        <p id="update-status-note" class="update-status-note" role="status" aria-live="polite">Checking published CCTI releases in the background…</p>
+      </section>
+
       <section id="uninstall-panel" class="uninstall-panel" aria-labelledby="uninstall-heading">
         <div class="uninstall-header">
           <div>

@@ -87,6 +87,10 @@ const uninstallAppButton = document.querySelector('#uninstall-app-button');
 const exportInstallationManifestButton = document.querySelector('#export-installation-manifest-button');
 const openManifestFolderButton = document.querySelector('#open-manifest-folder-button');
 const uninstallStatusNoteElement = document.querySelector('#uninstall-status-note');
+const runDiagnosticsButton = document.querySelector('#run-diagnostics-button');
+const checkUpdatesButton = document.querySelector('#check-updates-button');
+const openReleaseButton = document.querySelector('#open-release-button');
+const updateStatusNoteElement = document.querySelector('#update-status-note');
 
 function selectedItems() {
   return state.catalog.filter((tool) => state.selected.has(tool.id));
@@ -349,6 +353,56 @@ function updateSummary() {
 
   installButton.disabled = state.running || selected.length === 0 || !state.claudeApproved;
   installButton.textContent = document.querySelector('#dry-run').checked ? 'Preview selected changes' : 'Install selected tools';
+}
+
+function displayUpdateStatus(status) {
+  const stateName = status?.state || 'idle';
+  const message = status?.message || 'Update status has not been checked yet.';
+  const latestVersion = status?.latestVersion || '';
+  const updateAvailable = stateName === 'available' && Boolean(status?.releaseUrl);
+  updateStatusNoteElement.textContent = message;
+  updateStatusNoteElement.className = `update-status-note update-status-${stateName}`;
+  openReleaseButton.hidden = !updateAvailable;
+  openReleaseButton.disabled = !updateAvailable;
+  openReleaseButton.textContent = latestVersion ? `View CCTI ${latestVersion}` : 'View New Version';
+  checkUpdatesButton.disabled = stateName === 'checking';
+  checkUpdatesButton.textContent = stateName === 'checking' ? 'Checking for Updates…' : 'Check for Updates';
+}
+
+async function runDiagnostics() {
+  runDiagnosticsButton.disabled = true;
+  runDiagnosticsButton.textContent = 'Running Diagnostics…';
+  runStatusElement.textContent = 'Running local diagnostics';
+  try {
+    const result = await window.installer.runDiagnostics();
+    if (!result.ok) throw new Error(result.error || 'CCTI could not complete diagnostics.');
+    outputElement.textContent = result.report;
+    outputElement.classList.remove('has-error');
+    runStatusElement.textContent = result.claudeReady ? 'Diagnostics complete · Claude Code is ready' : 'Diagnostics complete · Claude Code needs attention';
+  } catch (error) {
+    appendOutput(`[CCTI] Diagnostics failed: ${error.message}\n`, 'stderr');
+    runStatusElement.textContent = 'Diagnostics could not finish';
+  } finally {
+    runDiagnosticsButton.disabled = false;
+    runDiagnosticsButton.textContent = 'Run Diagnostics';
+  }
+}
+
+async function manuallyCheckForUpdates() {
+  displayUpdateStatus({ state: 'checking', message: 'Checking for a published CCTI release…' });
+  try {
+    displayUpdateStatus(await window.installer.checkForUpdates());
+  } catch (error) {
+    displayUpdateStatus({ state: 'unavailable', message: `Update check unavailable: ${error.message}` });
+  }
+}
+
+async function openPublishedRelease() {
+  const result = await window.installer.openPublishedRelease();
+  if (!result.ok) {
+    updateStatusNoteElement.textContent = result.error || 'CCTI could not open the verified release page.';
+    updateStatusNoteElement.className = 'update-status-note update-status-unavailable';
+  }
 }
 
 function renderCatalog() {
@@ -1270,6 +1324,9 @@ document.querySelectorAll('.prompt-chip').forEach((button) => button.addEventLis
 exportInstallationManifestButton.addEventListener('click', exportInstallationManifest);
 openManifestFolderButton.addEventListener('click', openManifestFolder);
 uninstallAppButton.addEventListener('click', uninstallApplication);
+runDiagnosticsButton.addEventListener('click', runDiagnostics);
+checkUpdatesButton.addEventListener('click', manuallyCheckForUpdates);
+openReleaseButton.addEventListener('click', openPublishedRelease);
 openCompassConnectButton.addEventListener('click', async () => {
   if (state.compass.online) {
     state.compass.online = false;
@@ -1313,14 +1370,16 @@ window.installer.onComponentState(({ running }) => {
   else if (runStatusElement.textContent === 'Preparing project and installing components') runStatusElement.textContent = 'Project component plan finished';
   updateProjectPlan();
 });
+window.installer.onUpdateStatus(displayUpdateStatus);
 
 (async () => {
   try {
-    const [catalog, catalogDetails, componentCatalog, compassStatus] = await Promise.all([
+    const [catalog, catalogDetails, componentCatalog, compassStatus, initialUpdateStatus] = await Promise.all([
       window.installer.getCatalog(),
       window.installer.getCatalogDetails(),
       window.installer.getComponentCatalog(),
       window.installer.getCompassStatus(),
+      window.installer.getUpdateStatus(),
     ]);
     state.catalog = catalog;
     state.catalogDetails = new Map(catalogDetails.items.map((item) => [item.id, item]));
@@ -1330,6 +1389,7 @@ window.installer.onComponentState(({ running }) => {
     populateComponentCategories();
     chooseBy((tool) => tool.default);
     updateCompassConnectionUi();
+    displayUpdateStatus(initialUpdateStatus);
     await refreshClaudeStatus();
   } catch (error) {
     bootstrapStatusElement.textContent = 'App setup failed';
