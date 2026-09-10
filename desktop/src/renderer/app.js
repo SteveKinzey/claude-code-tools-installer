@@ -84,6 +84,7 @@ const projectInterviewNextButton = document.querySelector('#project-interview-ne
 const projectInterviewOutputElement = document.querySelector('#project-interview-output');
 const exportProjectPrdButton = document.querySelector('#export-project-prd-button');
 const uninstallAppButton = document.querySelector('#uninstall-app-button');
+const exportInstallationManifestButton = document.querySelector('#export-installation-manifest-button');
 const uninstallStatusNoteElement = document.querySelector('#uninstall-status-note');
 
 function selectedItems() {
@@ -591,6 +592,31 @@ async function runInstallation() {
 }
 
 
+
+async function exportInstallationManifest() {
+  if (state.running || state.componentRunning) {
+    window.alert('Another action is currently in progress. Please wait for it to finish before exporting a manifest.');
+    return { ok: false, canceled: false };
+  }
+  exportInstallationManifestButton.disabled = true;
+  uninstallStatusNoteElement.textContent = 'Choose where to save your private installation manifest.';
+  try {
+    const result = await window.installer.exportInstallationManifest();
+    if (result.ok && result.canceled) {
+      uninstallStatusNoteElement.textContent = 'Installation manifest export canceled. Nothing was changed.';
+    } else if (result.ok) {
+      uninstallStatusNoteElement.textContent = `Installation manifest saved: ${result.filename}. It contains names and scopes only—never credentials, raw settings, or folder paths.`;
+      appendOutput(`[CCTI] Installation manifest saved: ${result.filename}.\n`);
+    } else {
+      uninstallStatusNoteElement.textContent = result.error || 'CCTI could not save the installation manifest.';
+      appendOutput(`[CCTI] ${result.error || 'Installation manifest export failed.'}\n`, 'stderr');
+    }
+    return result;
+  } finally {
+    exportInstallationManifestButton.disabled = state.running || state.componentRunning;
+  }
+}
+
 async function uninstallApplication() {
   if (state.running || state.componentRunning) {
     window.alert('Another action is currently in progress. Please wait for it to finish before uninstalling.');
@@ -613,7 +639,12 @@ async function uninstallApplication() {
   if (!window.confirm(step1Message)) {
     return;
   }
-
+  if (window.confirm('Would you like to save a private installation manifest before CCTI removes its app data? It lists active tools and scopes only. It never includes credentials, raw settings, logs, or folder paths.')) {
+    const manifestResult = await exportInstallationManifest();
+    if (!manifestResult.ok && !manifestResult.canceled) {
+      window.alert('The manifest could not be saved. You can still cancel now or continue with the reviewed uninstall.');
+    }
+  }
   const confirmation = window.prompt(
     'MANDATORY ACKNOWLEDGMENT:\n\nTo confirm complete removal of Claude Code Tools Installer, type:\nUNINSTALL CCTI\n\n(Claude Code and your tools will NOT be removed).'
   );
@@ -631,10 +662,11 @@ async function uninstallApplication() {
 
   const result = await window.installer.applyAppUninstall({ reviewId: review.reviewId, confirmation });
   if (result.ok) {
-    uninstallStatusNoteElement.textContent = result.message;
+    uninstallStatusNoteElement.textContent = `${result.message} ${result.cleanupGuidance || ''}`.trim();
     runStatusElement.textContent = 'App uninstalled';
     appendOutput(`[CCTI] ${result.message}\n`);
-    window.alert(`CCTI Uninstalled Successfully\n\n${result.message}`);
+    if (result.cleanupGuidance) appendOutput(`[CCTI] ${result.cleanupGuidance}\n`);
+    window.alert(`CCTI Uninstalled Successfully\n\n${result.message}\n\n${result.cleanupGuidance || 'Follow the on-screen cleanup instruction.'}`);
   } else {
     uninstallAppButton.disabled = false;
     uninstallStatusNoteElement.textContent = result.error || 'CCTI encountered an issue during uninstall.';
@@ -1180,6 +1212,7 @@ document.querySelector('#compass-form').addEventListener('submit', (event) => {
   askCompass(compassInputElement.value);
 });
 document.querySelectorAll('.prompt-chip').forEach((button) => button.addEventListener('click', () => askCompass(button.dataset.compassPrompt || '')));
+exportInstallationManifestButton.addEventListener('click', exportInstallationManifest);
 uninstallAppButton.addEventListener('click', uninstallApplication);
 openCompassConnectButton.addEventListener('click', async () => {
   if (state.compass.online) {

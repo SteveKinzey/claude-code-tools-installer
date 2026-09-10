@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Notification } = require('electron');
 const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
@@ -286,6 +286,87 @@ async function applyKnownClaudeRemoval({ reviewId, confirmation, removeSettings 
 }
 
 
+
+function appUninstallCleanupGuidance() {
+  if (process.platform === 'win32') {
+    return 'CCTI app data is gone. After CCTI closes, remove it in Windows Installed apps or delete the now-empty extracted CCTI folder. Claude Code and your tools remain untouched.';
+  }
+  if (process.platform === 'darwin') {
+    return 'CCTI app data is gone. After CCTI closes, move Claude Code Tools Installer from Applications to Trash. Claude Code and your tools remain untouched.';
+  }
+  return 'CCTI app data is gone. After CCTI closes, delete the now-empty extracted CCTI directory. Claude Code and your tools remain untouched.';
+}
+
+function platformUninstallGuidance() {
+  if (process.platform === 'win32') {
+    return 'After this in-app data removal completes, CCTI will close. Use Windows Installed apps for an installed package, or delete the now-empty extracted CCTI folder.';
+  }
+  if (process.platform === 'darwin') {
+    return 'After this in-app data removal completes, CCTI will close. Move Claude Code Tools Installer from Applications to Trash.';
+  }
+  return 'After this in-app data removal completes, CCTI will close. Delete the now-empty extracted CCTI directory.';
+}
+
+function postAppUninstallNotification() {
+  const title = 'CCTI app data removed';
+  const body = appUninstallCleanupGuidance();
+  try {
+    if (!Notification || typeof Notification.isSupported !== 'function' || !Notification.isSupported()) {
+      emit('installer:output', { stream: 'stdout', text: '[CCTI] Desktop notifications are unavailable here. Follow the on-screen cleanup instruction.\n' });
+      return { requested: false, title, body };
+    }
+    const notification = new Notification({ title, body, timeoutType: 'never' });
+    notification.on('failed', (_event, error) => {
+      emit('installer:output', { stream: 'stderr', text: `[CCTI] Desktop notification could not be shown: ${error}\n` });
+    });
+    notification.show();
+    return { requested: true, title, body };
+  } catch (error) {
+    emit('installer:output', { stream: 'stderr', text: `[CCTI] Desktop notification could not be queued: ${error.message}\n` });
+    return { requested: false, title, body };
+  }
+}
+
+function manifestLine(item) {
+  return `- ${item.name} (${item.type} · ${item.scope})`;
+}
+
+async function buildInstallationManifest() {
+  const generatedAt = new Date().toISOString();
+  const version = typeof app.getVersion === 'function' ? app.getVersion() : 'unknown';
+  const [claude, discovery] = await Promise.all([
+    claudeStatus(),
+    discoverClaudeSetup().catch(() => ({ findings: [] })),
+  ]);
+  const activeItems = (discovery.findings || [])
+    .filter((item) => ['tool', 'runtime', 'skill', 'plugin', 'connection', 'follow-up'].includes(item.type))
+    .map(manifestLine);
+  const visibleItems = [...new Set(activeItems)].sort((a, b) => a.localeCompare(b));
+  const itemList = visibleItems.length ? visibleItems.join('\n') : '- No discoverable tools or additions were found at export time.';
+  const claudeLine = claude.installed
+    ? `- Claude Code: ${claude.version || 'installed'}`
+    : '- Claude Code: not detected during export';
+
+  return `# Claude Code Tools Installer installation manifest\n\nGenerated: ${generatedAt}\nPlatform: ${process.platform}\nCCTI version: ${version}\n\n## Privacy boundary\n\nThis manifest lists only product names, categories, scopes, and available versions. It does not contain credentials, secrets, account information, conversation content, raw settings, logs, or absolute folder paths.\n\n## External developer tool\n\n${claudeLine}\n\n## Active tools and additions\n\n${itemList}\n\n## Uninstall boundary\n\nRemoving Claude Code Tools Installer deletes only CCTI-owned data reviewed in the uninstall flow. Claude Code, installed tools, skills, plugins, MCP connections, project files, and browser data remain untouched.\n`;
+}
+
+async function exportInstallationManifest() {
+  try {
+    const defaultName = `ccti-installation-manifest-${new Date().toISOString().slice(0, 10)}.md`;
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save CCTI installation manifest',
+      defaultPath: defaultName,
+      filters: [{ name: 'Markdown file', extensions: ['md'] }, { name: 'Text file', extensions: ['txt'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: true, canceled: true };
+    await fs.writeFile(result.filePath, await buildInstallationManifest(), 'utf8');
+    emit('installer:output', { stream: 'stdout', text: `[CCTI] Installation manifest saved as ${path.basename(result.filePath)}.\n` });
+    return { ok: true, canceled: false, filename: path.basename(result.filePath) };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not save the installation manifest: ${error.message}` };
+  }
+}
+
 async function resolveAppUninstallPlan() {
   const home = app.getPath('home');
   const cctiStateDir = setupManagerDir();
@@ -330,14 +411,7 @@ async function resolveAppUninstallPlan() {
     if (Date.now() - plan.createdAt > 10 * 60 * 1000) reviewedAppUninstallPlans.delete(id);
   }
 
-  let platformGuidance = '';
-  if (process.platform === 'win32') {
-    platformGuidance = 'After this in-app data removal completes, CCTI will close. If you installed via Windows MSIX/Installer, you can remove it from Windows Installed Apps, or simply delete the unzipped app folder.';
-  } else if (process.platform === 'darwin') {
-    platformGuidance = 'After this in-app data removal completes, CCTI will close. You can then drag Claude Code Tools Installer from Applications to Trash.';
-  } else {
-    platformGuidance = 'After this in-app data removal completes, CCTI will close. You can then delete the extracted CCTI directory.';
-  }
+  const platformGuidance = platformUninstallGuidance();
 
   return {
     ok: true,
@@ -372,6 +446,8 @@ async function applyAppUninstall({ reviewId, confirmation } = {}) {
     }
     emit('installer:output', { stream: 'stdout', text: '[CCTI] App data and runtime files have been cleanly deleted.\n' });
     emit('installer:output', { stream: 'stdout', text: '[CCTI] Claude Code and your tools remain safe and functional.\n' });
+    const notification = postAppUninstallNotification();
+    emit('installer:output', { stream: 'stdout', text: `[CCTI] ${notification.body}\n` });
 
     setTimeout(() => {
       try {
@@ -386,6 +462,8 @@ async function applyAppUninstall({ reviewId, confirmation } = {}) {
     return {
       ok: true,
       message: 'Claude Code Tools Installer data has been completely removed. Claude Code and all installed tools remain untouched. The application will close shortly.',
+      cleanupGuidance: appUninstallCleanupGuidance(),
+      notificationRequested: notification.requested,
       closedSoon: true,
     };
   } catch (error) {
@@ -991,6 +1069,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('compass:status', async () => ({ onlineAvailable: true, provider: 'Site-powered Compass', model: 'Claude Haiku 4.5' }));
   ipcMain.handle('compass:ask', async (_event, payload) => askSitePoweredCompass(payload));
   ipcMain.handle('app:review-uninstall', async () => resolveAppUninstallPlan());
+  ipcMain.handle('app:export-installation-manifest', async () => exportInstallationManifest());
   ipcMain.handle('app:apply-uninstall', async (_event, payload) => applyAppUninstall(payload));
 
   await createWindow();

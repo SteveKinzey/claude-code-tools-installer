@@ -51,6 +51,7 @@ for (const channel of [
   'setup-manager:review-plugin-change',
   'setup-manager:apply-plugin-change',
   'app:review-uninstall',
+  'app:export-installation-manifest',
   'app:apply-uninstall',
 ]) {
   if (!main.includes(`'${channel}'`)) throw new Error(`Missing main-process handler for ${channel}.`);
@@ -173,11 +174,11 @@ if (!main.includes('reportAnonymousSetupSuccess') || !main.includes("JSON.string
 }
 
 
-if (!html.includes('id="uninstall-app-button"') || !html.includes('id="uninstall-panel"') || !renderer.includes('async function uninstallApplication()')) {
-  throw new Error('The desktop app must include a bottom-placed complete app uninstall action.');
+if (!html.includes('id="uninstall-app-button"') || !html.includes('id="export-installation-manifest-button"') || !html.includes('id="uninstall-panel"') || !renderer.includes('async function uninstallApplication()') || !renderer.includes('async function exportInstallationManifest()')) {
+  throw new Error('The desktop app must include a bottom-placed complete app uninstall action and pre-uninstall manifest export.');
 }
-if (!main.includes('async function resolveAppUninstallPlan()') || !main.includes('async function applyAppUninstall(') || !main.includes("confirmation !== 'UNINSTALL CCTI'")) {
-  throw new Error('App uninstall must require typed user acknowledgment (UNINSTALL CCTI) and leave Claude Code untouched.');
+if (!main.includes('async function resolveAppUninstallPlan()') || !main.includes('async function exportInstallationManifest()') || !main.includes('function postAppUninstallNotification()') || !main.includes('async function applyAppUninstall(') || !main.includes("confirmation !== 'UNINSTALL CCTI'")) {
+  throw new Error('App uninstall must export a privacy-safe manifest, require typed acknowledgment, notify post-uninstall cleanup, and leave Claude Code untouched.');
 }
 
 console.log(`Desktop UI contract passed: ${selectorIds.size} renderer IDs and ${calledMethods.size} secure bridge methods verified.`);

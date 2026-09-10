@@ -13,6 +13,15 @@ const project = path.join(tempRoot, 'project');
 const sourceSkill = path.join(tempRoot, 'my-skill');
 const handlers = new Map();
 let readyCallback;
+let saveDialogResult = { canceled: true, filePath: '' };
+const notifications = [];
+
+class NotificationStub {
+  static isSupported() { return true; }
+  constructor(options) { this.options = options; notifications.push(options); }
+  on() { return this; }
+  show() { this.shown = true; }
+}
 
 const electronStub = {
   app: {
@@ -28,7 +37,8 @@ const electronStub = {
     async loadFile() {}
     isDestroyed() { return false; }
   },
-  dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+  dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showSaveDialog: async () => saveDialogResult },
+  Notification: NotificationStub,
   ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
 };
 
@@ -64,9 +74,10 @@ async function run() {
   const applyPluginChange = handlers.get('setup-manager:apply-plugin-change');
   const previewComponents = handlers.get('components:preview');
   const reviewAppUninstall = handlers.get('app:review-uninstall');
+  const exportInstallationManifest = handlers.get('app:export-installation-manifest');
   const applyAppUninstall = handlers.get('app:apply-uninstall');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents && reviewAppUninstall && applyAppUninstall, 'all handlers including app uninstall should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents && reviewAppUninstall && exportInstallationManifest && applyAppUninstall, 'all handlers including app uninstall should be registered');
 
   const componentCatalog = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
   const componentPreview = await previewComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id] });
@@ -130,6 +141,16 @@ async function run() {
   await fsp.mkdir(fakeCctiDir, { recursive: true });
   await fsp.writeFile(path.join(fakeCctiDir, 'test-ccti.json'), JSON.stringify({ active: true }), 'utf8');
 
+  const manifestPath = path.join(tempRoot, 'ccti-installation-manifest.md');
+  saveDialogResult = { canceled: false, filePath: manifestPath };
+  const manifestResult = await exportInstallationManifest();
+  assert.equal(manifestResult.ok, true, 'installation manifest export should succeed');
+  assert.equal(manifestResult.filename, 'ccti-installation-manifest.md');
+  const manifestText = await fsp.readFile(manifestPath, 'utf8');
+  assert.match(manifestText, /review-tool@marketplace/);
+  assert.ok(!manifestText.includes(tempRoot), 'manifest must omit private absolute paths');
+  assert.match(manifestText, /does not contain credentials/i);
+
   const uninstallReview = await reviewAppUninstall();
   assert.equal(uninstallReview.ok, true, 'reviewAppUninstall should succeed');
   assert.ok(uninstallReview.reviewId, 'reviewId must be returned');
@@ -143,6 +164,8 @@ async function run() {
 
   const goodAck = await applyAppUninstall(null, { reviewId: uninstallReview.reviewId, confirmation: 'UNINSTALL CCTI' });
   assert.equal(goodAck.ok, true, 'Valid acknowledgment must trigger complete removal');
+  assert.match(goodAck.cleanupGuidance, /empty/i);
+  assert.ok(notifications.some((notification) => /CCTI app data removed/.test(notification.title) && /Claude Code/.test(notification.body)), 'a native cleanup notification should be queued');
   await assert.rejects(fsp.access(fakeCctiDir), 'CCTI state folder should be completely deleted');
   // Claude Code and skills must still exist untouched
   await fsp.access(path.join(home, '.claude'));

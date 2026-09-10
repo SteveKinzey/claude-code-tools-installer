@@ -238,3 +238,5 @@ h3 { margin: 0; font-size: 1rem; }
 .uninstall-header h2 { margin-bottom: 6px; color: #ffb8c7; }
 .uninstall-header p { margin: 0; max-width: 760px; color: #e2c0c9; line-height: 1.5; font-size: 0.92rem; }
 .uninstall-status-note { margin: 12px 0 0; color: #ad8a93; font-size: 0.84rem; line-height: 1.45; }
+
+.uninstall-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
