@@ -90,7 +90,10 @@ const exportInstallationManifestButton = document.querySelector('#export-install
 const openManifestFolderButton = document.querySelector('#open-manifest-folder-button');
 const verifyInstallationManifestButton = document.querySelector('#verify-installation-manifest-button');
 const copyManifestVerificationCommandButton = document.querySelector('#copy-manifest-verification-command-button');
+const manifestDropZoneElement = document.querySelector('#manifest-drop-zone');
+const compareInstallationManifestsButton = document.querySelector('#compare-installation-manifests-button');
 const manifestVerificationStatusElement = document.querySelector('#manifest-verification-status');
+const manifestComparisonResultElement = document.querySelector('#manifest-comparison-result');
 const uninstallStatusNoteElement = document.querySelector('#uninstall-status-note');
 const runDiagnosticsButton = document.querySelector('#run-diagnostics-button');
 const copyDiagnosticsButton = document.querySelector('#copy-diagnostics-button');
@@ -99,6 +102,7 @@ const checkUpdatesButton = document.querySelector('#check-updates-button');
 const openReleaseButton = document.querySelector('#open-release-button');
 const updateStatusNoteElement = document.querySelector('#update-status-note');
 const updateStatusSpinnerElement = document.querySelector('#update-status-spinner');
+const releaseIntegrityAlertElement = document.querySelector('#release-integrity-alert');
 
 function selectedItems() {
   return state.catalog.filter((tool) => state.selected.has(tool.id));
@@ -378,6 +382,15 @@ function displayUpdateStatus(status) {
   openReleaseButton.textContent = latestVersion ? `View CCTI ${latestVersion}` : 'View New Version';
   checkUpdatesButton.disabled = checking;
   checkUpdatesButton.textContent = checking ? 'Checking for Updates…' : 'Check for Updates';
+  const digestAlert = status?.digestAlert;
+  if (digestAlert?.count) {
+    const names = Array.isArray(digestAlert.names) ? digestAlert.names.slice(0, 3).join(', ') : 'a published artifact';
+    releaseIntegrityAlertElement.hidden = false;
+    releaseIntegrityAlertElement.textContent = `Integrity attention: ${digestAlert.message} Missing: ${names}. Review the release before downloading.`;
+  } else {
+    releaseIntegrityAlertElement.hidden = true;
+    releaseIntegrityAlertElement.textContent = '';
+  }
 }
 
 function setDiagnosticActionsEnabled(enabled) {
@@ -798,6 +811,21 @@ async function copyManifestVerificationCommand() {
   }
 }
 
+function showManifestVerificationResult(result) {
+  if (result.ok && result.canceled) {
+    manifestVerificationStatusElement.textContent = 'Manifest verification canceled. Nothing was changed.';
+  } else if (result.ok && result.matched) {
+    manifestVerificationStatusElement.textContent = `${result.filename} verified. Its Manifest payload SHA-256 matches the recorded checksum.`;
+    appendOutput(`[CCTI] Manifest verified: ${result.filename}. Payload SHA-256 matches.\n`);
+  } else if (result.ok) {
+    manifestVerificationStatusElement.textContent = `${result.filename} does not match its recorded payload checksum. Do not rely on it until you export a fresh manifest.`;
+    appendOutput(`[CCTI] Manifest verification failed: ${result.filename} does not match its recorded checksum.\n`, 'stderr');
+  } else {
+    manifestVerificationStatusElement.textContent = result.error || 'CCTI could not verify that manifest.';
+    appendOutput(`[CCTI] ${result.error || 'Manifest verification failed.'}\n`, 'stderr');
+  }
+}
+
 async function verifySavedInstallationManifest() {
   if (state.running || state.componentRunning) {
     manifestVerificationStatusElement.textContent = 'Wait for the current action to finish before verifying a manifest.';
@@ -806,21 +834,54 @@ async function verifySavedInstallationManifest() {
   try {
     verifyInstallationManifestButton.disabled = true;
     manifestVerificationStatusElement.textContent = 'Choose a manifest file to verify locally.';
-    const result = await window.installer.verifyInstallationManifest();
-    if (result.ok && result.canceled) {
-      manifestVerificationStatusElement.textContent = 'Manifest verification canceled. Nothing was changed.';
-    } else if (result.ok && result.matched) {
-      manifestVerificationStatusElement.textContent = `${result.filename} verified. Its Manifest payload SHA-256 matches the recorded checksum.`;
-      appendOutput(`[CCTI] Manifest verified: ${result.filename}. Payload SHA-256 matches.\n`);
-    } else if (result.ok) {
-      manifestVerificationStatusElement.textContent = `${result.filename} does not match its recorded payload checksum. Do not rely on it until you export a fresh manifest.`;
-      appendOutput(`[CCTI] Manifest verification failed: ${result.filename} does not match its recorded checksum.\n`, 'stderr');
-    } else {
-      manifestVerificationStatusElement.textContent = result.error || 'CCTI could not verify that manifest.';
-      appendOutput(`[CCTI] ${result.error || 'Manifest verification failed.'}\n`, 'stderr');
-    }
+    showManifestVerificationResult(await window.installer.verifyInstallationManifest());
   } finally {
     verifyInstallationManifestButton.disabled = state.running || state.componentRunning;
+  }
+}
+
+async function verifyDroppedInstallationManifest(file) {
+  if (state.running || state.componentRunning) {
+    manifestVerificationStatusElement.textContent = 'Wait for the current action to finish before verifying a manifest.';
+    return;
+  }
+  try {
+    manifestDropZoneElement.classList.add('is-verifying');
+    manifestVerificationStatusElement.textContent = `Verifying ${file.name || 'dropped manifest'} locally…`;
+    showManifestVerificationResult(await window.installer.verifyDroppedInstallationManifest(file));
+  } finally {
+    manifestDropZoneElement.classList.remove('is-verifying');
+  }
+}
+
+function renderManifestComparison(result) {
+  manifestComparisonResultElement.hidden = false;
+  const added = result.added.length ? result.added.map((item) => `+ ${item}`).join('\n') : '+ No tools added';
+  const removed = result.removed.length ? result.removed.map((item) => `- ${item}`).join('\n') : '- No tools removed';
+  manifestComparisonResultElement.textContent = `Compared verified manifests\nBefore: ${result.beforeFilename}\nAfter:  ${result.afterFilename}\n\nAdded\n${added}\n\nRemoved\n${removed}\n\nUnchanged: ${result.unchanged.length} tool${result.unchanged.length === 1 ? '' : 's'}`;
+}
+
+async function compareSavedInstallationManifests() {
+  if (state.running || state.componentRunning) {
+    manifestVerificationStatusElement.textContent = 'Wait for the current action to finish before comparing manifests.';
+    return;
+  }
+  try {
+    compareInstallationManifestsButton.disabled = true;
+    manifestVerificationStatusElement.textContent = 'Choose exactly two manifests. CCTI will verify both before comparing their tool lists.';
+    const result = await window.installer.compareInstallationManifests();
+    if (result.ok && result.canceled) {
+      manifestVerificationStatusElement.textContent = 'Manifest comparison canceled. Nothing was changed.';
+    } else if (result.ok) {
+      renderManifestComparison(result);
+      manifestVerificationStatusElement.textContent = `Both manifests verified. ${result.added.length} added and ${result.removed.length} removed tool${result.added.length + result.removed.length === 1 ? '' : 's'} found.`;
+      appendOutput(`[CCTI] Compared verified manifests: ${result.beforeFilename} → ${result.afterFilename}.\n`);
+    } else {
+      manifestVerificationStatusElement.textContent = result.error || 'CCTI could not compare those manifests.';
+      appendOutput(`[CCTI] ${result.error || 'Manifest comparison failed.'}\n`, 'stderr');
+    }
+  } finally {
+    compareInstallationManifestsButton.disabled = state.running || state.componentRunning;
   }
 }
 
@@ -1473,6 +1534,33 @@ exportInstallationManifestButton.addEventListener('click', exportInstallationMan
 openManifestFolderButton.addEventListener('click', openManifestFolder);
 verifyInstallationManifestButton.addEventListener('click', verifySavedInstallationManifest);
 copyManifestVerificationCommandButton.addEventListener('click', copyManifestVerificationCommand);
+compareInstallationManifestsButton.addEventListener('click', compareSavedInstallationManifests);
+manifestDropZoneElement.addEventListener('click', verifySavedInstallationManifest);
+manifestDropZoneElement.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    verifySavedInstallationManifest();
+  }
+});
+for (const eventName of ['dragenter', 'dragover']) {
+  manifestDropZoneElement.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    if (!state.running && !state.componentRunning) manifestDropZoneElement.classList.add('is-dragging');
+  });
+}
+for (const eventName of ['dragleave', 'dragend']) {
+  manifestDropZoneElement.addEventListener(eventName, () => manifestDropZoneElement.classList.remove('is-dragging'));
+}
+manifestDropZoneElement.addEventListener('drop', (event) => {
+  event.preventDefault();
+  manifestDropZoneElement.classList.remove('is-dragging');
+  const files = [...(event.dataTransfer?.files || [])];
+  if (files.length !== 1) {
+    manifestVerificationStatusElement.textContent = 'Drop exactly one saved manifest file to verify it.';
+    return;
+  }
+  verifyDroppedInstallationManifest(files[0]);
+});
 uninstallAppButton.addEventListener('click', uninstallApplication);
 runDiagnosticsButton.addEventListener('click', runDiagnostics);
 copyDiagnosticsButton.addEventListener('click', copyDiagnosticResults);
@@ -1517,6 +1605,9 @@ window.installer.onState(({ running }) => {
   openManifestFolderButton.disabled = running;
   verifyInstallationManifestButton.disabled = running;
   copyManifestVerificationCommandButton.disabled = running;
+  compareInstallationManifestsButton.disabled = running;
+  manifestDropZoneElement.classList.toggle('is-disabled', running);
+  manifestDropZoneElement.setAttribute('aria-disabled', String(running));
   updateSummary();
 });
 window.installer.onComponentOutput(({ stream, text }) => appendOutput(`[Project components] ${text}`, stream));

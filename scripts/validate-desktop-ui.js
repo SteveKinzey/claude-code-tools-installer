@@ -60,6 +60,8 @@ for (const channel of [
   'app:open-manifest-folder',
   'app:get-manifest-verification-command',
   'app:verify-installation-manifest',
+  'app:verify-dropped-installation-manifest',
+  'app:compare-installation-manifests',
   'app:apply-uninstall',
 ]) {
   if (!main.includes(`'${channel}'`)) throw new Error(`Missing main-process handler for ${channel}.`);
@@ -102,8 +104,8 @@ if (!main.includes('async function launchClaudeCode') || !main.includes('async f
 if (!html.includes('id="run-diagnostics-button"') || !html.includes('id="copy-diagnostics-button"') || !html.includes('id="export-diagnostics-button"') || !renderer.includes('async function runDiagnostics()') || !renderer.includes('async function copyDiagnosticResults()') || !renderer.includes('async function exportDiagnosticResults()')) {
   throw new Error('Desktop settings must provide local diagnostics with copy and text-export controls.');
 }
-if (!html.includes('id="check-updates-button"') || !html.includes('id="update-status-spinner"') || !renderer.includes('function displayUpdateStatus(status)') || !renderer.includes('updateStatusSpinnerElement.hidden = !checking')) {
-  throw new Error('Desktop settings must provide a visible loading indicator while update checks are active.');
+if (!html.includes('id="check-updates-button"') || !html.includes('id="update-status-spinner"') || !html.includes('id="release-integrity-alert"') || !renderer.includes('function displayUpdateStatus(status)') || !renderer.includes('updateStatusSpinnerElement.hidden = !checking') || !renderer.includes('digestAlert.message')) {
+  throw new Error('Desktop settings must provide a visible loading indicator and missing-checksum integrity alert while update checks are active.');
 }
 if (!main.includes('async function runDiagnostics()') || !main.includes('async function exportDiagnosticReport(') || !main.includes('function startBackgroundUpdateChecks()') || !main.includes('async function openPublishedRelease()') || !main.includes("emit('updates:status'")) {
   throw new Error('Diagnostics export and release update status must remain in the main process behind narrow IPC handlers.');
@@ -194,11 +196,11 @@ if (!main.includes('reportAnonymousSetupSuccess') || !main.includes("JSON.string
 }
 
 
-if (!html.includes('id="uninstall-app-button"') || !html.includes('id="export-installation-manifest-button"') || !html.includes('id="open-manifest-folder-button"') || !html.includes('id="verify-installation-manifest-button"') || !html.includes('id="copy-manifest-verification-command-button"') || !html.includes('id="uninstall-panel"') || !renderer.includes('async function uninstallApplication()') || !renderer.includes('async function exportInstallationManifest()') || !renderer.includes('async function verifySavedInstallationManifest()') || !renderer.includes('async function copyManifestVerificationCommand()') || !renderer.includes('async function openManifestFolder()')) {
-  throw new Error('The desktop app must include a bottom-placed complete app uninstall action and pre-uninstall manifest export.');
+if (!html.includes('id="uninstall-app-button"') || !html.includes('id="export-installation-manifest-button"') || !html.includes('id="open-manifest-folder-button"') || !html.includes('id="verify-installation-manifest-button"') || !html.includes('id="copy-manifest-verification-command-button"') || !html.includes('id="manifest-drop-zone"') || !html.includes('id="compare-installation-manifests-button"') || !html.includes('id="uninstall-panel"') || !renderer.includes('async function uninstallApplication()') || !renderer.includes('async function exportInstallationManifest()') || !renderer.includes('async function verifySavedInstallationManifest()') || !renderer.includes('async function verifyDroppedInstallationManifest(file)') || !renderer.includes('async function compareSavedInstallationManifests()') || !renderer.includes('async function copyManifestVerificationCommand()') || !renderer.includes('async function openManifestFolder()')) {
+  throw new Error('The desktop app must include a bottom-placed complete app uninstall action with manifest export, drop verification, and verified comparison.');
 }
-if (!main.includes('async function resolveAppUninstallPlan()') || !main.includes('async function exportInstallationManifest()') || !main.includes('async function openExportedManifestFolder()') || !main.includes('async function verifyInstallationManifest()') || !main.includes('function manifestVerificationCommand()') || !main.includes('createHash') || !main.includes('function postAppUninstallNotification()') || !main.includes('async function applyAppUninstall(') || !main.includes("confirmation !== 'UNINSTALL CCTI'")) {
-  throw new Error('App uninstall must export a privacy-safe manifest, require typed acknowledgment, notify post-uninstall cleanup, and leave Claude Code untouched.');
+if (!main.includes('async function resolveAppUninstallPlan()') || !main.includes('async function exportInstallationManifest()') || !main.includes('async function openExportedManifestFolder()') || !main.includes('async function verifyInstallationManifest()') || !main.includes('async function verifyDroppedInstallationManifest(') || !main.includes('async function compareInstallationManifests()') || !main.includes('function manifestVerificationCommand()') || !main.includes('createHash') || !main.includes('function postAppUninstallNotification()') || !main.includes('async function applyAppUninstall(') || !main.includes("confirmation !== 'UNINSTALL CCTI'")) {
+  throw new Error('App uninstall must export a privacy-safe manifest, verify and compare it locally, require typed acknowledgment, notify post-uninstall cleanup, and leave Claude Code untouched.');
 }
 
 console.log(`Desktop UI contract passed: ${selectorIds.size} renderer IDs and ${calledMethods.size} secure bridge methods verified.`);

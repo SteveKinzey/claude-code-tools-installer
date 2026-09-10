@@ -28,6 +28,8 @@ let updateStatus = {
   releaseUrl: '',
   checkedAt: '',
   message: 'Update status has not been checked yet.',
+  artifactDigestSummary: { total: 0, verified: 0, missing: [] },
+  digestAlert: null,
 };
 const reviewedPluginPlans = {
   superpowers: [['plugin', 'marketplace', 'add', 'obra/superpowers-marketplace'], ['plugin', 'install', 'superpowers@superpowers-marketplace', '--scope', 'user']],
@@ -178,6 +180,15 @@ function currentAppVersion() {
   return typeof app.getVersion === 'function' ? app.getVersion() : 'development';
 }
 
+function summarizeReleaseArtifactDigests(release) {
+  const assets = Array.isArray(release?.assets) ? release.assets : [];
+  const verified = assets.filter((asset) => /^sha256:[a-f0-9]{64}$/i.test(String(asset?.digest || ''))).length;
+  const missing = assets
+    .filter((asset) => !/^sha256:[a-f0-9]{64}$/i.test(String(asset?.digest || '')))
+    .map((asset) => String(asset?.name || 'Unnamed release artifact'));
+  return { total: assets.length, verified, missing };
+}
+
 async function checkForUpdates() {
   if (updateCheckPromise) return updateCheckPromise;
   updateCheckPromise = (async () => {
@@ -219,12 +230,22 @@ async function checkForUpdates() {
       if (!latestVersion || !releaseUrl.startsWith(releaseUrlPrefix)) throw new Error('GitHub returned an incomplete release record.');
 
       const available = isNewerVersion(latestVersion, currentVersion);
+      const artifactDigestSummary = summarizeReleaseArtifactDigests(release);
+      const digestAlert = artifactDigestSummary.missing.length
+        ? {
+          count: artifactDigestSummary.missing.length,
+          names: artifactDigestSummary.missing,
+          message: `${artifactDigestSummary.missing.length} published release artifact${artifactDigestSummary.missing.length === 1 ? '' : 's'} ${artifactDigestSummary.missing.length === 1 ? 'is' : 'are'} missing a SHA-256 digest.`,
+        }
+        : null;
       updateStatus = {
         state: available ? 'available' : 'current',
         currentVersion,
         latestVersion,
         releaseUrl,
         checkedAt: new Date().toISOString(),
+        artifactDigestSummary,
+        digestAlert,
         message: available
           ? `CCTI ${latestVersion} is available. Review the release before downloading it.`
           : latestVersion === currentVersion
@@ -700,20 +721,15 @@ function verifyManifestText(contents) {
   return { ok: true, expected, actual, matched: actual === expected };
 }
 
-async function verifyInstallationManifest() {
+async function verifyInstallationManifestAtPath(manifestPath) {
   try {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Choose a CCTI installation manifest to verify',
-      filters: [{ name: 'Manifest files', extensions: ['md', 'txt'] }],
-      properties: ['openFile'],
-    });
-    if (result.canceled || !result.filePaths?.[0]) return { ok: true, canceled: true };
-    const manifestPath = result.filePaths[0];
+    if (typeof manifestPath !== 'string' || !manifestPath) return { ok: false, error: 'Choose a saved CCTI manifest file.' };
     const metadata = await fs.stat(manifestPath);
     if (!metadata.isFile() || metadata.size > 2 * 1024 * 1024) {
       return { ok: false, error: 'Choose a manifest text file smaller than 2 MB.' };
     }
-    const verification = verifyManifestText(await fs.readFile(manifestPath, 'utf8'));
+    const contents = await fs.readFile(manifestPath, 'utf8');
+    const verification = verifyManifestText(contents);
     if (!verification.ok) return verification;
     return {
       ok: true,
@@ -722,9 +738,88 @@ async function verifyInstallationManifest() {
       expected: verification.expected,
       actual: verification.actual,
       matched: verification.matched,
+      contents,
     };
-  } catch (error) {
-    return { ok: false, error: `CCTI could not read that manifest: ${error.message}` };
+  } catch {
+    return { ok: false, error: 'CCTI could not read that manifest. Choose a readable manifest text file.' };
+  }
+}
+
+function publicManifestVerification(result) {
+  if (!result.ok) return result;
+  const { contents, ...safeResult } = result;
+  return safeResult;
+}
+
+async function verifyInstallationManifest() {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a CCTI installation manifest to verify',
+      filters: [{ name: 'Manifest files', extensions: ['md', 'txt'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths?.[0]) return { ok: true, canceled: true };
+    return publicManifestVerification(await verifyInstallationManifestAtPath(result.filePaths[0]));
+  } catch {
+    return { ok: false, error: 'CCTI could not open the manifest picker.' };
+  }
+}
+
+async function verifyDroppedInstallationManifest({ filePath } = {}) {
+  return publicManifestVerification(await verifyInstallationManifestAtPath(filePath));
+}
+
+function manifestSectionLines(contents, heading) {
+  const marker = `## ${heading}\n`;
+  const start = contents.indexOf(marker);
+  if (start < 0) return [];
+  const section = contents.slice(start + marker.length);
+  const nextHeading = section.indexOf('\n## ');
+  return section.slice(0, nextHeading < 0 ? undefined : nextHeading)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.slice(2).trim())
+    .filter((line) => line && !/not detected|no discoverable tools/i.test(line));
+}
+
+function manifestInventory(contents) {
+  return [...new Set([
+    ...manifestSectionLines(contents, 'External developer tool'),
+    ...manifestSectionLines(contents, 'Active tools and additions'),
+  ])].sort((left, right) => left.localeCompare(right));
+}
+
+async function compareInstallationManifests() {
+  try {
+    const selection = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose exactly two CCTI manifests to compare',
+      filters: [{ name: 'Manifest files', extensions: ['md', 'txt'] }],
+      properties: ['openFile', 'multiSelections'],
+    });
+    if (selection.canceled || !selection.filePaths?.length) return { ok: true, canceled: true };
+    if (selection.filePaths.length !== 2 || new Set(selection.filePaths).size !== 2) {
+      return { ok: false, error: 'Choose exactly two different CCTI manifest files to compare.' };
+    }
+    const [before, after] = await Promise.all(selection.filePaths.map(verifyInstallationManifestAtPath));
+    if (!before.ok || !before.matched || !after.ok || !after.matched) {
+      return { ok: false, error: 'Both manifests must be readable and pass their recorded SHA-256 verification before CCTI compares them.' };
+    }
+    const beforeTools = manifestInventory(before.contents);
+    const afterTools = manifestInventory(after.contents);
+    const beforeSet = new Set(beforeTools);
+    const afterSet = new Set(afterTools);
+    return {
+      ok: true,
+      canceled: false,
+      beforeFilename: before.filename,
+      afterFilename: after.filename,
+      added: afterTools.filter((item) => !beforeSet.has(item)),
+      removed: beforeTools.filter((item) => !afterSet.has(item)),
+      unchanged: afterTools.filter((item) => beforeSet.has(item)),
+    };
+  } catch {
+    return { ok: false, error: 'CCTI could not compare those manifests.' };
   }
 }
 
@@ -1439,6 +1534,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('app:open-manifest-folder', async () => openExportedManifestFolder());
   ipcMain.handle('app:get-manifest-verification-command', async () => ({ ok: true, command: manifestVerificationCommand() }));
   ipcMain.handle('app:verify-installation-manifest', async () => verifyInstallationManifest());
+  ipcMain.handle('app:verify-dropped-installation-manifest', async (_event, payload) => verifyDroppedInstallationManifest(payload || {}));
+  ipcMain.handle('app:compare-installation-manifests', async () => compareInstallationManifests());
   ipcMain.handle('app:apply-uninstall', async (_event, payload) => applyAppUninstall(payload));
 
   await createWindow();

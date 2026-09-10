@@ -284,6 +284,7 @@
         <div class="update-status-row">
           <span id="update-status-spinner" class="update-status-spinner" aria-hidden="true" hidden></span>
           <p id="update-status-note" class="update-status-note" role="status" aria-live="polite" aria-busy="false">Checking published CCTI releases in the background…</p>
+          <p id="release-integrity-alert" class="release-integrity-alert" role="alert" hidden></p>
         </div>
       </section>
 
@@ -300,7 +301,10 @@
         <div class="manifest-verification-card" aria-labelledby="manifest-verification-heading">
           <div><h3 id="manifest-verification-heading">Verify a saved installation manifest</h3><p>Choose a manifest you exported earlier. CCTI reads it locally and compares the exact Manifest payload bytes with its recorded SHA-256 checksum. No file contents leave this computer.</p></div>
           <div class="manifest-verification-actions"><button id="verify-installation-manifest-button" class="button button-secondary" type="button">Choose Manifest and Verify</button><button id="copy-manifest-verification-command-button" class="button button-ghost" type="button">Copy Terminal Verify Command</button></div>
+          <div id="manifest-drop-zone" class="manifest-drop-zone" role="button" tabindex="0" aria-describedby="manifest-drop-zone-help"><strong>Drop a saved manifest here to verify</strong><span id="manifest-drop-zone-help">CCTI checks the file locally. No manifest content leaves this computer.</span></div>
+          <div class="manifest-comparison-actions"><button id="compare-installation-manifests-button" class="button button-ghost" type="button">Compare Two Saved Manifests</button><span>Both files must pass their recorded checksum before comparison.</span></div>
           <p id="manifest-verification-status" class="manifest-verification-status" role="status" aria-live="polite"></p>
+          <pre id="manifest-comparison-result" class="manifest-comparison-result" aria-live="polite" hidden></pre>
         </div>
       </section>
     </main>

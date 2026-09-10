@@ -50,6 +50,10 @@ global.fetch = async (url) => {
     json: async () => ({
       tag_name: 'v2026.09.01',
       html_url: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.01',
+      assets: [
+        { name: 'ccti-macos.dmg', digest: `sha256:${'a'.repeat(64)}` },
+        { name: 'ccti-windows.zip' },
+      ],
     }),
   };
 };
@@ -69,6 +73,9 @@ async function run() {
     assert.equal(status.currentVersion, '2026.8.26');
     assert.equal(status.latestVersion, '2026.09.01');
     assert.match(status.message, /Review the release before downloading/i);
+    assert.deepEqual(status.artifactDigestSummary, { total: 2, verified: 1, missing: ['ccti-windows.zip'] });
+    assert.equal(status.digestAlert?.count, 1, 'the update status must flag a published artifact that lacks a SHA-256 digest');
+    assert.match(status.digestAlert?.message || '', /missing a SHA-256 digest/i);
     assert.ok(fetchCalls >= 1, 'a public release check must run in the background');
     assert.ok(sentEvents.some((event) => event.channel === 'updates:status' && event.payload.state === 'available'), 'the renderer must receive update availability status');
 

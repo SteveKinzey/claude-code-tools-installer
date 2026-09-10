@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('installer', {
   getCatalog: () => ipcRenderer.invoke('catalog:get'),
@@ -36,6 +36,17 @@ contextBridge.exposeInMainWorld('installer', {
   openManifestFolder: () => ipcRenderer.invoke('app:open-manifest-folder'),
   getManifestVerificationCommand: () => ipcRenderer.invoke('app:get-manifest-verification-command'),
   verifyInstallationManifest: () => ipcRenderer.invoke('app:verify-installation-manifest'),
+  verifyDroppedInstallationManifest: (file) => {
+    try {
+      const filePath = webUtils.getPathForFile(file);
+      return filePath
+        ? ipcRenderer.invoke('app:verify-dropped-installation-manifest', { filePath })
+        : Promise.resolve({ ok: false, error: 'Drop a saved manifest file from your computer.' });
+    } catch {
+      return Promise.resolve({ ok: false, error: 'Drop a saved manifest file from your computer.' });
+    }
+  },
+  compareInstallationManifests: () => ipcRenderer.invoke('app:compare-installation-manifests'),
   applyAppUninstall: (payload) => ipcRenderer.invoke('app:apply-uninstall', payload),
   onOutput: (callback) => ipcRenderer.on('installer:output', (_event, payload) => callback(payload)),
   onState: (callback) => ipcRenderer.on('installer:state', (_event, payload) => callback(payload)),

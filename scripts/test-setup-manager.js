@@ -81,9 +81,11 @@ async function run() {
   const openManifestFolder = handlers.get('app:open-manifest-folder');
   const getManifestVerificationCommand = handlers.get('app:get-manifest-verification-command');
   const verifyInstallationManifest = handlers.get('app:verify-installation-manifest');
+  const verifyDroppedInstallationManifest = handlers.get('app:verify-dropped-installation-manifest');
+  const compareInstallationManifests = handlers.get('app:compare-installation-manifests');
   const applyAppUninstall = handlers.get('app:apply-uninstall');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && applyAppUninstall, 'all handlers including app uninstall and manifest verification should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && verifyDroppedInstallationManifest && compareInstallationManifests && applyAppUninstall, 'all handlers including app uninstall and manifest verification should be registered');
 
   const componentCatalog = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
   const componentPreview = await previewComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id] });
@@ -178,6 +180,27 @@ async function run() {
   const tamperedVerification = await verifyInstallationManifest();
   assert.equal(tamperedVerification.ok, true, 'tampered manifest should still be readable');
   assert.equal(tamperedVerification.matched, false, 'tampered manifest payload must fail checksum verification');
+
+  const comparisonBeforePath = path.join(tempRoot, 'comparison-before.md');
+  const comparisonAfterPath = path.join(tempRoot, 'comparison-after.md');
+  const makeManifest = (tools) => {
+    const payload = `## Manifest payload\n\nGenerated: 2026-09-10T00:00:00.000Z (Unix: 1788998400)\nPlatform: test\nCCTI version: test\n\n## Privacy boundary\n\nNo private paths.\n\n## External developer tool\n\n- Claude Code: test\n\n## Active tools and additions\n\n${tools.map((tool) => `- ${tool}`).join('\n')}\n\n## Uninstall boundary\n\nCCTI-only data is removable.\n`;
+    const digest = createHash('sha256').update(payload, 'utf8').digest('hex');
+    return `# CCTI installation manifest\n\n## Integrity\n\n- Export timestamp: 2026-09-10T00:00:00.000Z\n- Payload SHA-256: ${digest}\n\n${payload}`;
+  };
+  await fsp.writeFile(comparisonBeforePath, makeManifest(['Tool Alpha (tool · This computer)', 'Tool Removed (skill · This computer)']), 'utf8');
+  await fsp.writeFile(comparisonAfterPath, makeManifest(['Tool Alpha (tool · This computer)', 'Tool Added (plugin · This computer)']), 'utf8');
+  const droppedVerification = await verifyDroppedInstallationManifest(null, { filePath: comparisonBeforePath });
+  assert.equal(droppedVerification.ok, true, 'a user-dropped manifest path should be verified through the narrow main-process handler');
+  assert.equal(droppedVerification.matched, true, 'an untouched dropped manifest must pass checksum verification');
+  openDialogResult = { canceled: false, filePaths: [comparisonBeforePath, comparisonAfterPath] };
+  const comparison = await compareInstallationManifests();
+  assert.equal(comparison.ok, true, 'two verified manifests should compare successfully');
+  assert.deepEqual(comparison.added, ['Tool Added (plugin · This computer)']);
+  assert.deepEqual(comparison.removed, ['Tool Removed (skill · This computer)']);
+  await fsp.appendFile(comparisonAfterPath, 'tampered\n', 'utf8');
+  const rejectedComparison = await compareInstallationManifests();
+  assert.equal(rejectedComparison.ok, false, 'comparison must reject a manifest that no longer passes checksum verification');
 
   const uninstallReview = await reviewAppUninstall();
   assert.equal(uninstallReview.ok, true, 'reviewAppUninstall should succeed');
