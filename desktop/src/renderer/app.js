@@ -416,9 +416,31 @@ function renderCatalog() {
 }
 
 async function refreshClaudeStatus() {
-  const result = await window.installer.getClaudeStatus();
+  const slowTimer = setTimeout(() => {
+    if (!state.claudeInstalled) {
+      claudeStatusTextElement.textContent = 'Checking is taking a moment… You can wait, retry the check, or choose an option below.';
+      installClaudeButton.disabled = false;
+      installClaudeButton.hidden = false;
+      recheckClaudeButton.disabled = false;
+      useExistingButton.disabled = false;
+      runStatusElement.textContent = 'Check in progress';
+    }
+  }, 2200);
+
+  let result;
+  try {
+    result = await Promise.race([
+      window.installer.getClaudeStatus(),
+      new Promise((resolve) => setTimeout(() => resolve({ installed: false, version: '', path: '', timedOut: true, reason: 'Claude Code check took longer than expected.' }), 4500)),
+    ]);
+  } catch (error) {
+    result = { installed: false, version: '', path: '', reason: error.message || 'Claude Code check could not be completed.' };
+  } finally {
+    clearTimeout(slowTimer);
+  }
+
   state.claudeInstalled = result.installed;
-  useExistingButton.disabled = !result.installed;
+  useExistingButton.disabled = false;
   startFreshButton.disabled = !result.installed || state.running;
   runClaudeButton.hidden = !result.installed;
   runClaudeButton.disabled = !result.installed || state.running;
@@ -435,10 +457,16 @@ async function refreshClaudeStatus() {
     bootstrapStatusElement.className = 'status-chip status-ready';
     if (!state.setupMode) setupNoteElement.textContent = 'You can now choose tools, or choose the recommended setup. Nothing else will change until you choose an action.';
   } else {
-    claudeStatusTextElement.textContent = 'No, Claude Code is not installed.';
-    bootstrapStatusElement.textContent = 'Claude Code not installed';
+    claudeStatusTextElement.textContent = result.timedOut
+      ? 'Claude Code check took longer than expected.'
+      : 'No, Claude Code is not installed.';
+    bootstrapStatusElement.textContent = result.timedOut ? 'Check timed out' : 'Claude Code not installed';
     bootstrapStatusElement.className = 'status-chip status-pending';
-    if (!state.setupMode) setupNoteElement.textContent = `${result.reason ? `${result.reason} ` : ''}Would you like to install Claude Code now? Choose “Yes, install Claude Code.” The app will use the official installer and wait until the check says it is installed.`;
+    if (!state.setupMode) {
+      setupNoteElement.textContent = result.timedOut
+        ? 'The automatic check did not finish in time. You can choose “Yes, install Claude Code” to set it up, “Check again” to retry, or “Yes, Claude Code is installed” if you already have it.'
+        : `${result.reason ? `${result.reason} ` : ''}Would you like to install Claude Code now? Choose “Yes, install Claude Code.” The app will use the official installer and wait until the check says it is installed.`;
+    }
   }
   updateSummary();
 }
@@ -1162,8 +1190,20 @@ completeSetupButton.addEventListener('click', () => runCompleteSetup(false));
 reportAnonymousSuccessButton.addEventListener('click', reportAnonymousSuccess);
 startFreshButton.addEventListener('click', () => runCompleteSetup(true));
 useExistingButton.addEventListener('click', () => {
+  state.claudeInstalled = true;
+  state.claudeApproved = true;
+  claudeStatusTextElement.textContent = 'Yes, Claude Code is installed (confirmed).';
+  bootstrapStatusElement.textContent = 'Claude Code installed';
+  bootstrapStatusElement.className = 'status-chip status-ready';
+  installClaudeButton.hidden = true;
+  runClaudeButton.hidden = false;
+  runClaudeButton.disabled = false;
+  removeClaudeButton.hidden = false;
+  removeClaudeButton.disabled = false;
+  startFreshButton.disabled = false;
   setSetupSelection('existing', 'Claude Code is already available. Choose your tools in Step 2.');
   runStatusElement.textContent = 'Ready to choose tools';
+  updateSummary();
 });
 installClaudeButton.addEventListener('click', installClaudeCode);
 runClaudeButton.addEventListener('click', runClaudeCode);
@@ -1173,6 +1213,7 @@ referenceSearchElement.addEventListener('input', renderReferences);
 recheckClaudeButton.addEventListener('click', async () => {
   setupNoteElement.textContent = 'Checking that Claude Code can run…';
   runStatusElement.textContent = 'Checking Claude Code';
+  claudeStatusTextElement.textContent = 'Checking whether Claude Code is installed…';
   recheckClaudeButton.disabled = true;
   try {
     await refreshClaudeStatus();

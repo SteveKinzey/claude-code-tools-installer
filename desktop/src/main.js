@@ -48,7 +48,23 @@ function claudeProcessEnv() {
   const managedNodeBin = process.platform === 'win32'
     ? path.join(setupManagerDir(), 'node-runtime')
     : path.join(setupManagerDir(), 'node-runtime', 'bin');
-  const paths = [nativeBin, managedNodeBin, process.env.PATH || ''].filter(Boolean);
+  const commonPaths = process.platform === 'win32'
+    ? [
+        path.join(process.env.APPDATA || '', 'npm'),
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Claude Code'),
+        path.join(process.env.ProgramFiles || '', 'nodejs'),
+      ]
+    : [
+        '/opt/homebrew/bin',
+        '/opt/homebrew/sbin',
+        '/usr/local/bin',
+        '/usr/local/sbin',
+        path.join(home, '.npm-global', 'bin'),
+        path.join(home, '.volta', 'bin'),
+        path.join(home, '.asdf', 'shims'),
+        path.join(home, '.cargo', 'bin'),
+      ];
+  const paths = [nativeBin, managedNodeBin, ...commonPaths, process.env.PATH || ''].filter(Boolean);
   return {
     ...process.env,
     PATH: [...new Set(paths.join(path.delimiter).split(path.delimiter).filter(Boolean))].join(path.delimiter),
@@ -90,14 +106,35 @@ function emit(channel, payload) {
 }
 
 function runProcess(command, args, options = {}) {
+  const timeoutMs = typeof options.timeout === 'number' ? options.timeout : 30000;
   return new Promise((resolve, reject) => {
+    let timer = null;
+    let settled = false;
     const child = spawn(command, args, { windowsHide: true, ...options });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
     child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-    child.on('error', reject);
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    });
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { child.kill('SIGKILL'); } catch {}
+        resolve({ code: -1, stdout, stderr: `${stderr}\nProcess timed out after ${timeoutMs}ms.`.trim(), timedOut: true });
+      }, timeoutMs);
+    }
   });
 }
 
@@ -129,7 +166,7 @@ async function readComponentCatalog() {
 async function commandLocation(command) {
   const locator = process.platform === 'win32' ? 'where.exe' : 'which';
   try {
-    const result = await runProcess(locator, [command], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+    const result = await runProcess(locator, [command], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 3000 });
     return result.code === 0 ? result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || '' : '';
   } catch {
     return '';
@@ -139,18 +176,33 @@ async function commandLocation(command) {
 async function claudeStatus() {
   const home = app.getPath('home');
   try {
-    const result = await runProcess('claude', ['--version'], { cwd: home, env: claudeProcessEnv() });
+    let installedPath = await commandLocation('claude');
+    if (!installedPath) {
+      const candidates = process.platform === 'win32'
+        ? [path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'), path.join(home, '.local', 'bin', 'claude.exe')]
+        : [path.join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude', path.join(home, '.npm-global', 'bin', 'claude')];
+      for (const candidate of candidates) {
+        if (await pathExists(candidate)) {
+          installedPath = candidate;
+          break;
+        }
+      }
+    }
+    const targetCmd = installedPath || 'claude';
+    const result = await runProcess(targetCmd, ['--version'], { cwd: home, env: claudeProcessEnv(), timeout: 4000 });
     const version = result.stdout.trim() || result.stderr.trim();
     const installed = result.code === 0 && version.length > 0;
-    const installedPath = installed ? await commandLocation('claude') : '';
+    const isReady = installed || (Boolean(installedPath) && !result.timedOut);
     return {
-      installed,
-      version: installed ? version : '',
+      installed: isReady,
+      version: isReady ? (version || 'detected') : '',
       path: installedPath,
-      reason: installed ? '' : (result.code === 0 ? 'Claude Code did not return a version.' : 'Claude Code could not be run.'),
+      timedOut: Boolean(result.timedOut),
+      reason: isReady ? '' : (result.timedOut ? 'Claude Code check took longer than expected.' : result.code === 0 ? 'Claude Code did not return a version.' : 'Claude Code could not be run.'),
     };
   } catch {
-    return { installed: false, version: '', path: '', reason: 'Claude Code could not be run.' };
+    const fallbackPath = await commandLocation('claude').catch(() => '');
+    return { installed: Boolean(fallbackPath), version: fallbackPath ? 'detected' : '', path: fallbackPath, reason: 'Claude Code could not be run.' };
   }
 }
 

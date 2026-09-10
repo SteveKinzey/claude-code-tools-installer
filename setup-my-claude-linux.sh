@@ -148,6 +148,11 @@ refresh_claude_path() {
   if [[ -d "$native_bin" && ":${PATH}:" != *":${native_bin}:"* ]]; then
     export PATH="${native_bin}:${PATH}"
   fi
+  for dir in "/usr/local/bin" "/usr/local/sbin" "${HOME}/.npm-global/bin"; do
+    if [[ -d "$dir" && ":${PATH}:" != *":${dir}:"* ]]; then
+      export PATH="${dir}:${PATH}"
+    fi
+  done
   if [[ -d "${NODE_RUNTIME_DIR}/bin" && ":${PATH}:" != *":${NODE_RUNTIME_DIR}/bin:"* ]]; then
     export PATH="${NODE_RUNTIME_DIR}/bin:${PATH}"
   fi
