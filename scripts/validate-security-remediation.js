@@ -10,6 +10,7 @@ const lockfile = JSON.parse(fs.readFileSync(path.join(desktopPath, 'package-lock
 const dependabotConfig = fs.readFileSync(path.join(root, '.github', 'dependabot.yml'), 'utf8');
 const dependencyReviewWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'dependency-review.yml'), 'utf8');
 const signedWindowsTestWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build-windows-signed-test-artifact.yml'), 'utf8');
+const signedWindowsReleaseWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build-windows-signed-release.yml'), 'utf8');
 const minimumNode = '22.12.0';
 
 function versionParts(version) {
@@ -57,8 +58,10 @@ assert.match(dependencyReviewWorkflow, /fail-on-severity:\s*high/, 'Dependency r
 assert.match(dependencyReviewWorkflow, /fail-on-scopes:\s*development, runtime, unknown/, 'Dependency review must cover development, runtime, and unknown scopes.');
 assert.match(signedWindowsTestWorkflow, /workflow_dispatch:/, 'Signed Windows test workflow must be manually dispatched.');
 assert.match(signedWindowsTestWorkflow, /azure\/artifact-signing-action@v2/, 'Signed Windows test workflow must use the configured Azure signing route.');
+assert.match(signedWindowsTestWorkflow, /allow-no-subscriptions:\s*true/, 'Signed Windows test workflow must support a subscription-less Artifact Signing identity.');
 assert.match(signedWindowsTestWorkflow, /Get-AuthenticodeSignature/, 'Signed Windows test workflow must verify every Authenticode signature.');
 assert.match(signedWindowsTestWorkflow, /actions\/upload-artifact@v4/, 'Signed Windows test workflow must retain evidence as an Actions artifact.');
 assert.doesNotMatch(signedWindowsTestWorkflow, /gh release|--clobber/, 'Signed Windows test workflow must never publish or replace release assets.');
+assert.match(signedWindowsReleaseWorkflow, /allow-no-subscriptions:\s*true/, 'Signed Windows release workflow must support a subscription-less Artifact Signing identity.');
 
 console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}, Dependabot policy, pull-request dependency review, and non-publishing Windows signing verification.`);

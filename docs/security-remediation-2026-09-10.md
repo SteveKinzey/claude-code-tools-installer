@@ -58,6 +58,8 @@ The output uses only entries from `## Active tools and additions`. It trims Mark
 | Full audit gate | `npm audit --audit-level=high` returned zero findings. |
 | Full desktop suite | Passed catalog, components, detail catalog, uninstall/manifest, diagnostics, update, project, and release-config checks. The UI contract verified **96 renderer IDs** and **43 secure bridge methods**. |
 | Host package build | Linux x64 Electron 44 package completed. The non-empty archive SHA-256 is `4b4f89d7e956b604d5e49d57432bf5524ada725cf12e26e481af8956d2dd0d58`. |
+| Signed macOS test build | GitHub Actions run `34463665129` completed successfully on commit `bc7c656`. It validated desktop contracts, produced the Electron 44 DMG/ZIP, submitted and stapled the notarization ticket, ran final DMG verification, and retained the signed test artifacts for seven days. |
+| Signed Windows test build — initial attempt | GitHub Actions run `34463471604` validated dependencies and built the Windows ZIP, but Azure OIDC login stopped with “No subscriptions found.” The signing, Authenticode verification, and artifact upload steps did not run. Both Windows workflows now set `allow-no-subscriptions: true`, which is appropriate for a separately configured Artifact Signing endpoint; the non-publishing test must be rerun to prove the complete signing path. |
 
 ## Compatibility and release plan
 
