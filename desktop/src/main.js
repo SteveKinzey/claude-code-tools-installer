@@ -12,6 +12,7 @@ const discoveredSkillCleanup = new Map();
 const reviewedCleanupPlans = new Map();
 const reviewedPluginChanges = new Map();
 const reviewedClaudeRemovalPlans = new Map();
+const reviewedAppUninstallPlans = new Map();
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
 const reviewedPluginPlans = {
@@ -278,6 +279,117 @@ async function applyKnownClaudeRemoval({ reviewId, confirmation, removeSettings 
     return { ok: !after.installed, installed: after.installed, message: after.installed ? 'CCTI removed the reviewed items, but another Claude Code command is still available. It was left in place because CCTI could not verify a safe removal method.' : 'CCTI removed the reviewed Claude Code CLI items. Claude Desktop, Chrome, browser extensions, and unrelated Anthropic products were not touched.' };
   } catch (error) {
     return { ok: false, error: `CCTI stopped during removal: ${error.message}` };
+  } finally {
+    activeInstall = false;
+    emit('installer:state', { running: false });
+  }
+}
+
+
+async function resolveAppUninstallPlan() {
+  const home = app.getPath('home');
+  const cctiStateDir = setupManagerDir();
+  const removable = [];
+  if (await pathExists(cctiStateDir)) {
+    removable.push({
+      kind: 'path',
+      path: cctiStateDir,
+      label: 'CCTI local data, configuration, checklists, and managed runtime cache (~/.setup-my-claude)',
+      scope: 'CCTI app only',
+    });
+  }
+  try {
+    const userDataDir = app.getPath('userData');
+    // Ensure we only remove the app-specific userData directory (not root home or root temp)
+    if (userDataDir && userDataDir !== home && !home.startsWith(userDataDir) && (await pathExists(userDataDir))) {
+      removable.push({
+        kind: 'path',
+        path: userDataDir,
+        label: 'CCTI desktop application preferences and window state',
+        scope: 'CCTI app only',
+      });
+    }
+  } catch {
+    // userData lookup optional
+  }
+
+  const protectedItems = [
+    'Claude Code CLI executable, settings, and conversation history (~/.claude, ~/.claude.json)',
+    'All Claude Code tools, skills, plugins, and MCP connections installed on this computer',
+    'Claude Desktop app, browser extensions, and web browser profiles',
+    'Project folders, project package files, and Convex components',
+  ];
+
+  const reviewId = randomUUID();
+  reviewedAppUninstallPlans.set(reviewId, {
+    createdAt: Date.now(),
+    removable,
+  });
+
+  for (const [id, plan] of reviewedAppUninstallPlans) {
+    if (Date.now() - plan.createdAt > 10 * 60 * 1000) reviewedAppUninstallPlans.delete(id);
+  }
+
+  let platformGuidance = '';
+  if (process.platform === 'win32') {
+    platformGuidance = 'After this in-app data removal completes, CCTI will close. If you installed via Windows MSIX/Installer, you can remove it from Windows Installed Apps, or simply delete the unzipped app folder.';
+  } else if (process.platform === 'darwin') {
+    platformGuidance = 'After this in-app data removal completes, CCTI will close. You can then drag Claude Code Tools Installer from Applications to Trash.';
+  } else {
+    platformGuidance = 'After this in-app data removal completes, CCTI will close. You can then delete the extracted CCTI directory.';
+  }
+
+  return {
+    ok: true,
+    reviewId,
+    removable: removable.map((item) => ({ label: item.label, scope: item.scope, path: item.path })),
+    protected: protectedItems,
+    platformGuidance,
+  };
+}
+
+async function applyAppUninstall({ reviewId, confirmation } = {}) {
+  if (confirmation !== 'UNINSTALL CCTI') {
+    return { ok: false, error: 'You must type UNINSTALL CCTI exactly to acknowledge and authorize removal.' };
+  }
+  const plan = reviewedAppUninstallPlans.get(reviewId);
+  if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) {
+    return { ok: false, error: 'This uninstall plan has expired. Please review and start the uninstallation again.' };
+  }
+  if (activeInstall || activeComponentInstall) {
+    return { ok: false, error: 'Another setup or installation task is currently running. Please wait for it to complete.' };
+  }
+  reviewedAppUninstallPlans.delete(reviewId);
+  activeInstall = true;
+  emit('installer:state', { running: true });
+  emit('installer:output', { stream: 'stdout', text: '[CCTI] Starting complete CCTI app removal…\n' });
+  emit('installer:output', { stream: 'stdout', text: '[CCTI] Claude Code and all installed tools/plugins will remain completely untouched.\n' });
+
+  try {
+    for (const item of plan.removable) {
+      emit('installer:output', { stream: 'stdout', text: `[CCTI] Removing ${item.label} (${item.path})…\n` });
+      await fs.rm(item.path, { recursive: true, force: true });
+    }
+    emit('installer:output', { stream: 'stdout', text: '[CCTI] App data and runtime files have been cleanly deleted.\n' });
+    emit('installer:output', { stream: 'stdout', text: '[CCTI] Claude Code and your tools remain safe and functional.\n' });
+
+    setTimeout(() => {
+      try {
+        if (typeof app.quit === 'function') {
+          app.quit();
+        }
+      } catch {
+        // ignore quit error
+      }
+    }, 2000);
+
+    return {
+      ok: true,
+      message: 'Claude Code Tools Installer data has been completely removed. Claude Code and all installed tools remain untouched. The application will close shortly.',
+      closedSoon: true,
+    };
+  } catch (error) {
+    return { ok: false, error: `CCTI encountered an issue during uninstall: ${error.message}` };
   } finally {
     activeInstall = false;
     emit('installer:state', { running: false });
@@ -878,6 +990,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup-manager:apply-plugin-change', async (_event, payload) => applyPluginChange(payload));
   ipcMain.handle('compass:status', async () => ({ onlineAvailable: true, provider: 'Site-powered Compass', model: 'Claude Haiku 4.5' }));
   ipcMain.handle('compass:ask', async (_event, payload) => askSitePoweredCompass(payload));
+  ipcMain.handle('app:review-uninstall', async () => resolveAppUninstallPlan());
+  ipcMain.handle('app:apply-uninstall', async (_event, payload) => applyAppUninstall(payload));
 
   await createWindow();
   app.on('activate', async () => {

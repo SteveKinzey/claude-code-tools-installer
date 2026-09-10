@@ -83,6 +83,8 @@ const projectInterviewBackButton = document.querySelector('#project-interview-ba
 const projectInterviewNextButton = document.querySelector('#project-interview-next-button');
 const projectInterviewOutputElement = document.querySelector('#project-interview-output');
 const exportProjectPrdButton = document.querySelector('#export-project-prd-button');
+const uninstallAppButton = document.querySelector('#uninstall-app-button');
+const uninstallStatusNoteElement = document.querySelector('#uninstall-status-note');
 
 function selectedItems() {
   return state.catalog.filter((tool) => state.selected.has(tool.id));
@@ -585,6 +587,59 @@ async function runInstallation() {
   } finally {
     state.running = false;
     updateSummary();
+  }
+}
+
+
+async function uninstallApplication() {
+  if (state.running || state.componentRunning) {
+    window.alert('Another action is currently in progress. Please wait for it to finish before uninstalling.');
+    return;
+  }
+
+  const review = await window.installer.reviewAppUninstall();
+  if (!review.ok) {
+    window.alert(review.error || 'Could not prepare the uninstall plan.');
+    return;
+  }
+
+  const removableList = review.removable.length
+    ? review.removable.map((item) => `• ${item.label} (${item.path})`).join('\n')
+    : '• CCTI runtime and local application configuration';
+  const protectedList = review.protected.map((item) => `• ${item}`).join('\n');
+
+  const step1Message = `UNINSTALL CLAUDE CODE TOOLS INSTALLER\n\nThis will remove CCTI and all its internal application data, preferences, and cached runtimes:\n${removableList}\n\nYOUR TOOLS AND CLAUDE CODE REMAIN SAFE:\n${protectedList}\n\n${review.platformGuidance}\n\nDo you wish to proceed to acknowledgment?`;
+
+  if (!window.confirm(step1Message)) {
+    return;
+  }
+
+  const confirmation = window.prompt(
+    'MANDATORY ACKNOWLEDGMENT:\n\nTo confirm complete removal of Claude Code Tools Installer, type:\nUNINSTALL CCTI\n\n(Claude Code and your tools will NOT be removed).'
+  );
+
+  if (confirmation !== 'UNINSTALL CCTI') {
+    uninstallStatusNoteElement.textContent = 'Uninstallation canceled. The required acknowledgment was not matched.';
+    return;
+  }
+
+  clearOutput();
+  appendOutput('[CCTI] Removing Claude Code Tools Installer data from this system…\n');
+  uninstallStatusNoteElement.textContent = 'Removing CCTI app data now. Claude Code and all installed tools remain safe…';
+  uninstallAppButton.disabled = true;
+  runStatusElement.textContent = 'Uninstalling app';
+
+  const result = await window.installer.applyAppUninstall({ reviewId: review.reviewId, confirmation });
+  if (result.ok) {
+    uninstallStatusNoteElement.textContent = result.message;
+    runStatusElement.textContent = 'App uninstalled';
+    appendOutput(`[CCTI] ${result.message}\n`);
+    window.alert(`CCTI Uninstalled Successfully\n\n${result.message}`);
+  } else {
+    uninstallAppButton.disabled = false;
+    uninstallStatusNoteElement.textContent = result.error || 'CCTI encountered an issue during uninstall.';
+    runStatusElement.textContent = 'Uninstall needs attention';
+    appendOutput(`[CCTI] Error: ${result.error || 'Uninstall stopped.'}\n`, 'stderr');
   }
 }
 
@@ -1125,6 +1180,7 @@ document.querySelector('#compass-form').addEventListener('submit', (event) => {
   askCompass(compassInputElement.value);
 });
 document.querySelectorAll('.prompt-chip').forEach((button) => button.addEventListener('click', () => askCompass(button.dataset.compassPrompt || '')));
+uninstallAppButton.addEventListener('click', uninstallApplication);
 openCompassConnectButton.addEventListener('click', async () => {
   if (state.compass.online) {
     state.compass.online = false;
@@ -1158,6 +1214,7 @@ window.installer.onState(({ running }) => {
   runClaudeButton.disabled = running || !state.claudeInstalled;
   removeClaudeButton.disabled = running || !state.claudeInstalled;
   recheckClaudeButton.disabled = running;
+  uninstallAppButton.disabled = running;
   updateSummary();
 });
 window.installer.onComponentOutput(({ stream, text }) => appendOutput(`[Project components] ${text}`, stream));

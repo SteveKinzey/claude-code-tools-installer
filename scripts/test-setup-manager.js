@@ -63,8 +63,10 @@ async function run() {
   const reviewPluginChange = handlers.get('setup-manager:review-plugin-change');
   const applyPluginChange = handlers.get('setup-manager:apply-plugin-change');
   const previewComponents = handlers.get('components:preview');
+  const reviewAppUninstall = handlers.get('app:review-uninstall');
+  const applyAppUninstall = handlers.get('app:apply-uninstall');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents, 'all setup-manager handlers should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents && reviewAppUninstall && applyAppUninstall, 'all handlers including app uninstall should be registered');
 
   const componentCatalog = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
   const componentPreview = await previewComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id] });
@@ -122,7 +124,31 @@ async function run() {
   await fsp.access(path.join(copyReview.destination, 'SKILL.md'));
   await fsp.access(path.join(sourceSkill, 'SKILL.md'));
 
-  console.log('Setup-manager behavior passed: discovery sessions, backup-only cleanup, reviewed custom additions, and opaque plugin-change reviews are enforced.');
+  
+  // Verify app uninstallation behavior
+  const fakeCctiDir = path.join(home, '.setup-my-claude');
+  await fsp.mkdir(fakeCctiDir, { recursive: true });
+  await fsp.writeFile(path.join(fakeCctiDir, 'test-ccti.json'), JSON.stringify({ active: true }), 'utf8');
+
+  const uninstallReview = await reviewAppUninstall();
+  assert.equal(uninstallReview.ok, true, 'reviewAppUninstall should succeed');
+  assert.ok(uninstallReview.reviewId, 'reviewId must be returned');
+  assert.ok(uninstallReview.removable.some((item) => item.path === fakeCctiDir), 'CCTI state directory must be flagged for removal');
+  assert.ok(uninstallReview.protected.some((p) => p.includes('Claude Code')), 'Claude Code must be in protected list');
+
+  const badAck = await applyAppUninstall(null, { reviewId: uninstallReview.reviewId, confirmation: 'WRONG_CONFIRM' });
+  assert.equal(badAck.ok, false, 'Invalid acknowledgment confirmation must be rejected');
+  assert.match(badAck.error, /UNINSTALL CCTI/);
+  await fsp.access(fakeCctiDir); // Must still exist
+
+  const goodAck = await applyAppUninstall(null, { reviewId: uninstallReview.reviewId, confirmation: 'UNINSTALL CCTI' });
+  assert.equal(goodAck.ok, true, 'Valid acknowledgment must trigger complete removal');
+  await assert.rejects(fsp.access(fakeCctiDir), 'CCTI state folder should be completely deleted');
+  // Claude Code and skills must still exist untouched
+  await fsp.access(path.join(home, '.claude'));
+  await fsp.access(path.join(home, '.claude', 'settings.json'));
+
+  console.log('Setup-manager and App Uninstall behavior passed: complete removal without affecting Claude Code is verified.');
 }
 
 run().finally(async () => {

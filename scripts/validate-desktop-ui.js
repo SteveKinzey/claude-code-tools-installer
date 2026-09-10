@@ -50,6 +50,8 @@ for (const channel of [
   'setup-manager:apply-cleanup',
   'setup-manager:review-plugin-change',
   'setup-manager:apply-plugin-change',
+  'app:review-uninstall',
+  'app:apply-uninstall',
 ]) {
   if (!main.includes(`'${channel}'`)) throw new Error(`Missing main-process handler for ${channel}.`);
 }
@@ -168,6 +170,14 @@ if (preload.includes('connectCompass') || preload.includes('disconnectCompass') 
 
 if (!main.includes('reportAnonymousSetupSuccess') || !main.includes("JSON.stringify({ '0': { json: { kind, consent: true } } })") || !html.includes('no name, email, device ID, folder path, tool list, log, or event ID')) {
   throw new Error('Anonymous success telemetry must remain explicit and payload-minimal.');
+}
+
+
+if (!html.includes('id="uninstall-app-button"') || !html.includes('id="uninstall-panel"') || !renderer.includes('async function uninstallApplication()')) {
+  throw new Error('The desktop app must include a bottom-placed complete app uninstall action.');
+}
+if (!main.includes('async function resolveAppUninstallPlan()') || !main.includes('async function applyAppUninstall(') || !main.includes("confirmation !== 'UNINSTALL CCTI'")) {
+  throw new Error('App uninstall must require typed user acknowledgment (UNINSTALL CCTI) and leave Claude Code untouched.');
 }
 
 console.log(`Desktop UI contract passed: ${selectorIds.size} renderer IDs and ${calledMethods.size} secure bridge methods verified.`);

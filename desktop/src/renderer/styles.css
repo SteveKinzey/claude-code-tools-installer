@@ -230,3 +230,11 @@ h3 { margin: 0; font-size: 1rem; }
   .component-card-actions { justify-items: start; min-width: 0; }
 }
 @media (max-width: 700px) { .references-panel { grid-template-columns: 1fr; } .references-panel > .button { justify-self: start; } .reference-terms, .reference-results { grid-template-columns: 1fr; } }
+
+.button-danger { background: #5a1e2d; color: #ffcdd7; border-color: #8c364f; }
+.button-danger:hover:not(:disabled) { background: #79253b; border-color: #ff9cb3; }
+.uninstall-panel { margin-top: 28px; padding: 22px; background: linear-gradient(135deg, #1f141b 0%, #130d14 100%); border: 1px solid #662637; border-radius: 14px; }
+.uninstall-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap; }
+.uninstall-header h2 { margin-bottom: 6px; color: #ffb8c7; }
+.uninstall-header p { margin: 0; max-width: 760px; color: #e2c0c9; line-height: 1.5; font-size: 0.92rem; }
+.uninstall-status-note { margin: 12px 0 0; color: #ad8a93; font-size: 0.84rem; line-height: 1.45; }

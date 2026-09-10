@@ -31,6 +31,7 @@ The main window is a guided flow with a separate library for project-level Conve
 | **Add your own skill or add-on** | A folder picker and trusted-source review | Choose a folder with `SKILL.md`, a trusted GitHub owner/name, or a trusted marketplace link. The app shows the result before you approve it. |
 | **Compass** | A minimizable question-mark Tool Advisor on every screen | It helps you choose and compare tools privately first, then offers a free, site-powered online answer only when you request it. No key is needed. |
 | **Installation activity** | A scrolling technical log | It explains what the app is checking, installing, previewing, or saving as a follow-up step. |
+| **Uninstall Claude Code Tools Installer** | A bottom-placed uninstallation panel with typed acknowledgment (`UNINSTALL CCTI`) | Completely removes CCTI application preferences, configuration, and cached runtimes without touching Claude Code, your terminal, or any tools/plugins installed with CCTI. |
 
 ## Start Here: Windows, macOS, and Linux
 
@@ -164,6 +165,14 @@ The confirmation dialog shows the supported prerequisite work before it starts. 
 ## After Installation
 
 CCTI completes supported prerequisite and plugin installation steps itself. A plugin may show its own welcome screen or request a setup choice inside Claude Code after it has installed. Services that need credentials remain paused for a later, visible in-app setup flow; CCTI does not put credential commands in front of ordinary users. The app records an activity log and rollback manifest under `~/.setup-my-claude/` so you can review local changes and remove supported shell-installed items later.
+
+## Complete App Uninstallation
+
+Claude Code Tools Installer includes a dedicated **Uninstall This App** button located at the bottom of the main window.
+
+- **Non-destructive to tools:** Removing CCTI removes **only** CCTI itself (its local cache, setup history, checklists, and app preferences under `~/.setup-my-claude` and Electron user data). It leaves Claude Code, all installed tools, skills, MCP connections, and project packages completely untouched.
+- **Explicit user acknowledgment:** Uninstallation requires review and typing `UNINSTALL CCTI` exactly before any data is deleted.
+- **Safe exit:** Once removal completes, the app closes automatically so the user can delete the unzipped directory or application file according to their operating system.
 
 ## Safety and Privacy Boundaries
 
