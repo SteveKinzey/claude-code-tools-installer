@@ -13,7 +13,7 @@ CCTI has a canonical Electron desktop source with MSIX build scripts, AppX asset
 | Existing workflow evidence | Successful build workflow run `34330631222` at commit `f62ef8b55e9aaabadb336f8677c588c0fbc5b2e4`; its pre-final unsigned bundle and x64/ARM64 structure were inspected | This proves the build path only. After protected identity configuration, independently verify the newly produced final bundle and its companion checksum; do not treat the pre-final artifact as the submission candidate. |
 | Clean-Windows evidence | A later clean-install workflow has a recorded success at a different commit | Run or retain a successful clean-Windows test tied to the exact selected bundle SHA-256. |
 | Policies, policy URLs, and screenshot set | **Owner-confirmed available** | Record exact public URLs and bind each existing PNG to the final candidate; recapture only if the final candidate differs in the captured UI. |
-| Current direct Windows artifact | ZIP release, not MSIX/EXE evidence | Preserve truthful ZIP language until Store certification is complete. |
+| Current direct Windows artifact | Legacy ZIP release | Preserve truthful ZIP language until Store certification is complete. New Windows distribution uses the Store MSIX route. |
 | Partner Center submission | Not performed | Owner must approve the exact payload and consequential choices. |
 
 ## Mandatory Partner Center metadata readiness
@@ -42,8 +42,8 @@ CCTI has a canonical Electron desktop source with MSIX build scripts, AppX asset
 - [ ] Select the canonical desktop commit or release tag for this Store submission.
 - [ ] Record the selected commit in the evidence ledger, capture manifest, MSIX build artifact record, and release review notes.
 - [ ] Confirm the selected source includes `desktop/package.json`, `msix:prepare`, `dist:win:store`, AppX assets, and the final intended `Package.appxmanifest` behavior.
-- [ ] Keep direct ZIP/EXE/MSI/DMG distribution separate from the Microsoft Store MSIX route.
-- [ ] Do not describe a ZIP as an MSIX, signed EXE, Store package, or certified download.
+- [ ] Treat the Microsoft Store MSIX route as the only maintained Windows distribution route.
+- [ ] Do not describe a legacy ZIP as an MSIX, Store package, or certified download.
 - [ ] Record whether this is an initial submission or an update. For an initial submission, leave **What’s new in this version** blank. [3]
 
 ## 2. Protected Partner Center identity and MSIX build
@@ -63,19 +63,19 @@ The following exact values must come from the **reserved** Partner Center produc
 - [ ] Bundle the packages with `MakeAppx bundle` into an **unsigned** MSIX bundle.
 - [ ] Independently recompute the SHA-256 and verify the companion checksum file.
 - [ ] Unpack the bundle and inspect both manifests. Confirm one x64 and one ARM64 package, one shared protected identity, correct application ID, and only the declared capabilities.
-- [ ] Keep the unsigned submission bundle, temporary test-signed copy, and direct release artifacts separate. [4]
+- [ ] Keep the unsigned submission bundle, isolated test copy, and legacy release artifacts separate. [4]
 
 ## 3. Windows candidate and clean-device evidence
 
 - [ ] Record the bundle filename, SHA-256, source commit, build date, and Windows runner or workstation version.
-- [ ] Create a temporary test-signed copy only after the unsigned candidate passes independent verification.
-- [ ] Test the temporary copy on a clean Windows device or isolated Windows runner.
+- [ ] Create an isolated test copy only after the unsigned candidate passes independent verification.
+- [ ] Test the isolated copy on a clean Windows device or isolated Windows runner.
 - [ ] Record a test ID and UTC date tied to the selected bundle SHA-256.
 - [ ] Confirm package installation.
 - [ ] Confirm AUMID or normal app launch.
 - [ ] Confirm real workflow adapters, not fixture or mocked integrations.
 - [ ] Confirm clean uninstall and package removal.
-- [ ] Remove the test package and temporary certificate after testing. Do not distribute or upload the test-signed copy.
+- [ ] Remove the test package and its one-run local trust material after testing. Do not distribute or upload the isolated test copy.
 
 ## 4. Partner Center properties and product identity
 
@@ -193,7 +193,7 @@ Before clicking **Submit for certification**, show the owner the exact payload a
 - [ ] IARC responses and returned ratings.
 - [ ] Markets, pricing, availability, schedule, and discoverability settings.
 - [ ] Restricted-capability declaration and rationale, if applicable.
-- [ ] Confirmation that the package is the final validated candidate, not a temporary test-signed copy.
+- [ ] Confirmation that the package is the final validated candidate, not an isolated test copy.
 - [ ] Explicit owner approval to submit the displayed payload for certification.
 
 ## Validation command
@@ -218,7 +218,7 @@ python /home/ubuntu/skills/microsoft-store-listing-evidence-verifier/scripts/val
 
 [3]: https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/add-and-edit-store-listing-info "Add and edit Store listing info for MSIX app"
 
-[4]: https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options "Windows code-signing options"
+[4]: https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options "Microsoft Store package delivery guidance"
 
 [5]: https://learn.microsoft.com/en-us/windows/apps/publish/store-policies "Microsoft Store Policies — Accurate Representation and Search Terms"
 

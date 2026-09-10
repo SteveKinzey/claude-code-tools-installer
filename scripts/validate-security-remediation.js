@@ -9,8 +9,7 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(desktopPath, 'package.j
 const lockfile = JSON.parse(fs.readFileSync(path.join(desktopPath, 'package-lock.json'), 'utf8'));
 const dependabotConfig = fs.readFileSync(path.join(root, '.github', 'dependabot.yml'), 'utf8');
 const dependencyReviewWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'dependency-review.yml'), 'utf8');
-const signedWindowsTestWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build-windows-signed-test-artifact.yml'), 'utf8');
-const signedWindowsReleaseWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build-windows-signed-release.yml'), 'utf8');
+const storeWindowsTestWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'test-windows-msix-clean-install.yml'), 'utf8');
 const minimumNode = '22.12.0';
 
 function versionParts(version) {
@@ -56,17 +55,12 @@ assert.match(dependencyReviewWorkflow, /pull_request:/, 'Dependency review must 
 assert.match(dependencyReviewWorkflow, /actions\/dependency-review-action@v4/, 'Dependency review must use the GitHub dependency review action.');
 assert.match(dependencyReviewWorkflow, /fail-on-severity:\s*high/, 'Dependency review must block new high or critical vulnerabilities.');
 assert.match(dependencyReviewWorkflow, /fail-on-scopes:\s*development, runtime, unknown/, 'Dependency review must cover development, runtime, and unknown scopes.');
-assert.match(signedWindowsTestWorkflow, /workflow_dispatch:/, 'Signed Windows test workflow must be manually dispatched.');
-assert.match(signedWindowsTestWorkflow, /azure\/artifact-signing-action@v2/, 'Signed Windows test workflow must use the configured Azure signing route.');
-assert.match(signedWindowsTestWorkflow, /allow-no-subscriptions:\s*true/, 'Signed Windows test workflow must support a subscription-less Artifact Signing identity.');
-assert.doesNotMatch(signedWindowsTestWorkflow, /subscription-id:/, 'Signed Windows test workflow must not bind a subscription for a subscription-less Artifact Signing identity.');
-assert.match(signedWindowsTestWorkflow, /exclude-azure-cli-credential:\s*false/, 'Signed Windows test workflow must explicitly use the OIDC-authenticated Azure CLI credential.');
-assert.match(signedWindowsTestWorkflow, /exclude-environment-credential:\s*true/, 'Signed Windows test workflow must exclude unrelated default credentials.');
-assert.match(signedWindowsTestWorkflow, /Get-AuthenticodeSignature/, 'Signed Windows test workflow must verify every Authenticode signature.');
-assert.match(signedWindowsTestWorkflow, /actions\/upload-artifact@v4/, 'Signed Windows test workflow must retain evidence as an Actions artifact.');
-assert.doesNotMatch(signedWindowsTestWorkflow, /gh release|--clobber/, 'Signed Windows test workflow must never publish or replace release assets.');
-assert.match(signedWindowsReleaseWorkflow, /allow-no-subscriptions:\s*true/, 'Signed Windows release workflow must support a subscription-less Artifact Signing identity.');
-assert.doesNotMatch(signedWindowsReleaseWorkflow, /subscription-id:/, 'Signed Windows release workflow must not bind a subscription for a subscription-less Artifact Signing identity.');
-assert.match(signedWindowsReleaseWorkflow, /exclude-azure-cli-credential:\s*false/, 'Signed Windows release workflow must explicitly use the OIDC-authenticated Azure CLI credential.');
+assert.match(storeWindowsTestWorkflow, /workflow_dispatch:/, 'Store MSIX test workflow must be manually dispatched.');
+assert.match(storeWindowsTestWorkflow, /npm run msix:prepare/, 'Store MSIX test workflow must prepare the guarded Store configuration.');
+assert.match(storeWindowsTestWorkflow, /npm run dist:win:store -- --x64/, 'Store MSIX test workflow must build an x64 Store package.');
+assert.match(storeWindowsTestWorkflow, /npm run dist:win:store -- --arm64/, 'Store MSIX test workflow must build an ARM64 Store package.');
+assert.match(storeWindowsTestWorkflow, /Add-AppxPackage/, 'Store MSIX test workflow must validate package installation.');
+assert.match(storeWindowsTestWorkflow, /Remove-AppxPackage/, 'Store MSIX test workflow must validate package removal.');
+assert.ok(!workflows.some((workflowPath) => /build-windows-signed-/i.test(path.basename(workflowPath))), 'Obsolete alternate Windows distribution workflows must not be present.');
 
-console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}, Dependabot policy, pull-request dependency review, and non-publishing Windows signing verification.`);
+console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}, Dependabot policy, pull-request dependency review, and Microsoft Store MSIX clean-install verification.`);

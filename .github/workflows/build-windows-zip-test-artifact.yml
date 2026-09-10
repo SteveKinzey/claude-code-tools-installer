@@ -30,7 +30,7 @@ jobs:
       - name: Validate desktop contracts
         run: npm run check
 
-      - name: Build unsigned Windows ZIP
+      - name: Build Windows ZIP
         run: npm run dist:win:zip
 
       - name: Inspect ZIP contents
@@ -45,7 +45,7 @@ jobs:
       - name: Upload test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ccti-windows-unsigned-test-${{ github.sha }}
+          name: ccti-windows-zip-test-${{ github.sha }}
           path: releases/test-builds/*.zip
           if-no-files-found: error
           retention-days: 7

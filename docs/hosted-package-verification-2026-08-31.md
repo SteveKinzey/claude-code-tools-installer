@@ -16,9 +16,9 @@ The user reported that macOS described the unsigned test DMG as damaged. The nat
 
 ## Windows ZIP test artifact
 
-GitHub Actions run `33447081470` built the source at commit `4834dff` on `windows-2022`. It installed dependencies, ran `npm run check`, produced an unsigned Windows ZIP, extracted the ZIP, and verified that it contained both `Claude Code Tools Installer.exe` and the bundled `setup-my-claude.ps1` resource.
+GitHub Actions run `33447081470` built the source at commit `4834dff` on `windows-2022`. It installed dependencies, ran `npm run check`, produced a Windows ZIP, extracted the ZIP, and verified that it contained both `Claude Code Tools Installer.exe` and the bundled `setup-my-claude.ps1` resource.
 
-That source includes the reviewed installed-plugin On/Off controls and background installation state. The ZIP is a temporary test artifact, not a signed EXE and not a public release replacement.
+That source includes the reviewed installed-plugin On/Off controls and background installation state. The ZIP is a temporary test artifact, not a public release replacement.
 
 > The hosted Windows check proves the archive was built and contains the required packaged files. It does not prove a person launched the app or completed a Windows installation flow.
 

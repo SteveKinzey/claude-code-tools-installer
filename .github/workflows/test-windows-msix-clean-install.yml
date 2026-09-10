@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   clean-windows-install-test:
-    name: Sign temporary test bundle and verify install lifecycle
+    name: Prepare isolated Store test bundle and verify install lifecycle
     runs-on: windows-2022
     timeout-minutes: 35
     defaults:
@@ -53,7 +53,7 @@ jobs:
           npm run dist:win:store -- --x64
           npm run dist:win:store -- --arm64
 
-      - name: Bundle, temporarily sign, install, launch, and uninstall
+      - name: Bundle, install, launch, and uninstall
         run: |
           $ErrorActionPreference = 'Stop'
           $output = Resolve-Path '../releases/test-builds'

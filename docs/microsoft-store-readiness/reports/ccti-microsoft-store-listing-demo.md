@@ -1,6 +1,6 @@
 # Claude Code Tools Installer — Microsoft Store Listing Readiness Demonstration
 
-> **Demonstration status:** **Listing preparation only — blocked before build.** This is a source-grounded example of the `microsoft-store-listing-readiness` skill. It is **not** a Partner Center draft, a certified package, a signed Windows installer, or a submission request.
+> **Demonstration status:** **Listing preparation only — blocked before build.** This is a source-grounded example of the `microsoft-store-listing-readiness` skill. It is **not** a Partner Center draft, a certified package, or a submission request.
 
 ## Demonstration outcome
 
@@ -9,7 +9,7 @@ This package shows how the skill produces useful Store-ready copy **without inve
 | Outcome | Result | Why it matters |
 |---|---|---|
 | Listing copy | **Drafted** | Claims are restricted to the public product documentation and release record. |
-| Current Windows distribution statement | **Verified** | The current release contains a Windows ZIP for PowerShell 7+, not an MSIX or signed EXE. |
+| Current Windows distribution statement | **Verified** | The current release contains a legacy Windows ZIP for PowerShell 7+. New Windows distribution uses the Microsoft Store MSIX route. |
 | Store category recommendation | **Ready for owner review** | `Developer tools` → `Utilities` fits the documented setup and local workflow utility. |
 | Final Store screenshots | **Not created** | Browser/fixture captures would be reference-only and must never be uploaded. |
 | MSIX bundle | **Not built** | The supplied project is a web companion rather than the canonical Electron desktop source. |
@@ -24,7 +24,7 @@ This package shows how the skill produces useful Store-ready copy **without inve
 | Supplied project type | React/Vite web companion | Attached read-only source clone: root `package.json` provides web build/check/test scripts only; `desktop/` is absent. No public repository URL was supplied for this clone. |
 | Direct Windows release artifact | `claude-code-tools-installer-windows.zip` | Official release `v2026.08.12`; described for PowerShell 7+. [2] |
 | Direct Windows artifact SHA-256 | `9811d14d9048440b77a96504197656aeb7411c45c8812d33916187957bd28a60` | GitHub release metadata. [2] |
-| Direct-release boundary | ZIP archive; **not evidence of an MSIX, signed EXE, Store publication, or certification** | Artifact extension and release notes. [2] |
+| Direct-release boundary | Legacy ZIP archive; **not evidence of an MSIX, Store publication, or certification** | Artifact extension and release notes. [2] |
 | MSIX state | **Not built / not validated** | No canonical Electron source, AppX manifest, MSIX build script, tile directory, or Windows test evidence supplied. [4] |
 | Restricted-capability position | Draft rationale for `runFullTrust` only; must be checked against final manifest and Electron code | Project documentation labels the rationale as intended-product guidance, not final-manifest evidence. [4] |
 | Support contact | `support@sk-america.com` | Public product disclaimer and terms source. [5] |
@@ -142,7 +142,7 @@ Use this only after the final desktop manifest proves that `runFullTrust` is act
 - [ ] Create the manifest-referenced AppX tile assets from an approved master mark.
 - [ ] Build x64 and ARM64 packages on Windows and assemble an MSIX bundle.
 - [ ] Independently verify the bundle SHA-256 and manifest identity fields.
-- [ ] Test install, launch, real adapters, and clean uninstall on a clean Windows device. Do not distribute a test-signed copy.
+- [ ] Test install, launch, real adapters, and clean uninstall on a clean Windows device. Do not distribute an isolated test copy.
 - [ ] Capture final PNG screenshots from that exact candidate and complete the manifest and audit.
 - [ ] Publish and externally verify the product-specific privacy and support HTTPS URLs.
 - [ ] Complete the IARC questionnaire accurately; do not pre-state a rating.
@@ -175,6 +175,6 @@ Use this only after the final desktop manifest proves that `runFullTrust` is act
 
 [7]: https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/screenshots-and-images "Microsoft Store screenshots and images guidance"
 
-[8]: https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options "Windows code-signing options"
+[8]: https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options "Microsoft Store package delivery guidance"
 
 [9]: https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/add-additional-information "Add additional information for MSIX app"

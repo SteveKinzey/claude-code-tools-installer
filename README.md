@@ -10,7 +10,7 @@
 
 The public product site is [claudetool.app](https://claudetool.app/). It includes the plain-language walkthrough, searchable catalog, private-first Compass help, release sign-up, public user manual, Privacy Policy, Terms, Disclaimer, and four captioned product videos.
 
-The current public release is [v2026.08.12](https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.08.12). Its Windows file is a **ZIP download**, not a signed EXE installer. The release provider reports the direct file as `claude-code-tools-installer-windows.zip`, 1,819,520 bytes. Its published SHA-256 is:
+The current public release is [v2026.08.12](https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.08.12). Its Windows file is a legacy **ZIP download**. New Windows distribution work uses the Microsoft Store MSIX route documented below. The release provider reports the direct file as `claude-code-tools-installer-windows.zip`, 1,819,520 bytes. Its published SHA-256 is:
 
 ```text
 9811d14d9048440b77a96504197656aeb7411c45c8812d33916187957bd28a60
@@ -39,7 +39,7 @@ Download the package for your computer from [Releases](https://github.com/SteveK
 
 | Your computer | Package | What to do next |
 |---|---|---|
-| **Windows** | [ZIP download](https://github.com/SteveKinzey/claude-code-tools-installer/releases/download/v2026.08.12/claude-code-tools-installer-windows.zip) | Save the ZIP, unzip it into a folder you can find, read the included guide, then open the app. This is not a signed EXE installer. |
+| **Windows** | [ZIP download](https://github.com/SteveKinzey/claude-code-tools-installer/releases/download/v2026.08.12/claude-code-tools-installer-windows.zip) | Legacy download: save the ZIP, unzip it into a folder you can find, read the included guide, then open the app. New Windows distribution work uses the Microsoft Store MSIX route. |
 | **macOS** | `.dmg` | Open the DMG, drag the app to Applications, launch it, then use the same Step 1 choice. |
 | **Linux** | `.tar.gz` application archive | Extract the archive, run the desktop app, then use the same Step 1 choice. |
 
@@ -232,7 +232,7 @@ npm run dist:win
 npm run dist:linux
 ```
 
-Public releases must be code-signed and, on macOS, notarized before distribution. The app downloads Claude Code only after the user selects **Complete setup** or **Install or update Claude Code only**; it does not redistribute Claude Code inside this repository.
+macOS releases must be code-signed and notarized before distribution. Windows releases use the Microsoft Store MSIX route; this repository does not maintain a separate Windows code-signing service. The app downloads Claude Code only after the user selects **Complete setup** or **Install or update Claude Code only**; it does not redistribute Claude Code inside this repository.
 
 ### Microsoft Store MSIX path
 
@@ -246,7 +246,7 @@ npm run msix:prepare
 npm run dist:win:store
 ```
 
-The command creates an AppX/MSIX package for Store review. It does not submit anything, set a price, replace the ZIP, or turn a separately hosted EXE into a signed file. Microsoft Store delivery signs a certified Store package; it does not sign the direct ZIP or an EXE. See [`docs/windows-msix-store-readiness.md`](docs/windows-msix-store-readiness.md) for the owner-controlled steps.
+The command creates an AppX/MSIX package for Store review. It does not submit anything, set a price, or replace the legacy ZIP. Microsoft Store delivery signs a certified Store package. See [`docs/windows-msix-store-readiness.md`](docs/windows-msix-store-readiness.md) for the owner-controlled steps.
 ## Repository Layout
 
 | Path | Purpose |

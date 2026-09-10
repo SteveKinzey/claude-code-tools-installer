@@ -2,19 +2,19 @@
 
 ## Purpose
 
-This guide is the no-certificate-cost fallback for **Claude Code Tools Installer**. It does not create a Microsoft account, submit an app, charge the owner, change the live ZIP download, or create a Store listing.
+This guide is the **only maintained Windows distribution route** for **Claude Code Tools Installer**. It does not create a Microsoft account, submit an app, charge the owner, or create a Store listing.
 
-For an app submitted as **MSIX** through the Microsoft Store, Microsoft signs the Store-delivered package after certification. This avoids buying and managing a separate code-signing certificate. A direct-download NSIS EXE is different: it still needs its own trusted Authenticode signature. [1]
+For an app submitted as **MSIX** through the Microsoft Store, Microsoft signs the Store-delivered package after certification. This avoids buying and managing a separate Windows publisher credential. [1]
 
 ## Current readiness
 
 | Item | Current state | Action before a Store submission |
 |---|---|---|
-| App model | Electron app packaged as an NSIS EXE and ZIP | A Store-only AppX/MSIX build command is prepared; it does not alter the default NSIS/ZIP command. |
+| App model | Electron app with a Microsoft Store AppX/MSIX build target | Build and distribute Windows releases through the Store route. |
 | Store identity | Reserved in Partner Center | Copy the exact **Identity name**, **Publisher**, and **PublisherDisplayName** values from Product identity into the current build environment. |
 | Publisher value | Reserved in Partner Center | Do not invent, normalize, or substitute any identity value. The manifest is case-sensitive. |
 | AppX tile assets | Required Store logo, square 150, square 44, and wide 310×150 images are in `desktop/build/appx/` | Keep the validated images with the Windows build inputs. |
-| Store configuration | Placeholder template plus guarded local resolver | Set the three exact Partner Center values as environment variables; the resolver refuses to build with blanks or placeholders. |
+| Store configuration | Placeholder template plus guarded local resolver | Set the three exact Partner Center values as protected build inputs; the resolver refuses to build with blanks or placeholders. |
 | Windows build validation | Not available in this macOS/Linux workspace | Build and test the AppX/MSIX on a Windows build machine after identity values exist. |
 | Listing and certification | Not started | Provide screenshots, description, privacy-policy URL, support URL, age rating, and availability answers in Partner Center. |
 
@@ -22,14 +22,14 @@ For an app submitted as **MSIX** through the Microsoft Store, Microsoft signs th
 
 1. The owner confirmed that **“M6” means Microsoft Store MSIX**. This remains the free Store-delivery path under evaluation.
 2. The owner opens or uses a Partner Center account and reserves the app identity. This step can involve account and business information, so it must be completed or explicitly approved by the owner.
-3. Copy—not guess—the Partner Center **Identity name**, **Publisher**, and **PublisherDisplayName** fields. Put them in the three environment variables shown below, not in source control. Electron Builder derives the manifest `Application.Id` from a numeric Store identity name; Partner Center does not provide that field on the Product identity page.
+3. Copy—not guess—the Partner Center **Identity name**, **Publisher**, and **PublisherDisplayName** fields. Put them in the protected build inputs shown below, not in source control. Electron Builder derives the manifest `Application.Id` from a numeric Store identity name; Partner Center does not provide that field on the Product identity page.
 4. Run the guarded resolver and build the Store-only AppX/MSIX package on Windows.
 5. Test the package on a clean Windows machine. Confirm the app launches, all installer adapters are present, and the app uninstalls cleanly.
 6. Submit the free app for Store certification. Microsoft signs the Store package only after it completes this process.
 
 ## Configuration template and resume command
 
-Fill the bracketed values only after they come from Partner Center. Keep the existing NSIS target alongside this configuration.
+Fill the bracketed values only after they come from Partner Center. Keep them outside source control.
 
 ```json
 {
@@ -46,7 +46,7 @@ Fill the bracketed values only after they come from Partner Center. Keep the exi
 }
 ```
 
-Do not add guessed values to `desktop/package.json`. Electron Builder requires the publisher setting to match the certificate subject, and a mismatched Store identity can prevent package installation. [2]
+Do not add guessed values to `desktop/package.json`. A mismatched Store identity can prevent package installation. [2]
 
 On the Windows build machine, after the owner supplies the exact reserved values, set them for the current PowerShell session and run the Store build:
 
@@ -60,13 +60,13 @@ npm run msix:prepare
 npm run dist:win:store
 ```
 
-`msix:prepare` writes an ignored local resolved configuration only after all three values are present and the four required tile images exist. `dist:win:store` makes an AppX/MSIX target only. It does not submit the package, change price, create a Partner Center account, or replace the current Windows ZIP.
+`msix:prepare` writes an ignored local resolved configuration only after all three values are present and the four required tile images exist. `dist:win:store` makes an AppX/MSIX target only. It does not submit the package, change price, or create a Partner Center account.
 
 ## Cost and user experience
 
 Microsoft’s current Windows documentation states that Microsoft Store certification re-signs MSIX packages and says Store developer registration has zero registration fees in its current publishing overview. Confirm the current registration and account conditions in Partner Center before entering any business or tax information. The app can remain free to Windows users; Store use does not require charging them. [1] [3]
 
-> A Store route does not make a direct EXE signed. It provides Microsoft-signed Store delivery for the MSIX package. The current direct Windows ZIP remains available and accurately labeled until a separate signed EXE exists.
+> Microsoft Store certification signs the submitted MSIX package for Store delivery. CCTI maintains no separate direct-download Windows workflow.
 
 ## References
 

@@ -2,13 +2,13 @@
 
 **Repository:** `SteveKinzey/claude-code-tools-installer`  
 **Date:** 2026-09-10  
-**Status:** Remediation implemented and host-platform package validated. GitHub Dependabot now shows **0 open** and **2 closed** alerts. Signed macOS and Windows CI validation remains the release gate for a future public artifact.
+**Status:** Remediation implemented and host-platform package validated. GitHub Dependabot now shows **0 open** and **2 closed** alerts. Signed macOS CI and Microsoft Store MSIX clean-install validation remain the release gates for future platform artifacts.
 
 ## Executive summary
 
 The repository had two open **high-severity Dependabot alerts** in `desktop/package-lock.json`. Both originated from the transitive development dependency `extract-zip@2.0.1`, pulled in by `electron@39.8.10`. GitHub identifies both advisories as path-traversal or arbitrary-file-write risks through malicious symlink entries and lists no patched `extract-zip` version. The remediated dependency graph upgrades Electron to **44.3.0**, which replaces the external vulnerable package with `@electron-internal/extract-zip@1.0.5`. An isolated lockfile test and the updated project audit both return **zero vulnerabilities**. [1] [2]
 
-The upgrade is paired with a package engine requirement of Node **22.12.0 or later**, and all seven desktop CI workflows now use the same explicit baseline plus `npm ci`. The desktop `check` command now includes a permanent security contract and fails on high or critical npm audit findings. Electron 44 brings platform implications: macOS 12 is no longer supported, and Windows x86 and Linux ARMv7 binaries are no longer produced. Current CCTI packaging targets and Windows CI exercise supported 64-bit paths. [3] [4]
+The upgrade is paired with a package engine requirement of Node **22.12.0 or later**, and every desktop CI workflow uses the same explicit baseline plus `npm ci`. The desktop `check` command now includes a permanent security contract and fails on high or critical npm audit findings. Electron 44 brings platform implications: macOS 12 is no longer supported, and Windows x86 and Linux ARMv7 binaries are no longer produced. Current CCTI packaging targets and Windows CI exercise supported 64-bit paths. [3] [4]
 
 ## Verified alert inventory
 
@@ -26,10 +26,10 @@ The initial authenticated repository view confirmed **two open** and **zero clos
 | Direct dependency | `electron` changed from `^39.2.7` (locked 39.8.10) to `^44.3.0`. | Removes the audited `extract-zip@2.0.1` chain. |
 | Lockfile | Resolved Electron is 44.3.0; `node_modules/extract-zip` is absent. | Commits a reproducible, audited graph. |
 | Node engine | `desktop/package.json` now requires `>=22.12.0`. | Meets Electron 44’s package engine requirement. |
-| CI dependency installs | Seven desktop workflows now pin Node `22.12.0` and use `npm ci`. | Prevents lockfile drift and CI/runtime mismatch. |
+| CI dependency installs | Every desktop workflow pins Node `22.12.0` and uses `npm ci`. | Prevents lockfile drift and CI/runtime mismatch. |
 | Release gate | `npm run security:check` validates the selected Electron line, lockfile, workflow Node baseline, deterministic installs, and `npm audit --audit-level=high`. | Makes reintroduction of this vulnerable chain or high/critical audit findings release-blocking. |
 | Preventative dependency review | Dependabot now checks desktop npm dependencies daily and GitHub Actions weekly; pull requests that change dependency inputs receive high-severity review across all scopes. | Surfaces compatible updates and blocks newly introduced high/critical findings before merge. |
-| Signed Windows verification | A manual, non-publishing Windows test workflow builds, Azure-signs, validates Authenticode signatures, and retains a seven-day Actions artifact. | Verifies the release signing path without creating or replacing a public GitHub Release asset. |
+| Microsoft Store MSIX verification | A manual Windows workflow builds x64 and ARM64 Store packages, creates an isolated test bundle, and verifies installation, launch, and removal. | Verifies the free Microsoft Store distribution route without creating or replacing a public GitHub Release asset. |
 | Immutable release upload | Publishing macOS and Windows workflows no longer pass `--clobber` to `gh release upload`. | Prevents a rerun from silently replacing published release assets. |
 | Manifest diff | Verified manifests are ordered by the signed payload export timestamp and compare active additions only. | Prevents file-picker ordering from reversing added/removed results or treating an external Claude Code version change as a tool deletion. |
 
@@ -59,11 +59,11 @@ The output uses only entries from `## Active tools and additions`. It trims Mark
 | Full desktop suite | Passed catalog, components, detail catalog, uninstall/manifest, diagnostics, update, project, and release-config checks. The UI contract verified **96 renderer IDs** and **43 secure bridge methods**. |
 | Host package build | Linux x64 Electron 44 package completed. The non-empty archive SHA-256 is `4b4f89d7e956b604d5e49d57432bf5524ada725cf12e26e481af8956d2dd0d58`. |
 | Signed macOS test build | GitHub Actions run `34463665129` completed successfully on commit `bc7c656`. It validated desktop contracts, produced the Electron 44 DMG/ZIP, submitted and stapled the notarization ticket, ran final DMG verification, and retained the signed test artifacts for seven days. |
-| Signed Windows test build — first attempts | GitHub Actions run `34463471604` validated dependencies and built the Windows ZIP, but Azure OIDC login stopped with “No subscriptions found.” Run `34464313946` confirmed that `allow-no-subscriptions: true` alone cannot override an explicitly invalid `subscription-id`. Run `34464656429` proved subscription-free OIDC login succeeds and reached Artifact Signing, but the signing action failed before Authenticode verification. Both workflows now omit `subscription-id`, set `allow-no-subscriptions: true`, and explicitly retain only `AzureCliCredential` from `DefaultAzureCredential`, matching the provider’s OIDC pattern. The non-publishing test must be rerun to prove the complete signing path; if it still fails, review the Azure Artifact Signing Certificate Profile Signer role and the endpoint/account/profile values. |
+| Microsoft Store Windows validation | GitHub Actions run `34342555814` completed the x64 and ARM64 Microsoft Store MSIX clean-install lifecycle. It built the Store package candidates, created an isolated one-run test bundle, verified installation and launch, then verified package removal. The retained route does not require a separately managed Windows publisher credential. |
 
 ## Compatibility and release plan
 
-Electron 44 does not support macOS 12, Windows x86, or Linux ARMv7. CCTI’s current Windows Store CI already builds x64 and ARM64 packages. The local Linux package validation targets x64. Before publishing any public artifact, run the signed macOS and Windows CI workflows and test supported targets, including CCTI’s main window, manifest drag-and-drop verification, chronological diff output, native notification behavior, and clean uninstall. No public release tag or existing release artifact was changed by this remediation.
+Electron 44 does not support macOS 12, Windows x86, or Linux ARMv7. CCTI’s current Windows Store CI already builds x64 and ARM64 packages. The local Linux package validation targets x64. Before publishing a platform artifact, run the macOS signed/notarized CI workflow or the Windows Store bundle and clean-install workflows, as applicable, then test supported targets, including CCTI’s main window, manifest drag-and-drop verification, chronological diff output, native notification behavior, and clean uninstall. No public release tag or existing release artifact was changed by this remediation.
 
 The next planned maintenance pass should investigate the npm deprecation notices from transitive build tooling (`inflight`, `rimraf@2`, `glob@7`, and `boolean`). They are not reported as open vulnerabilities by the clean audit and were not changed in this remediation. Updating `electron-builder` and its dependency tree should be reviewed independently so that packaging behavior remains stable.
 
@@ -76,13 +76,13 @@ The remediation closes the known archive-extraction findings and adds a determin
 | P0 | Dependabot version-update policy | Implemented | Check `desktop/` npm dependencies daily and GitHub Actions weekly. Group Electron, Electron internals, Builder, and notarization packages so upgrades are compatible and reviewable. |
 | P0 | Pull-request dependency review | Implemented | Block newly introduced high/critical vulnerabilities across development, runtime, and unknown scopes before merge. |
 | P0 | Immutable release asset uploads | Implemented | Do not pass `--clobber` to release uploads. A release retry must create a new tag or use a separately approved recovery process rather than silently replacing a published artifact. |
-| P0 | Non-publishing signed Windows test | Implemented | Build and validate a signed Windows ZIP through the existing Azure signing route, then retain only a seven-day Actions artifact. Do not create or modify a GitHub Release during remediation verification. |
+| P0 | Microsoft Store MSIX clean-install test | Implemented | Build and validate x64 and ARM64 Store package candidates through the Microsoft Store route. Do not create or modify a GitHub Release during remediation verification. |
 | P1 | Required checks and protected `main` | Pending administrator action | Require the dependency-review and desktop validation checks before merge, restrict direct pushes, and require at least one independent review for lockfile or workflow changes. The branch was unprotected at this review. |
 | P1 | Action pinning | Pending source hardening | Pin third-party and GitHub Actions to reviewed full commit SHAs in signing workflows, with a documented refresh process. Version tags can be moved upstream. |
 | P1 | SBOM, artifact scan, and provenance | Pending release pipeline work | Generate source and artifact SBOMs after the final signed package is stable, scan the artifact SBOM, block high/critical fixed findings, and attest the exact checksum-bearing artifact. |
 | P2 | Developer tooling refresh | Pending maintenance | Review the transitive `inflight`, `rimraf@2`, `glob@7`, and `boolean` deprecation chain through an Electron Builder upgrade in a dedicated packaging regression change. |
 
-The P0 controls have been added to source. The P1 branch-protection change is intentionally not applied automatically because it changes repository-wide merge permissions. The P1 SBOM and attestation gate should run after signing and notarization but before a release asset is uploaded; attesting a pre-notarization or later-mutated file would not prove the final distributed artifact. [5] [6]
+The P0 controls have been added to source. The P1 branch-protection change is intentionally not applied automatically because it changes repository-wide merge permissions. The P1 SBOM and attestation gate should run after the macOS signing/notarization step or after the Microsoft Store MSIX candidate is finalized, but before an artifact is uploaded; attesting a later-mutated file would not prove the final distributed artifact. [5] [6]
 
 ## References
 

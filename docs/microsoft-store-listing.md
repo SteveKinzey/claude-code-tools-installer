@@ -97,8 +97,8 @@ The source defines Store tile assets in `desktop/build/appx/`, but those are pac
 3. **Build the Store package on Windows.** With those exact values supplied only to the build environment, run `npm run msix:prepare` and `npm run dist:win:store` from `desktop/`. The resolver must reject blank or placeholder values.[^readiness]
 4. **Test the exact MSIX package on a clean Windows machine.** Confirm that the app launches, the installer adapters are present, and the app uninstalls cleanly. Capture the final Store screenshots only from this tested package.[^readiness]
 5. **Complete Partner Center metadata.** Enter the descriptions, search terms, support URL, Privacy Policy URL, age-rating answers, availability answers, and final screenshots. Listing and certification are not yet started in the current readiness record.[^readiness]
-6. **Keep public release claims accurate.** The current direct Windows release is a ZIP download, not a signed EXE installer. A Store route does not sign a separately hosted EXE; Microsoft signs the Store-delivered package after certification.[^readiness]
-7. **Submit only after the above checks.** The Store build command creates an AppX/MSIX target; it does not create a Partner Center account, submit the package, set pricing, replace the public ZIP, or itself certify the app.[^readiness]
+6. **Keep public release claims accurate.** New Windows distribution uses the Microsoft Store MSIX route. Microsoft signs the Store-delivered package after certification.[^readiness]
+7. **Submit only after the above checks.** The Store build command creates an AppX/MSIX target; it does not create a Partner Center account, submit the package, set pricing, or itself certify the app.[^readiness]
 
 ## Source basis
 
