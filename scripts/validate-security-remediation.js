@@ -7,6 +7,9 @@ const root = path.resolve(__dirname, '..');
 const desktopPath = path.join(root, 'desktop');
 const packageJson = JSON.parse(fs.readFileSync(path.join(desktopPath, 'package.json'), 'utf8'));
 const lockfile = JSON.parse(fs.readFileSync(path.join(desktopPath, 'package-lock.json'), 'utf8'));
+const dependabotConfig = fs.readFileSync(path.join(root, '.github', 'dependabot.yml'), 'utf8');
+const dependencyReviewWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'dependency-review.yml'), 'utf8');
+const signedWindowsTestWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build-windows-signed-test-artifact.yml'), 'utf8');
 const minimumNode = '22.12.0';
 
 function versionParts(version) {
@@ -44,4 +47,18 @@ for (const workflowPath of desktopWorkflows) {
   assert.match(contents, /npm run check/, `${filename} must execute the complete desktop check, including the high-severity audit gate.`);
 }
 
-console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}.`);
+assert.match(dependabotConfig, /^version:\s*2\s*$/m, 'Dependabot configuration must use version 2.');
+assert.match(dependabotConfig, /package-ecosystem:\s*npm[\s\S]*directory:\s*\/desktop[\s\S]*interval:\s*daily/, 'Dependabot must check desktop npm dependencies daily.');
+assert.match(dependabotConfig, /package-ecosystem:\s*github-actions[\s\S]*directory:\s*\/[\s\S]*interval:\s*weekly/, 'Dependabot must check GitHub Actions dependencies weekly.');
+assert.match(dependabotConfig, /electron-release-line:[\s\S]*electron-builder/, 'Dependabot must group Electron and packaging dependencies for compatible review.');
+assert.match(dependencyReviewWorkflow, /pull_request:/, 'Dependency review must run on pull requests.');
+assert.match(dependencyReviewWorkflow, /actions\/dependency-review-action@v4/, 'Dependency review must use the GitHub dependency review action.');
+assert.match(dependencyReviewWorkflow, /fail-on-severity:\s*high/, 'Dependency review must block new high or critical vulnerabilities.');
+assert.match(dependencyReviewWorkflow, /fail-on-scopes:\s*development, runtime, unknown/, 'Dependency review must cover development, runtime, and unknown scopes.');
+assert.match(signedWindowsTestWorkflow, /workflow_dispatch:/, 'Signed Windows test workflow must be manually dispatched.');
+assert.match(signedWindowsTestWorkflow, /azure\/artifact-signing-action@v2/, 'Signed Windows test workflow must use the configured Azure signing route.');
+assert.match(signedWindowsTestWorkflow, /Get-AuthenticodeSignature/, 'Signed Windows test workflow must verify every Authenticode signature.');
+assert.match(signedWindowsTestWorkflow, /actions\/upload-artifact@v4/, 'Signed Windows test workflow must retain evidence as an Actions artifact.');
+assert.doesNotMatch(signedWindowsTestWorkflow, /gh release|--clobber/, 'Signed Windows test workflow must never publish or replace release assets.');
+
+console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}, Dependabot policy, pull-request dependency review, and non-publishing Windows signing verification.`);

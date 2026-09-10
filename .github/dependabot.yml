@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 5
+    target-branch: main
+    labels:
+      - dependencies
+      - security
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      electron-release-line:
+        patterns:
+          - electron
+          - "@electron/*"
+          - "@electron-internal/*"
+          - electron-builder
+          - "@electron/notarize"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    target-branch: main
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "chore(ci)"

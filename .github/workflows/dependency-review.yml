@@ -1,0 +1,26 @@
+name: Dependency review
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'desktop/package.json'
+      - 'desktop/package-lock.json'
+      - '.github/dependabot.yml'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: Review added and updated dependencies
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v6
+      - name: Reject new high-severity dependency findings
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          fail-on-scopes: development, runtime, unknown

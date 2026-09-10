@@ -28,6 +28,9 @@ The initial authenticated repository view confirmed **two open** and **zero clos
 | Node engine | `desktop/package.json` now requires `>=22.12.0`. | Meets Electron 44’s package engine requirement. |
 | CI dependency installs | Seven desktop workflows now pin Node `22.12.0` and use `npm ci`. | Prevents lockfile drift and CI/runtime mismatch. |
 | Release gate | `npm run security:check` validates the selected Electron line, lockfile, workflow Node baseline, deterministic installs, and `npm audit --audit-level=high`. | Makes reintroduction of this vulnerable chain or high/critical audit findings release-blocking. |
+| Preventative dependency review | Dependabot now checks desktop npm dependencies daily and GitHub Actions weekly; pull requests that change dependency inputs receive high-severity review across all scopes. | Surfaces compatible updates and blocks newly introduced high/critical findings before merge. |
+| Signed Windows verification | A manual, non-publishing Windows test workflow builds, Azure-signs, validates Authenticode signatures, and retains a seven-day Actions artifact. | Verifies the release signing path without creating or replacing a public GitHub Release asset. |
+| Immutable release upload | Publishing macOS and Windows workflows no longer pass `--clobber` to `gh release upload`. | Prevents a rerun from silently replacing published release assets. |
 | Manifest diff | Verified manifests are ordered by the signed payload export timestamp and compare active additions only. | Prevents file-picker ordering from reversing added/removed results or treating an external Claude Code version change as a tool deletion. |
 
 ## Manifest comparison contract review
@@ -62,9 +65,28 @@ Electron 44 does not support macOS 12, Windows x86, or Linux ARMv7. CCTI’s cur
 
 The next planned maintenance pass should investigate the npm deprecation notices from transitive build tooling (`inflight`, `rimraf@2`, `glob@7`, and `boolean`). They are not reported as open vulnerabilities by the clean audit and were not changed in this remediation. Updating `electron-builder` and its dependency tree should be reviewed independently so that packaging behavior remains stable.
 
+## Additional hardening review
+
+The remediation closes the known archive-extraction findings and adds a deterministic audit gate. The following follow-up controls reduce the chance of a vulnerable dependency or replaced release artifact reaching users.
+
+| Priority | Control | Status | Recommendation |
+| --- | --- | --- | --- |
+| P0 | Dependabot version-update policy | Implemented | Check `desktop/` npm dependencies daily and GitHub Actions weekly. Group Electron, Electron internals, Builder, and notarization packages so upgrades are compatible and reviewable. |
+| P0 | Pull-request dependency review | Implemented | Block newly introduced high/critical vulnerabilities across development, runtime, and unknown scopes before merge. |
+| P0 | Immutable release asset uploads | Implemented | Do not pass `--clobber` to release uploads. A release retry must create a new tag or use a separately approved recovery process rather than silently replacing a published artifact. |
+| P0 | Non-publishing signed Windows test | Implemented | Build and validate a signed Windows ZIP through the existing Azure signing route, then retain only a seven-day Actions artifact. Do not create or modify a GitHub Release during remediation verification. |
+| P1 | Required checks and protected `main` | Pending administrator action | Require the dependency-review and desktop validation checks before merge, restrict direct pushes, and require at least one independent review for lockfile or workflow changes. The branch was unprotected at this review. |
+| P1 | Action pinning | Pending source hardening | Pin third-party and GitHub Actions to reviewed full commit SHAs in signing workflows, with a documented refresh process. Version tags can be moved upstream. |
+| P1 | SBOM, artifact scan, and provenance | Pending release pipeline work | Generate source and artifact SBOMs after the final signed package is stable, scan the artifact SBOM, block high/critical fixed findings, and attest the exact checksum-bearing artifact. |
+| P2 | Developer tooling refresh | Pending maintenance | Review the transitive `inflight`, `rimraf@2`, `glob@7`, and `boolean` deprecation chain through an Electron Builder upgrade in a dedicated packaging regression change. |
+
+The P0 controls have been added to source. The P1 branch-protection change is intentionally not applied automatically because it changes repository-wide merge permissions. The P1 SBOM and attestation gate should run after signing and notarization but before a release asset is uploaded; attesting a pre-notarization or later-mutated file would not prove the final distributed artifact. [5] [6]
+
 ## References
 
 [1]: https://github.com/advisories/GHSA-jmr9-qjv8-65gv "extract-zip unvalidated symlink path traversal"
 [2]: https://github.com/advisories/GHSA-7pqw-9j4j-h8q3 "extract-zip allows arbitrary file writes through symlink archive entries"
 [3]: https://www.electronjs.org/blog/electron-44-0 "Electron 44 release notes"
 [4]: https://www.electronjs.org/docs/latest/breaking-changes "Electron breaking changes"
+[5]: https://docs.github.com/code-security/how-tos/secure-your-supply-chain/manage-your-dependency-security/configure-dependency-review-action "Configuring the dependency review action"
+[6]: https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds "Artifact attestations and SBOM attestations"
