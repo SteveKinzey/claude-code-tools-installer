@@ -28,7 +28,7 @@ jobs:
       - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22.12.0'
 
       - name: Confirm managed secrets are available
         shell: bash
@@ -48,7 +48,7 @@ jobs:
           echo "CSC_LINK=$certificate_path" >> "$GITHUB_ENV"
 
       - name: Install desktop dependencies
-        run: npm install
+        run: npm ci
 
       - name: Validate desktop contracts
         run: npm run check

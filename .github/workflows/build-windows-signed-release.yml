@@ -36,11 +36,11 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: '22.12.0'
 
       - name: Install and validate
         run: |
-          npm install
+          npm ci
           npm run check
 
       - name: Build the Windows ZIP

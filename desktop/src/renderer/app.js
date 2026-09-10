@@ -858,7 +858,10 @@ function renderManifestComparison(result) {
   manifestComparisonResultElement.hidden = false;
   const added = result.added.length ? result.added.map((item) => `+ ${item}`).join('\n') : '+ No tools added';
   const removed = result.removed.length ? result.removed.map((item) => `- ${item}`).join('\n') : '- No tools removed';
-  manifestComparisonResultElement.textContent = `Compared verified manifests\nBefore: ${result.beforeFilename}\nAfter:  ${result.afterFilename}\n\nAdded\n${added}\n\nRemoved\n${removed}\n\nUnchanged: ${result.unchanged.length} tool${result.unchanged.length === 1 ? '' : 's'}`;
+  const orderNote = result.ordering === 'export-timestamp'
+    ? 'Chronological order from the signed manifest payload timestamps.'
+    : 'Selected order used because both manifest payload timestamps are the same or unavailable.';
+  manifestComparisonResultElement.textContent = `Compared verified manifests\n${orderNote}\nBefore: ${result.beforeFilename}\nAfter:  ${result.afterFilename}\n\nActive additions only\nAdded\n${added}\n\nRemoved\n${removed}\n\nUnchanged: ${result.unchanged.length} tool${result.unchanged.length === 1 ? '' : 's'}`;
 }
 
 async function compareSavedInstallationManifests() {

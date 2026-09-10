@@ -824,10 +824,16 @@ function manifestSectionLines(contents, heading) {
 }
 
 function manifestInventory(contents) {
-  return [...new Set([
-    ...manifestSectionLines(contents, 'External developer tool'),
-    ...manifestSectionLines(contents, 'Active tools and additions'),
-  ])].sort((left, right) => left.localeCompare(right));
+  return [...new Set(manifestSectionLines(contents, 'Active tools and additions'))]
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function manifestExportTimestamp(contents) {
+  const payloadOffset = contents.indexOf('## Manifest payload\n');
+  const payload = payloadOffset >= 0 ? contents.slice(payloadOffset) : '';
+  const match = payload.match(/^Generated: .+ \(Unix: (\d+)\)$/m);
+  const unixSeconds = Number.parseInt(match?.[1] || '', 10);
+  return Number.isSafeInteger(unixSeconds) ? unixSeconds : null;
 }
 
 async function compareInstallationManifests() {
@@ -841,10 +847,14 @@ async function compareInstallationManifests() {
     if (selection.filePaths.length !== 2 || new Set(selection.filePaths).size !== 2) {
       return { ok: false, error: 'Choose exactly two different CCTI manifest files to compare.' };
     }
-    const [before, after] = await Promise.all(selection.filePaths.map(verifyInstallationManifestAtPath));
-    if (!before.ok || !before.matched || !after.ok || !after.matched) {
+    const [first, second] = await Promise.all(selection.filePaths.map(verifyInstallationManifestAtPath));
+    if (!first.ok || !first.matched || !second.ok || !second.matched) {
       return { ok: false, error: 'Both manifests must be readable and pass their recorded SHA-256 verification before CCTI compares them.' };
     }
+    const firstTimestamp = manifestExportTimestamp(first.contents);
+    const secondTimestamp = manifestExportTimestamp(second.contents);
+    const orderedByTimestamp = firstTimestamp !== null && secondTimestamp !== null && firstTimestamp !== secondTimestamp;
+    const [before, after] = orderedByTimestamp && firstTimestamp > secondTimestamp ? [second, first] : [first, second];
     const beforeTools = manifestInventory(before.contents);
     const afterTools = manifestInventory(after.contents);
     const beforeSet = new Set(beforeTools);
@@ -854,6 +864,7 @@ async function compareInstallationManifests() {
       canceled: false,
       beforeFilename: before.filename,
       afterFilename: after.filename,
+      ordering: orderedByTimestamp ? 'export-timestamp' : 'selected-order',
       added: afterTools.filter((item) => !beforeSet.has(item)),
       removed: beforeTools.filter((item) => !afterSet.has(item)),
       unchanged: afterTools.filter((item) => beforeSet.has(item)),

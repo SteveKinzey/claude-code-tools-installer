@@ -43,6 +43,8 @@ Download the package for your computer from [Releases](https://github.com/SteveK
 | **macOS** | `.dmg` | Open the DMG, drag the app to Applications, launch it, then use the same Step 1 choice. |
 | **Linux** | `.tar.gz` application archive | Extract the archive, run the desktop app, then use the same Step 1 choice. |
 
+> **Electron 44 compatibility:** Releases built from the security-remediated dependency line require **macOS 13 or later** and 64-bit Windows or Linux. Windows x64 and ARM64 remain supported; Windows 32-bit and Linux ARMv7 are no longer supported by Electron.
+
 The first-run path is intentionally plain: you do **not** need to find a terminal, choose a package manager, visit an installation page, or paste a command. The app checks first and answers **Yes, Claude Code is installed** or **No, Claude Code is not installed**. If the answer is no, choose **Yes, install Claude Code**. The app runs Anthropic’s official installer, waits for it to finish, then checks again before reporting that Claude Code is installed. It does not add optional tools in that path. [1]
 
 ## Step 1: Set Up Claude Code

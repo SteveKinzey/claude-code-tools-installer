@@ -183,21 +183,25 @@ async function run() {
 
   const comparisonBeforePath = path.join(tempRoot, 'comparison-before.md');
   const comparisonAfterPath = path.join(tempRoot, 'comparison-after.md');
-  const makeManifest = (tools) => {
-    const payload = `## Manifest payload\n\nGenerated: 2026-09-10T00:00:00.000Z (Unix: 1788998400)\nPlatform: test\nCCTI version: test\n\n## Privacy boundary\n\nNo private paths.\n\n## External developer tool\n\n- Claude Code: test\n\n## Active tools and additions\n\n${tools.map((tool) => `- ${tool}`).join('\n')}\n\n## Uninstall boundary\n\nCCTI-only data is removable.\n`;
+  const makeManifest = (tools, { generatedAt, unix, claudeVersion } = {}) => {
+    const payload = `## Manifest payload\n\nGenerated: ${generatedAt || '2026-09-10T00:00:00.000Z'} (Unix: ${unix || 1788998400})\nPlatform: test\nCCTI version: test\n\n## Privacy boundary\n\nNo private paths.\n\n## External developer tool\n\n- Claude Code: ${claudeVersion || 'test'}\n\n## Active tools and additions\n\n${tools.map((tool) => `- ${tool}`).join('\n')}\n\n## Uninstall boundary\n\nCCTI-only data is removable.\n`;
     const digest = createHash('sha256').update(payload, 'utf8').digest('hex');
     return `# CCTI installation manifest\n\n## Integrity\n\n- Export timestamp: 2026-09-10T00:00:00.000Z\n- Payload SHA-256: ${digest}\n\n${payload}`;
   };
-  await fsp.writeFile(comparisonBeforePath, makeManifest(['Tool Alpha (tool · This computer)', 'Tool Removed (skill · This computer)']), 'utf8');
-  await fsp.writeFile(comparisonAfterPath, makeManifest(['Tool Alpha (tool · This computer)', 'Tool Added (plugin · This computer)']), 'utf8');
+  await fsp.writeFile(comparisonBeforePath, makeManifest(['Tool Alpha (tool · This computer)', 'Tool Removed (skill · This computer)'], { unix: 1788998400, claudeVersion: '1.0.0' }), 'utf8');
+  await fsp.writeFile(comparisonAfterPath, makeManifest(['Tool Alpha (tool · This computer)', 'Tool Added (plugin · This computer)'], { generatedAt: '2026-09-11T00:00:00.000Z', unix: 1789084800, claudeVersion: '2.0.0' }), 'utf8');
   const droppedVerification = await verifyDroppedInstallationManifest(null, { filePath: comparisonBeforePath });
   assert.equal(droppedVerification.ok, true, 'a user-dropped manifest path should be verified through the narrow main-process handler');
   assert.equal(droppedVerification.matched, true, 'an untouched dropped manifest must pass checksum verification');
-  openDialogResult = { canceled: false, filePaths: [comparisonBeforePath, comparisonAfterPath] };
+  openDialogResult = { canceled: false, filePaths: [comparisonAfterPath, comparisonBeforePath] };
   const comparison = await compareInstallationManifests();
   assert.equal(comparison.ok, true, 'two verified manifests should compare successfully');
+  assert.equal(comparison.ordering, 'export-timestamp', 'manifests must be compared chronologically rather than in file-picker order');
+  assert.equal(comparison.beforeFilename, 'comparison-before.md');
+  assert.equal(comparison.afterFilename, 'comparison-after.md');
   assert.deepEqual(comparison.added, ['Tool Added (plugin · This computer)']);
   assert.deepEqual(comparison.removed, ['Tool Removed (skill · This computer)']);
+  assert.deepEqual(comparison.unchanged, ['Tool Alpha (tool · This computer)'], 'external Claude Code version changes are excluded from the active additions diff');
   await fsp.appendFile(comparisonAfterPath, 'tampered\n', 'utf8');
   const rejectedComparison = await compareInstallationManifests();
   assert.equal(rejectedComparison.ok, false, 'comparison must reject a manifest that no longer passes checksum verification');
