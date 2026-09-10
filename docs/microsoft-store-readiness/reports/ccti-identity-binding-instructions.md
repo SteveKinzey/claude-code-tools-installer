@@ -36,7 +36,7 @@ Do not add these as repository variables or workflow-dispatch inputs. Workflow-d
 
 The same workflow includes a **test mode** for verifying the Windows package and bundle stages before the protected Partner Center identity is available. Select **test mode** when dispatching the workflow. It injects a fixed, non-production fixture identity and uploads an artifact named `claude-code-tools-installer-store-test.msixbundle`.
 
-Test-mode output is not a Store submission candidate. Do not upload it to Partner Center, distribute it, or treat it as evidence that the protected identity is configured. Leave test mode off for the final candidate build.
+Test-mode output is not a Store submission candidate. Do not upload it to Partner Center, distribute it, or treat it as evidence that the protected identity is configured. Leave test mode off for a final candidate build. The clean-Windows lifecycle workflow provides the same test mode, where it creates an additional one-run local certificate only to exercise Windows installation; that certificate and its test bundle are not uploaded or reused.
 
 ## 5. Verify the resulting bundle
 

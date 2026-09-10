@@ -66,9 +66,13 @@ assert.match(packageJson.scripts?.['dist:win:store:arm64'] || '', /electron-buil
 assert.match(storeBundleWorkflow, /npm run dist:win:store:x64/, 'Store bundle workflow must use the explicit x64 build script.');
 assert.match(storeBundleWorkflow, /npm run dist:win:store:arm64/, 'Store bundle workflow must use the explicit ARM64 build script.');
 assert.match(storeWindowsTestWorkflow, /workflow_dispatch:/, 'Store MSIX test workflow must be manually dispatched.');
+assert.match(storeWindowsTestWorkflow, /test_mode:/, 'Clean-Windows workflow must offer a non-production CI test mode.');
+assert.match(storeWindowsTestWorkflow, /CCTI\.LocalValidation/, 'Clean-Windows test mode must use a non-production fixture identity.');
+assert.match(storeWindowsTestWorkflow, /secrets\.CCTI_APPX_IDENTITY_NAME/, 'Clean-Windows workflow must retain protected identity secrets for final candidates.');
+assert.doesNotMatch(storeWindowsTestWorkflow, /inputs\.(identity_name|publisher|publisher_display_name)/, 'Clean-Windows workflow must not accept Partner Center identity values through workflow dispatch.');
 assert.match(storeWindowsTestWorkflow, /npm run msix:prepare/, 'Store MSIX test workflow must prepare the guarded Store configuration.');
-assert.match(storeWindowsTestWorkflow, /npm run dist:win:store -- --x64/, 'Store MSIX test workflow must build an x64 Store package.');
-assert.match(storeWindowsTestWorkflow, /npm run dist:win:store -- --arm64/, 'Store MSIX test workflow must build an ARM64 Store package.');
+assert.match(storeWindowsTestWorkflow, /npm run dist:win:store:x64/, 'Store MSIX test workflow must build an x64 Store package.');
+assert.match(storeWindowsTestWorkflow, /npm run dist:win:store:arm64/, 'Store MSIX test workflow must build an ARM64 Store package.');
 assert.match(storeWindowsTestWorkflow, /Add-AppxPackage/, 'Store MSIX test workflow must validate package installation.');
 assert.match(storeWindowsTestWorkflow, /Remove-AppxPackage/, 'Store MSIX test workflow must validate package removal.');
 assert.ok(!workflows.some((workflowPath) => /build-windows-signed-/i.test(path.basename(workflowPath))), 'Obsolete alternate Windows distribution workflows must not be present.');

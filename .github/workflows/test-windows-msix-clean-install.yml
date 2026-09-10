@@ -3,18 +3,11 @@ name: Test Microsoft Store MSIX on clean Windows
 on:
   workflow_dispatch:
     inputs:
-      identity_name:
-        description: "Exact Partner Center Package/Identity/Name"
-        required: true
-        type: string
-      publisher:
-        description: "Exact Partner Center Package/Identity/Publisher"
-        required: true
-        type: string
-      publisher_display_name:
-        description: "Exact Partner Center Package/Properties/PublisherDisplayName"
-        required: true
-        type: string
+      test_mode:
+        description: "Build and test a non-submission MSIX fixture without Partner Center secrets"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -24,14 +17,15 @@ jobs:
     name: Prepare isolated Store test bundle and verify install lifecycle
     runs-on: windows-2022
     timeout-minutes: 35
+    environment: msix-store-release
     defaults:
       run:
         working-directory: desktop
         shell: powershell
     env:
-      CCTI_APPX_IDENTITY_NAME: ${{ inputs.identity_name }}
-      CCTI_APPX_PUBLISHER: ${{ inputs.publisher }}
-      CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.publisher_display_name }}
+      CCTI_APPX_IDENTITY_NAME: ${{ inputs.test_mode && 'CCTI.LocalValidation' || secrets.CCTI_APPX_IDENTITY_NAME }}
+      CCTI_APPX_PUBLISHER: ${{ inputs.test_mode && 'CN=CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER }}
+      CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.test_mode && 'CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER_DISPLAY_NAME }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -47,11 +41,24 @@ jobs:
       - name: Validate desktop contracts
         run: npm run check
 
+      - name: Validate protected identity inputs
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ('${{ inputs.test_mode }}' -eq 'true') {
+            Write-Host 'Test mode uses a non-submission fixture identity. The output must not be uploaded to Partner Center.'
+            return
+          }
+          foreach ($name in 'CCTI_APPX_IDENTITY_NAME', 'CCTI_APPX_PUBLISHER', 'CCTI_APPX_PUBLISHER_DISPLAY_NAME') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Required protected identity secret is unavailable: $name"
+            }
+          }
+
       - name: Build Store package candidates
         run: |
           npm run msix:prepare
-          npm run dist:win:store -- --x64
-          npm run dist:win:store -- --arm64
+          npm run dist:win:store:x64
+          npm run dist:win:store:arm64
 
       - name: Bundle, install, launch, and uninstall
         run: |
