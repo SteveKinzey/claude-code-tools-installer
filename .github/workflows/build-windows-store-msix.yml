@@ -2,6 +2,12 @@ name: Build Microsoft Store MSIX bundle
 
 on:
   workflow_dispatch:
+    inputs:
+      test_mode:
+        description: "Build a non-submission MSIX fixture without Partner Center secrets"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -17,9 +23,10 @@ jobs:
         working-directory: desktop
         shell: pwsh
     env:
-      CCTI_APPX_IDENTITY_NAME: ${{ secrets.CCTI_APPX_IDENTITY_NAME }}
-      CCTI_APPX_PUBLISHER: ${{ secrets.CCTI_APPX_PUBLISHER }}
-      CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ secrets.CCTI_APPX_PUBLISHER_DISPLAY_NAME }}
+      CCTI_APPX_IDENTITY_NAME: ${{ inputs.test_mode && 'CCTI.LocalValidation' || secrets.CCTI_APPX_IDENTITY_NAME }}
+      CCTI_APPX_PUBLISHER: ${{ inputs.test_mode && 'CN=CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER }}
+      CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.test_mode && 'CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER_DISPLAY_NAME }}
+      CCTI_MSIX_ARTIFACT_CLASS: ${{ inputs.test_mode && 'test' || 'submission' }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -35,6 +42,10 @@ jobs:
       - name: Validate protected identity inputs
         run: |
           $ErrorActionPreference = 'Stop'
+          if ('${{ inputs.test_mode }}' -eq 'true') {
+            Write-Host 'Test mode uses a non-submission fixture identity. The output must not be uploaded to Partner Center.'
+            return
+          }
           foreach ($name in 'CCTI_APPX_IDENTITY_NAME', 'CCTI_APPX_PUBLISHER', 'CCTI_APPX_PUBLISHER_DISPLAY_NAME') {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
               throw "Required protected identity secret is unavailable: $name"
@@ -74,7 +85,8 @@ jobs:
 
           $staging = Join-Path $env:RUNNER_TEMP 'ccti-msixbundle-input'
           $unpacked = Join-Path $env:RUNNER_TEMP 'ccti-msixbundle-unpacked'
-          $bundle = Join-Path $output 'claude-code-tools-installer-store-submission.msixbundle'
+          $artifactName = if ($env:CCTI_MSIX_ARTIFACT_CLASS -eq 'test') { 'claude-code-tools-installer-store-test' } else { 'claude-code-tools-installer-store-submission' }
+          $bundle = Join-Path $output "$artifactName.msixbundle"
           New-Item -ItemType Directory -Path $staging -Force | Out-Null
           Copy-Item -Path $appx.FullName -Destination $staging -Force
           & $makeAppx.FullName bundle /d $staging /p $bundle /o
@@ -107,16 +119,16 @@ jobs:
           }
 
           $hash = (Get-FileHash -Path $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $([System.IO.Path]::GetFileName($bundle))" | Set-Content -Path (Join-Path $output 'claude-code-tools-installer-store-submission.sha256') -NoNewline
-          "Store submission bundle verified: $bundle"
+          "$hash  $([System.IO.Path]::GetFileName($bundle))" | Set-Content -Path (Join-Path $output "$artifactName.sha256") -NoNewline
+          Write-Host "Store $env:CCTI_MSIX_ARTIFACT_CLASS bundle verified: $bundle"
 
-      - name: Upload unsigned Store submission bundle
+      - name: Upload Store bundle
         uses: actions/upload-artifact@v4
         with:
-          name: ccti-store-msixbundle-${{ github.sha }}
+          name: ccti-store-msix-${{ inputs.test_mode && 'test' || 'submission' }}-${{ github.sha }}
           path: |
-            releases/test-builds/claude-code-tools-installer-store-submission.msixbundle
-            releases/test-builds/claude-code-tools-installer-store-submission.sha256
+            releases/test-builds/claude-code-tools-installer-store-*.msixbundle
+            releases/test-builds/claude-code-tools-installer-store-*.sha256
           if-no-files-found: error
           retention-days: 14
 

@@ -32,7 +32,13 @@ Do not add these as repository variables or workflow-dispatch inputs. Workflow-d
 3. Select the exact final release commit or tag.
 4. The workflow will automatically inject the protected secrets into the `msix:prepare` step, build the x64 and ARM64 packages, and produce the final unsigned `.msixbundle` and its `.sha256` companion file.
 
-## 4. Verify the resulting bundle
+## 4. Safe CI test mode
+
+The same workflow includes a **test mode** for verifying the Windows package and bundle stages before the protected Partner Center identity is available. Select **test mode** when dispatching the workflow. It injects a fixed, non-production fixture identity and uploads an artifact named `claude-code-tools-installer-store-test.msixbundle`.
+
+Test-mode output is not a Store submission candidate. Do not upload it to Partner Center, distribute it, or treat it as evidence that the protected identity is configured. Leave test mode off for the final candidate build.
+
+## 5. Verify the resulting bundle
 
 Download the produced bundle and its checksum file. Run the evidence verifier to confirm the identity was applied correctly:
 

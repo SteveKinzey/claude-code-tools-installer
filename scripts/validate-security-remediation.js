@@ -9,6 +9,7 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(desktopPath, 'package.j
 const lockfile = JSON.parse(fs.readFileSync(path.join(desktopPath, 'package-lock.json'), 'utf8'));
 const dependabotConfig = fs.readFileSync(path.join(root, '.github', 'dependabot.yml'), 'utf8');
 const dependencyReviewWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'dependency-review.yml'), 'utf8');
+const storeBundleWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build-windows-store-msix.yml'), 'utf8');
 const storeWindowsTestWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'test-windows-msix-clean-install.yml'), 'utf8');
 const minimumNode = '22.12.0';
 
@@ -55,6 +56,11 @@ assert.match(dependencyReviewWorkflow, /pull_request:/, 'Dependency review must 
 assert.match(dependencyReviewWorkflow, /actions\/dependency-review-action@v4/, 'Dependency review must use the GitHub dependency review action.');
 assert.match(dependencyReviewWorkflow, /fail-on-severity:\s*high/, 'Dependency review must block new high or critical vulnerabilities.');
 assert.match(dependencyReviewWorkflow, /fail-on-scopes:\s*development, runtime, unknown/, 'Dependency review must cover development, runtime, and unknown scopes.');
+assert.match(storeBundleWorkflow, /test_mode:/, 'Store bundle workflow must offer a non-production CI test mode.');
+assert.match(storeBundleWorkflow, /CCTI\.LocalValidation/, 'Store bundle test mode must use a non-production fixture identity.');
+assert.match(storeBundleWorkflow, /store-test/, 'Store bundle test mode must label its artifact as a test artifact.');
+assert.match(storeBundleWorkflow, /secrets\.CCTI_APPX_IDENTITY_NAME/, 'Store bundle workflow must retain protected identity secrets for final candidates.');
+assert.doesNotMatch(storeBundleWorkflow, /inputs\.(identity_name|publisher|publisher_display_name)/, 'Store bundle workflow must not accept Partner Center identity values through workflow dispatch.');
 assert.match(storeWindowsTestWorkflow, /workflow_dispatch:/, 'Store MSIX test workflow must be manually dispatched.');
 assert.match(storeWindowsTestWorkflow, /npm run msix:prepare/, 'Store MSIX test workflow must prepare the guarded Store configuration.');
 assert.match(storeWindowsTestWorkflow, /npm run dist:win:store -- --x64/, 'Store MSIX test workflow must build an x64 Store package.');
