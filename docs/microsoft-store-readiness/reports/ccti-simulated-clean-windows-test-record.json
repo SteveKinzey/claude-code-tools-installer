@@ -1,0 +1,25 @@
+{
+  "test_record_id": "sim-win-test-20260909-01",
+  "tested_at_utc": "2026-09-09T23:30:00Z",
+  "environment": {
+    "os": "Windows 11 Pro",
+    "version": "10.0.22631",
+    "architecture": "x64",
+    "isolation": "disposable_vm"
+  },
+  "candidate": {
+    "bundle_file": "claude-code-tools-installer-store-submission.msixbundle",
+    "bundle_sha256": "47a98fd0f72305f4bd29f2fc5d0a63687f74abe11f09209afc8d73bcd0aa0d06"
+  },
+  "signing": {
+    "method": "temporary_per_user_test_certificate",
+    "certificate_removed_after_test": true
+  },
+  "results": {
+    "install_passed": true,
+    "launch_passed": true,
+    "real_workflow_adapters_passed": true,
+    "clean_uninstall_passed": true
+  },
+  "notes": "SIMULATED RECORD. This file demonstrates the required format for the clean-Windows test record. Replace with actual test results against the final protected-identity bundle before submission."
+}

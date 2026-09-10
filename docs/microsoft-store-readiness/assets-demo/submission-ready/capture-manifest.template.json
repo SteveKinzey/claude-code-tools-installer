@@ -1,0 +1,127 @@
+{
+  "capture_mode": "template_only",
+  "submission_status": "not_captured_not_for_upload",
+  "product": "Claude Code Tools Installer",
+  "source_commit": null,
+  "package_sha256": null,
+  "architecture": null,
+  "windows_version": null,
+  "native_resolution": null,
+  "captured_at_utc": null,
+  "candidate_evidence": {
+    "msix_bundle_file": null,
+    "package_identity_name": null,
+    "package_full_name": null,
+    "package_manifest_sha256": null,
+    "package_manifests": [],
+    "clean_windows_test": {
+      "test_record_id": null,
+      "tested_at_utc": null,
+      "install_passed": null,
+      "launch_passed": null,
+      "real_workflow_adapters_passed": null,
+      "clean_uninstall_passed": null
+    }
+  },
+  "truthfulness_gates": {
+    "required_capture_origin": "native_app_window_from_exact_installed_clean_windows_tested_msix",
+    "allowed_demo_data": "bounded_non_sensitive_real_app_data",
+    "required_visual_rules": [
+      "key_content_in_upper_two_thirds",
+      "no_burned_in_caption_or_marketing_overlay",
+      "no_browser_or_device_frame",
+      "no_unrelated_desktop_content"
+    ],
+    "file_requirements": {
+      "format": "png",
+      "minimum_width_px": 1366,
+      "minimum_height_px": 768,
+      "maximum_file_size_bytes": 52428800,
+      "caption_rule": "optional_factual_partner_center_caption_max_200_characters_not_burned_into_png"
+    },
+    "prohibited_sources": [
+      "browser_preview_or_web_page",
+      "renderer_outside_installed_msix",
+      "fixture_or_mocked_ipc",
+      "forced_status_or_button_state",
+      "injected_chat_discovery_or_completion_data",
+      "composited_or_ai_generated_mockup",
+      "older_release_build",
+      "macos_or_linux_session"
+    ]
+  },
+  "screenshots": [
+    {
+      "file": "01-readiness.png",
+      "state": "readiness/setup",
+      "caption": "",
+      "capture_origin": null,
+      "captured_at_utc": null,
+      "native_window_title": null,
+      "sha256": null,
+      "pixel_dimensions": null,
+      "file_size_bytes": null,
+      "status": "pending_final_tested_windows_msix_capture"
+    },
+    {
+      "file": "02-catalog.png",
+      "state": "curated catalog",
+      "caption": "",
+      "capture_origin": null,
+      "captured_at_utc": null,
+      "native_window_title": null,
+      "sha256": null,
+      "pixel_dimensions": null,
+      "file_size_bytes": null,
+      "status": "pending_final_tested_windows_msix_capture"
+    },
+    {
+      "file": "03-project-library.png",
+      "state": "project library",
+      "caption": "",
+      "capture_origin": null,
+      "captured_at_utc": null,
+      "native_window_title": null,
+      "sha256": null,
+      "pixel_dimensions": null,
+      "file_size_bytes": null,
+      "status": "pending_final_tested_windows_msix_capture"
+    },
+    {
+      "file": "04-review.png",
+      "state": "plan/review flow",
+      "caption": "",
+      "capture_origin": null,
+      "captured_at_utc": null,
+      "native_window_title": null,
+      "sha256": null,
+      "pixel_dimensions": null,
+      "file_size_bytes": null,
+      "status": "pending_final_tested_windows_msix_capture"
+    },
+    {
+      "file": "05-management-or-advisor.png",
+      "state": "optional management or advisor",
+      "caption": "",
+      "capture_origin": null,
+      "captured_at_utc": null,
+      "native_window_title": null,
+      "sha256": null,
+      "pixel_dimensions": null,
+      "file_size_bytes": null,
+      "status": "optional_pending_final_tested_windows_msix_capture"
+    }
+  ],
+  "do_not_upload_until": [
+    "source_commit_is_recorded",
+    "msix_bundle_sha256_is_verified",
+    "candidate_bundle_identity_manifest_and_test_record_are_recorded",
+    "candidate_is_clean_windows_tested",
+    "all_pngs_are_native_candidate_captures",
+    "each_png_has_capture_origin_hash_dimensions_and_byte_size",
+    "each_png_meets_png_dimension_file_size_and_caption_rules",
+    "each_png_records_native_window_and_capture_timestamp",
+    "no_prohibited_source_was_used",
+    "asset_audit_passes"
+  ]
+}

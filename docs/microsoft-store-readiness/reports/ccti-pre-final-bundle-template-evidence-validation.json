@@ -1,0 +1,45 @@
+{
+  "validated_at_utc": "2026-09-09T23:17:54Z",
+  "mode": "template_evidence_check",
+  "bundle": {
+    "file": "claude-code-tools-installer-store-submission.msixbundle",
+    "sha256": "47a98fd0f72305f4bd29f2fc5d0a63687f74abe11f09209afc8d73bcd0aa0d06",
+    "package_count": 2
+  },
+  "checksum_verification": {
+    "status": "verified",
+    "actual_sha256": "47a98fd0f72305f4bd29f2fc5d0a63687f74abe11f09209afc8d73bcd0aa0d06",
+    "recorded_sha256": "47a98fd0f72305f4bd29f2fc5d0a63687f74abe11f09209afc8d73bcd0aa0d06",
+    "sha256_match": true,
+    "filename_match": true
+  },
+  "packages": [
+    {
+      "file": "Claude%20Code%20Tools%20Installer-2026.8.26-win-x64.appx",
+      "architecture": "x64",
+      "version": "2026.8.26.0",
+      "capabilities": [
+        "internetClient",
+        "runFullTrust"
+      ],
+      "manifest_sha256": "6ce29eb4700a59c02978354fa3e13686a516cfad1d65ac9a78676bb32626cb4c",
+      "identity_fingerprint": "b45526a7a486862f"
+    },
+    {
+      "file": "Claude%20Code%20Tools%20Installer-2026.8.26-win-arm64.appx",
+      "architecture": "arm64",
+      "version": "2026.8.26.0",
+      "capabilities": [
+        "internetClient",
+        "runFullTrust"
+      ],
+      "manifest_sha256": "82047cd9aa2c3260dc5027c81a4ff1530585be6a8a4c34849444912ea61eaca0",
+      "identity_fingerprint": "b45526a7a486862f"
+    }
+  ],
+  "result": "pass",
+  "errors": [],
+  "warnings": [
+    "template validated against candidate metadata only; it is not linked to the candidate and cannot be uploaded"
+  ]
+}
