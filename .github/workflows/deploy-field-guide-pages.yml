@@ -35,7 +35,7 @@ jobs:
           mkdir -p docs/installation-guide/site/downloads
           cp docs/installation-guide/downloads/claude-code-tools-installer-guide-2026.pdf docs/installation-guide/site/downloads/
       - name: Upload Field Guide site artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs/installation-guide/site
 
