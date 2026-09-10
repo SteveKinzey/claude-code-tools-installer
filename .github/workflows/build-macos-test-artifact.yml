@@ -50,7 +50,7 @@ jobs:
           unzip -l "$zip" | grep -q 'Claude Code Tools Installer.app/Contents/MacOS/'
 
       - name: Upload test artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ccti-macos-unsigned-test-${{ github.sha }}
           path: |

@@ -123,7 +123,7 @@ jobs:
           Write-Host "Store $env:CCTI_MSIX_ARTIFACT_CLASS bundle verified: $bundle"
 
       - name: Upload Store bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ccti-store-msix-${{ inputs.test_mode && 'test' || 'submission' }}-${{ github.sha }}
           path: |
