@@ -1,0 +1,35 @@
+{
+  "validated_at_utc": "2026-09-10T01:18:04Z",
+  "mode": "template_evidence_check",
+  "bundle": {
+    "file": "ccti-arm64-candidate.appx",
+    "sha256": "7c9eea7ad59b39a86768dcd587996a98ba0106e25552cbc8b8a26a048f0c1580",
+    "package_count": 1
+  },
+  "checksum_verification": {
+    "status": "not_provided",
+    "actual_sha256": "7c9eea7ad59b39a86768dcd587996a98ba0106e25552cbc8b8a26a048f0c1580",
+    "recorded_sha256": null,
+    "sha256_match": null,
+    "filename_match": null
+  },
+  "packages": [
+    {
+      "file": "ccti-arm64-candidate.appx",
+      "architecture": "arm64",
+      "version": "2026.8.26.0",
+      "capabilities": [
+        "internetClient",
+        "runFullTrust"
+      ],
+      "manifest_sha256": "82047cd9aa2c3260dc5027c81a4ff1530585be6a8a4c34849444912ea61eaca0",
+      "identity_fingerprint": "b45526a7a486862f"
+    }
+  ],
+  "result": "pass",
+  "errors": [],
+  "warnings": [
+    "checksum companion not supplied; digest was computed but not independently compared",
+    "template validated against candidate metadata only; it is not linked to the candidate and cannot be uploaded"
+  ]
+}
