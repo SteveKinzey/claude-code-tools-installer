@@ -219,7 +219,10 @@ async function run() {
 
   const goodAck = await applyAppUninstall(null, { reviewId: uninstallReview.reviewId, confirmation: 'UNINSTALL CCTI' });
   assert.equal(goodAck.ok, true, 'Valid acknowledgment must trigger complete removal');
-  assert.match(goodAck.cleanupGuidance, /empty/i);
+  assert.match(goodAck.cleanupGuidance, /Claude Code and your tools remain untouched/i, 'cleanup guidance must preserve the named protected boundary');
+  if (process.platform === 'darwin') assert.match(goodAck.cleanupGuidance, /Applications.*Trash/i, 'macOS cleanup guidance must describe the Applications-to-Trash step');
+  else if (process.platform === 'win32') assert.match(goodAck.cleanupGuidance, /Installed apps|empty extracted/i, 'Windows cleanup guidance must describe the installed-apps or extracted-folder step');
+  else assert.match(goodAck.cleanupGuidance, /empty/i, 'Linux cleanup guidance must describe the empty extracted-folder step');
   assert.ok(notifications.some((notification) => /CCTI app data removed/.test(notification.title) && /Claude Code/.test(notification.body)), 'a native cleanup notification should be queued');
   await assert.rejects(fsp.access(fakeCctiDir), 'CCTI state folder should be completely deleted');
   // Claude Code and skills must still exist untouched
