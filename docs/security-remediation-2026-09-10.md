@@ -2,7 +2,7 @@
 
 **Repository:** `SteveKinzey/claude-code-tools-installer`  
 **Date:** 2026-09-10  
-**Status:** Remediation implemented and host-platform package validated. Signed macOS and Windows CI validation remains the release gate for a future public artifact.
+**Status:** Remediation implemented and host-platform package validated. GitHub Dependabot now shows **0 open** and **2 closed** alerts. Signed macOS and Windows CI validation remains the release gate for a future public artifact.
 
 ## Executive summary
 
@@ -17,7 +17,7 @@ The upgrade is paired with a package engine requirement of Node **22.12.0 or lat
 | #1 — **extract-zip unvalidated symlink path traversal** | `electron@39.8.10` → `extract-zip@2.0.1` | High; development dependency; `desktop/package-lock.json` | `extract-zip <= 2.0.1` | Upgrade Electron to 44.3.0, which removes `extract-zip` from the lockfile. |
 | #2 — **extract-zip allows arbitrary file writes through symlink archive entries** | `electron@39.8.10` → `extract-zip@2.0.1` | High; development dependency; `desktop/package-lock.json` | `extract-zip <= 2.0.1` | Upgrade Electron to 44.3.0, which removes `extract-zip` from the lockfile. |
 
-The authenticated repository view confirmed **two open** and **zero closed** alerts. Both are listed as development dependencies and are detected in the desktop lockfile. The GitHub API token used by the command-line integration lacks the `vulnerability_alerts:read` permission, so alert details were reviewed in the authenticated browser and cross-checked using local `npm audit` output. No secret or dependency alert state was changed during that review.
+The initial authenticated repository view confirmed **two open** and **zero closed** alerts. Both were listed as development dependencies and detected in the desktop lockfile. The GitHub API token used by the command-line integration lacks the `vulnerability_alerts:read` permission, so alert details were reviewed in the authenticated browser and cross-checked using local `npm audit` output. After the corrected lockfile reached `main`, GitHub reprocessed the dependency graph and showed **zero open** and **two closed** alerts. No alert was manually dismissed.
 
 ## Implemented remediation
 
@@ -47,7 +47,7 @@ The output uses only entries from `## Active tools and additions`. It trims Mark
 
 | Validation | Result |
 | --- | --- |
-| Authenticated Dependabot review | Confirmed two open high-severity development alerts in `desktop/package-lock.json`. |
+| Authenticated Dependabot review | Initially confirmed two open high-severity development alerts in `desktop/package-lock.json`; after the pushed lockfile update, GitHub reported zero open and two closed alerts. |
 | Isolated `electron@43.6.0` lockfile test | Full audit returned zero vulnerabilities; this was a lower-risk fallback line. |
 | Isolated `electron@44.3.0` lockfile test | Full audit returned zero vulnerabilities; selected as the current long-lived remediation line. |
 | Deterministic installation | `npm ci` completed against the updated lockfile. |
