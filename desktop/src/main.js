@@ -13,6 +13,7 @@ const reviewedCleanupPlans = new Map();
 const reviewedPluginChanges = new Map();
 const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
+const diagnosticReports = new Map();
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
 const releaseApiEndpoint = 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases/latest';
@@ -401,7 +402,32 @@ async function runDiagnostics() {
       ? 'Claude Code can run in the CCTI environment. If a later action fails, share this local report with support or compare the command path above with your terminal.'
       : 'Use “Yes, install Claude Code” to run the official installer, or choose “Yes, Claude Code is installed” to continue browsing while you resolve the command path.',
   ].join('\n');
-  return { ok: true, report, claudeReady: claude.installed };
+  const diagnosticId = randomUUID();
+  diagnosticReports.set(diagnosticId, { report, createdAt: Date.now() });
+  for (const [id, stored] of diagnosticReports) {
+    if (Date.now() - stored.createdAt > 10 * 60 * 1000) diagnosticReports.delete(id);
+  }
+  return { ok: true, diagnosticId, report, claudeReady: claude.installed };
+}
+
+async function exportDiagnosticReport({ diagnosticId } = {}) {
+  const stored = diagnosticReports.get(String(diagnosticId || ''));
+  if (!stored || Date.now() - stored.createdAt > 10 * 60 * 1000) {
+    return { ok: false, error: 'This diagnostic report is no longer available. Run Diagnostics again before exporting it.' };
+  }
+  try {
+    const defaultName = `ccti-diagnostics-${new Date().toISOString().slice(0, 10)}.txt`;
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save CCTI diagnostics',
+      defaultPath: defaultName,
+      filters: [{ name: 'Text file', extensions: ['txt'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: true, canceled: true };
+    await fs.writeFile(result.filePath, `${stored.report}\n`, 'utf8');
+    return { ok: true, canceled: false, filename: path.basename(result.filePath) };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not save the diagnostic report: ${error.message}` };
+  }
 }
 
 async function pathExists(target) {
@@ -1193,6 +1219,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('components:get', readComponentCatalog);
   ipcMain.handle('claude:status', claudeStatus);
   ipcMain.handle('diagnostics:run', runDiagnostics);
+  ipcMain.handle('diagnostics:export', async (_event, payload) => exportDiagnosticReport(payload || {}));
   ipcMain.handle('updates:get-status', async () => ({ ...updateStatus }));
   ipcMain.handle('updates:check', checkForUpdates);
   ipcMain.handle('updates:open-release', openPublishedRelease);

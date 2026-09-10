@@ -17,7 +17,9 @@ const state = {
   compass: { online: false, history: [], opened: false },
   projectInterview: { active: false, step: 0, answers: {}, result: null },
   anonymousSuccess: { kind: '', reported: false },
+  diagnostics: { id: '', report: '', expiresAt: 0 },
 };
+let diagnosticExpiryTimer = null;
 
 const catalogElement = document.querySelector('#catalog');
 const catalogWorkflowElement = document.querySelector('#catalog-workflow');
@@ -88,9 +90,12 @@ const exportInstallationManifestButton = document.querySelector('#export-install
 const openManifestFolderButton = document.querySelector('#open-manifest-folder-button');
 const uninstallStatusNoteElement = document.querySelector('#uninstall-status-note');
 const runDiagnosticsButton = document.querySelector('#run-diagnostics-button');
+const copyDiagnosticsButton = document.querySelector('#copy-diagnostics-button');
+const exportDiagnosticsButton = document.querySelector('#export-diagnostics-button');
 const checkUpdatesButton = document.querySelector('#check-updates-button');
 const openReleaseButton = document.querySelector('#open-release-button');
 const updateStatusNoteElement = document.querySelector('#update-status-note');
+const updateStatusSpinnerElement = document.querySelector('#update-status-spinner');
 
 function selectedItems() {
   return state.catalog.filter((tool) => state.selected.has(tool.id));
@@ -360,24 +365,107 @@ function displayUpdateStatus(status) {
   const message = status?.message || 'Update status has not been checked yet.';
   const latestVersion = status?.latestVersion || '';
   const updateAvailable = stateName === 'available' && Boolean(status?.releaseUrl);
+  const checking = stateName === 'checking';
   updateStatusNoteElement.textContent = message;
   updateStatusNoteElement.className = `update-status-note update-status-${stateName}`;
+  updateStatusNoteElement.setAttribute('aria-busy', String(checking));
+  updateStatusSpinnerElement.hidden = !checking;
   openReleaseButton.hidden = !updateAvailable;
   openReleaseButton.disabled = !updateAvailable;
   openReleaseButton.textContent = latestVersion ? `View CCTI ${latestVersion}` : 'View New Version';
-  checkUpdatesButton.disabled = stateName === 'checking';
-  checkUpdatesButton.textContent = stateName === 'checking' ? 'Checking for Updates…' : 'Check for Updates';
+  checkUpdatesButton.disabled = checking;
+  checkUpdatesButton.textContent = checking ? 'Checking for Updates…' : 'Check for Updates';
+}
+
+function setDiagnosticActionsEnabled(enabled) {
+  copyDiagnosticsButton.disabled = !enabled;
+  exportDiagnosticsButton.disabled = !enabled;
+}
+
+function hasCurrentDiagnostics() {
+  if (state.diagnostics.id && state.diagnostics.report && Date.now() < state.diagnostics.expiresAt) return true;
+  if (state.diagnostics.id || state.diagnostics.report) {
+    state.diagnostics = { id: '', report: '', expiresAt: 0 };
+    setDiagnosticActionsEnabled(false);
+  }
+  return false;
+}
+
+function scheduleDiagnosticExpiry() {
+  if (diagnosticExpiryTimer) clearTimeout(diagnosticExpiryTimer);
+  if (!hasCurrentDiagnostics()) return;
+  diagnosticExpiryTimer = setTimeout(() => {
+    state.diagnostics = { id: '', report: '', expiresAt: 0 };
+    setDiagnosticActionsEnabled(false);
+    runStatusElement.textContent = 'Diagnostic sharing actions expired. Run Diagnostics again to create a current report.';
+  }, Math.max(0, state.diagnostics.expiresAt - Date.now()));
+}
+
+async function copyDiagnosticResults() {
+  if (!hasCurrentDiagnostics()) return;
+  const report = state.diagnostics.report;
+  const originalLabel = copyDiagnosticsButton.textContent;
+  copyDiagnosticsButton.disabled = true;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(report);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = report;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.append(textarea);
+      textarea.select();
+      const copied = document.execCommand('copy');
+      textarea.remove();
+      if (!copied) throw new Error('Clipboard access is unavailable.');
+    }
+    copyDiagnosticsButton.textContent = 'Copied';
+    runStatusElement.textContent = 'Diagnostic report copied to your clipboard';
+  } catch (error) {
+    copyDiagnosticsButton.textContent = 'Copy unavailable';
+    runStatusElement.textContent = `Could not copy diagnostics: ${error.message}`;
+  } finally {
+    setTimeout(() => {
+      copyDiagnosticsButton.textContent = originalLabel;
+      copyDiagnosticsButton.disabled = !hasCurrentDiagnostics();
+    }, 1800);
+  }
+}
+
+async function exportDiagnosticResults() {
+  if (!hasCurrentDiagnostics()) return;
+  const originalLabel = exportDiagnosticsButton.textContent;
+  exportDiagnosticsButton.disabled = true;
+  exportDiagnosticsButton.textContent = 'Saving…';
+  try {
+    const result = await window.installer.exportDiagnosticReport({ diagnosticId: state.diagnostics.id });
+    if (!result.ok) throw new Error(result.error || 'CCTI could not save diagnostics.');
+    runStatusElement.textContent = result.canceled ? 'Saving diagnostics was canceled' : `Diagnostic report saved as ${result.filename}`;
+  } catch (error) {
+    runStatusElement.textContent = `Could not save diagnostics: ${error.message}`;
+  } finally {
+    exportDiagnosticsButton.textContent = originalLabel;
+    exportDiagnosticsButton.disabled = !hasCurrentDiagnostics();
+  }
 }
 
 async function runDiagnostics() {
   runDiagnosticsButton.disabled = true;
   runDiagnosticsButton.textContent = 'Running Diagnostics…';
+  if (diagnosticExpiryTimer) clearTimeout(diagnosticExpiryTimer);
+  state.diagnostics = { id: '', report: '', expiresAt: 0 };
+  setDiagnosticActionsEnabled(false);
   runStatusElement.textContent = 'Running local diagnostics';
   try {
     const result = await window.installer.runDiagnostics();
     if (!result.ok) throw new Error(result.error || 'CCTI could not complete diagnostics.');
+    state.diagnostics = { id: result.diagnosticId || '', report: result.report, expiresAt: Date.now() + (10 * 60 * 1000) };
     outputElement.textContent = result.report;
     outputElement.classList.remove('has-error');
+    setDiagnosticActionsEnabled(hasCurrentDiagnostics());
+    scheduleDiagnosticExpiry();
     runStatusElement.textContent = result.claudeReady ? 'Diagnostics complete · Claude Code is ready' : 'Diagnostics complete · Claude Code needs attention';
   } catch (error) {
     appendOutput(`[CCTI] Diagnostics failed: ${error.message}\n`, 'stderr');
@@ -1325,6 +1413,8 @@ exportInstallationManifestButton.addEventListener('click', exportInstallationMan
 openManifestFolderButton.addEventListener('click', openManifestFolder);
 uninstallAppButton.addEventListener('click', uninstallApplication);
 runDiagnosticsButton.addEventListener('click', runDiagnostics);
+copyDiagnosticsButton.addEventListener('click', copyDiagnosticResults);
+exportDiagnosticsButton.addEventListener('click', exportDiagnosticResults);
 checkUpdatesButton.addEventListener('click', manuallyCheckForUpdates);
 openReleaseButton.addEventListener('click', openPublishedRelease);
 openCompassConnectButton.addEventListener('click', async () => {

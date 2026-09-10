@@ -276,10 +276,15 @@
         </div>
         <div class="desktop-utilities-actions">
           <button id="run-diagnostics-button" class="button button-secondary" type="button">Run Diagnostics</button>
+          <button id="copy-diagnostics-button" class="button button-ghost" type="button" disabled>Copy to Clipboard</button>
+          <button id="export-diagnostics-button" class="button button-ghost" type="button" disabled>Save Diagnostics (.txt)</button>
           <button id="check-updates-button" class="button button-ghost" type="button">Check for Updates</button>
           <button id="open-release-button" class="button button-primary" type="button" hidden disabled>View New Version</button>
         </div>
-        <p id="update-status-note" class="update-status-note" role="status" aria-live="polite">Checking published CCTI releases in the background…</p>
+        <div class="update-status-row">
+          <span id="update-status-spinner" class="update-status-spinner" aria-hidden="true" hidden></span>
+          <p id="update-status-note" class="update-status-note" role="status" aria-live="polite" aria-busy="false">Checking published CCTI releases in the background…</p>
+        </div>
       </section>
 
       <section id="uninstall-panel" class="uninstall-panel" aria-labelledby="uninstall-heading">

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('installer', {
   getComponentCatalog: () => ipcRenderer.invoke('components:get'),
   getClaudeStatus: () => ipcRenderer.invoke('claude:status'),
   runDiagnostics: () => ipcRenderer.invoke('diagnostics:run'),
+  exportDiagnosticReport: (payload) => ipcRenderer.invoke('diagnostics:export', payload),
   getUpdateStatus: () => ipcRenderer.invoke('updates:get-status'),
   checkForUpdates: () => ipcRenderer.invoke('updates:check'),
   openPublishedRelease: () => ipcRenderer.invoke('updates:open-release'),
