@@ -36,11 +36,27 @@ const electronStub = {
 
 const originalLoad = Module._load;
 const originalSetInterval = global.setInterval;
+const originalSetTimeout = global.setTimeout;
+const originalClearTimeout = global.clearTimeout;
+const originalPath = process.env.PATH;
+const diagnosticCleanupCallbacks = [];
+let clearedDiagnosticCleanupTimers = 0;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'electron') return electronStub;
   return originalLoad.call(this, request, parent, isMain);
 };
 global.setInterval = () => ({ unref() {} });
+global.setTimeout = (callback, timeout, ...args) => {
+  if (timeout === 10 * 60 * 1000) {
+    diagnosticCleanupCallbacks.push(() => callback(...args));
+    return { diagnosticCleanup: true, unref() {} };
+  }
+  return originalSetTimeout(callback, timeout, ...args);
+};
+global.clearTimeout = (timer) => {
+  if (timer?.diagnosticCleanup) clearedDiagnosticCleanupTimers += 1;
+  else originalClearTimeout(timer);
+};
 
 async function run() {
   try {
@@ -67,6 +83,26 @@ async function run() {
     assert.deepEqual(saved, { ok: true, canceled: false, filename: 'ccti-diagnostics.txt' });
     assert.equal(await fs.readFile(exportedFile, 'utf8'), `${diagnostic.report}\n`);
 
+    assert.equal(diagnosticCleanupCallbacks.length, 1, 'each report must schedule one expiry cleanup');
+    diagnosticCleanupCallbacks[0]();
+    const expiredByTimer = await exportDiagnostics(null, { diagnosticId: diagnostic.diagnosticId });
+    assert.equal(expiredByTimer.ok, false);
+    assert.match(expiredByTimer.error, /Run Diagnostics again/i);
+
+    const retainedReports = [];
+    for (let index = 0; index < 6; index += 1) retainedReports.push(await runDiagnostics());
+    assert.ok(clearedDiagnosticCleanupTimers >= 1, 'evicting an over-capacity report must clear its cleanup timer');
+    const evictedByCapacity = await exportDiagnostics(null, { diagnosticId: retainedReports[0].diagnosticId });
+    assert.equal(evictedByCapacity.ok, false);
+    const newestIsRetained = await exportDiagnostics(null, { diagnosticId: retainedReports.at(-1).diagnosticId });
+    assert.equal(newestIsRetained.ok, true);
+
+    process.env.PATH = Array.from({ length: 5000 }, (_value, index) => `/diagnostics-test-path-${index}`).join(path.delimiter);
+    const oversizedDiagnostic = await runDiagnostics();
+    assert.ok(Buffer.byteLength(oversizedDiagnostic.report, 'utf8') <= 64 * 1024, 'each retained report must stay within the 64 KiB byte limit');
+    assert.match(oversizedDiagnostic.report, /Report truncated at 64 KiB/i);
+    process.env.PATH = originalPath;
+
     const expired = await exportDiagnostics(null, { diagnosticId: 'missing-report' });
     assert.equal(expired.ok, false);
     assert.match(expired.error, /Run Diagnostics again/i);
@@ -75,6 +111,9 @@ async function run() {
   } finally {
     Module._load = originalLoad;
     global.setInterval = originalSetInterval;
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+    process.env.PATH = originalPath;
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 }

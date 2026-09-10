@@ -14,6 +14,10 @@ const reviewedPluginChanges = new Map();
 const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
 const diagnosticReports = new Map();
+const diagnosticTimers = new Map();
+const diagnosticReportLifetimeMs = 10 * 60 * 1000;
+const maximumDiagnosticReports = 5;
+const maximumDiagnosticReportBytes = 64 * 1024;
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
 const releaseApiEndpoint = 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases/latest';
@@ -423,17 +427,53 @@ async function runDiagnostics() {
       ? 'Claude Code can run in the CCTI environment. If a later action fails, share this local report with support or compare the command path above with your terminal.'
       : 'Use “Yes, install Claude Code” to run the official installer, or choose “Yes, Claude Code is installed” to continue browsing while you resolve the command path.',
   ].join('\n');
+  const safeReport = boundDiagnosticReport(report);
+  const diagnosticId = rememberDiagnosticReport(safeReport);
+  return { ok: true, diagnosticId, report: safeReport, claudeReady: claude.installed };
+}
+
+function boundDiagnosticReport(report) {
+  const source = String(report || '');
+  if (Buffer.byteLength(source, 'utf8') <= maximumDiagnosticReportBytes) return source;
+  const notice = '\n\n[CCTI] Report truncated at 64 KiB to keep local diagnostic memory bounded.';
+  const allowedBytes = maximumDiagnosticReportBytes - Buffer.byteLength(notice, 'utf8');
+  return `${Buffer.from(source, 'utf8').subarray(0, allowedBytes).toString('utf8')}${notice}`;
+}
+
+function purgeExpiredDiagnosticReports(now = Date.now()) {
+  for (const [id, stored] of diagnosticReports) {
+    if (now - stored.createdAt >= diagnosticReportLifetimeMs) {
+      diagnosticReports.delete(id);
+      const timer = diagnosticTimers.get(id);
+      if (timer) { clearTimeout(timer); diagnosticTimers.delete(id); }
+    }
+  }
+}
+
+function rememberDiagnosticReport(report) {
+  purgeExpiredDiagnosticReports();
+  while (diagnosticReports.size >= maximumDiagnosticReports) {
+    const oldestId = diagnosticReports.keys().next().value;
+    if (!oldestId) break;
+    diagnosticReports.delete(oldestId);
+    const timer = diagnosticTimers.get(oldestId);
+    if (timer) { clearTimeout(timer); diagnosticTimers.delete(oldestId); }
+  }
   const diagnosticId = randomUUID();
   diagnosticReports.set(diagnosticId, { report, createdAt: Date.now() });
-  for (const [id, stored] of diagnosticReports) {
-    if (Date.now() - stored.createdAt > 10 * 60 * 1000) diagnosticReports.delete(id);
-  }
-  return { ok: true, diagnosticId, report, claudeReady: claude.installed };
+  const cleanupTimer = setTimeout(() => {
+    diagnosticReports.delete(diagnosticId);
+    diagnosticTimers.delete(diagnosticId);
+  }, diagnosticReportLifetimeMs);
+  cleanupTimer.unref?.();
+  diagnosticTimers.set(diagnosticId, cleanupTimer);
+  return diagnosticId;
 }
 
 async function exportDiagnosticReport({ diagnosticId } = {}) {
+  purgeExpiredDiagnosticReports();
   const stored = diagnosticReports.get(String(diagnosticId || ''));
-  if (!stored || Date.now() - stored.createdAt > 10 * 60 * 1000) {
+  if (!stored) {
     return { ok: false, error: 'This diagnostic report is no longer available. Run Diagnostics again before exporting it.' };
   }
   try {
