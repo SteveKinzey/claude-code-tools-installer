@@ -2,19 +2,6 @@ name: Build Microsoft Store MSIX bundle
 
 on:
   workflow_dispatch:
-    inputs:
-      identity_name:
-        description: "Exact Partner Center Package/Identity/Name"
-        required: true
-        type: string
-      publisher:
-        description: "Exact Partner Center Package/Identity/Publisher"
-        required: true
-        type: string
-      publisher_display_name:
-        description: "Exact Partner Center Package/Properties/PublisherDisplayName"
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -24,14 +11,15 @@ jobs:
     name: Build unsigned Store submission bundle
     runs-on: windows-2022
     timeout-minutes: 30
+    environment: msix-store-release
     defaults:
       run:
         working-directory: desktop
         shell: pwsh
     env:
-      CCTI_APPX_IDENTITY_NAME: ${{ inputs.identity_name }}
-      CCTI_APPX_PUBLISHER: ${{ inputs.publisher }}
-      CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.publisher_display_name }}
+      CCTI_APPX_IDENTITY_NAME: ${{ secrets.CCTI_APPX_IDENTITY_NAME }}
+      CCTI_APPX_PUBLISHER: ${{ secrets.CCTI_APPX_PUBLISHER }}
+      CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ secrets.CCTI_APPX_PUBLISHER_DISPLAY_NAME }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -42,7 +30,16 @@ jobs:
           node-version: 22
 
       - name: Install desktop dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Validate protected identity inputs
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in 'CCTI_APPX_IDENTITY_NAME', 'CCTI_APPX_PUBLISHER', 'CCTI_APPX_PUBLISHER_DISPLAY_NAME') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Required protected identity secret is unavailable: $name"
+            }
+          }
 
       - name: Validate desktop contracts
         run: npm run check
@@ -122,3 +119,7 @@ jobs:
             releases/test-builds/claude-code-tools-installer-store-submission.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Remove resolved Store configuration
+        if: always()
+        run: Remove-Item -Path 'build/appx-store.resolved.json' -Force -ErrorAction SilentlyContinue
