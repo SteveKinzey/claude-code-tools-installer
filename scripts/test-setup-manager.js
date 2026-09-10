@@ -15,6 +15,7 @@ const sourceSkill = path.join(tempRoot, 'my-skill');
 const handlers = new Map();
 let readyCallback;
 let saveDialogResult = { canceled: true, filePath: '' };
+let openDialogResult = { canceled: true, filePaths: [] };
 const notifications = [];
 
 class NotificationStub {
@@ -38,7 +39,7 @@ const electronStub = {
     async loadFile() {}
     isDestroyed() { return false; }
   },
-  dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showSaveDialog: async () => saveDialogResult },
+  dialog: { showOpenDialog: async () => openDialogResult, showSaveDialog: async () => saveDialogResult },
   shell: { showItemInFolder: () => true, openPath: async () => '' },
   Notification: NotificationStub,
   ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
@@ -78,9 +79,11 @@ async function run() {
   const reviewAppUninstall = handlers.get('app:review-uninstall');
   const exportInstallationManifest = handlers.get('app:export-installation-manifest');
   const openManifestFolder = handlers.get('app:open-manifest-folder');
+  const getManifestVerificationCommand = handlers.get('app:get-manifest-verification-command');
+  const verifyInstallationManifest = handlers.get('app:verify-installation-manifest');
   const applyAppUninstall = handlers.get('app:apply-uninstall');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && applyAppUninstall, 'all handlers including app uninstall and folder open should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && applyAppUninstall, 'all handlers including app uninstall and manifest verification should be registered');
 
   const componentCatalog = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
   const componentPreview = await previewComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id] });
@@ -163,6 +166,18 @@ async function run() {
 
   const folderOpenResult = await openManifestFolder();
   assert.equal(folderOpenResult.ok, true, 'openManifestFolder should succeed after export');
+  const verificationCommand = await getManifestVerificationCommand();
+  assert.equal(verificationCommand.ok, true, 'manifest verification command should be available');
+  assert.match(verificationCommand.command, /Manifest payload|Payload SHA-256/);
+
+  openDialogResult = { canceled: false, filePaths: [manifestPath] };
+  const manifestVerification = await verifyInstallationManifest();
+  assert.equal(manifestVerification.ok, true, 'exported manifest should be readable for local verification');
+  assert.equal(manifestVerification.matched, true, 'exported manifest payload must match its checksum');
+  await fsp.appendFile(manifestPath, 'changed after export\n', 'utf8');
+  const tamperedVerification = await verifyInstallationManifest();
+  assert.equal(tamperedVerification.ok, true, 'tampered manifest should still be readable');
+  assert.equal(tamperedVerification.matched, false, 'tampered manifest payload must fail checksum verification');
 
   const uninstallReview = await reviewAppUninstall();
   assert.equal(uninstallReview.ok, true, 'reviewAppUninstall should succeed');

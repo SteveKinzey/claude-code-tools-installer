@@ -670,6 +670,64 @@ async function openExportedManifestFolder() {
   }
 }
 
+function manifestVerificationCommand() {
+  if (process.platform === 'win32') {
+    return `$manifest = Read-Host 'Path to your CCTI manifest'
+$text = [System.IO.File]::ReadAllText($manifest)
+$expected = [regex]::Match($text, '(?m)^- Payload SHA-256: ([a-f0-9]{64})$').Groups[1].Value
+$payloadAt = $text.IndexOf("## Manifest payload\`n")
+if ($expected.Length -ne 64 -or $payloadAt -lt 0) { throw 'This is not a complete CCTI manifest.' }
+$payload = $text.Substring($payloadAt)
+$actual = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($payload))).ToLowerInvariant()
+if ($actual -eq $expected) { Write-Host 'Verified: manifest payload SHA-256 matches.' -ForegroundColor Green } else { Write-Error 'Does not match: the manifest payload was changed or is incomplete.'; exit 1 }`;
+  }
+  const hashCommand = process.platform === 'darwin' ? 'shasum -a 256' : 'sha256sum';
+  return `manifest="$HOME/Downloads/ccti-installation-manifest.md" # Change if you saved it elsewhere
+expected=$(sed -nE 's/^- Payload SHA-256: ([0-9a-f]{64})$/\\1/p' "$manifest" | head -n 1)
+line=$(grep -n '^## Manifest payload$' "$manifest" | head -n 1 | cut -d: -f1)
+[ -n "$expected" ] && [ -n "$line" ] || { echo 'This is not a complete CCTI manifest.' >&2; exit 1; }
+actual=$(tail -n +"$line" "$manifest" | ${hashCommand} | awk '{print $1}')
+[ "$actual" = "$expected" ] && echo 'Verified: manifest payload SHA-256 matches.' || { echo 'Does not match: the manifest payload was changed or is incomplete.' >&2; exit 1; }`;
+}
+
+function verifyManifestText(contents) {
+  const expected = contents.match(/^- Payload SHA-256: ([a-f0-9]{64})$/im)?.[1]?.toLowerCase();
+  const payloadOffset = contents.indexOf('## Manifest payload\n');
+  if (!expected || payloadOffset < 0) {
+    return { ok: false, error: 'This file does not include a complete CCTI manifest integrity section.' };
+  }
+  const actual = createHash('sha256').update(contents.slice(payloadOffset), 'utf8').digest('hex');
+  return { ok: true, expected, actual, matched: actual === expected };
+}
+
+async function verifyInstallationManifest() {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a CCTI installation manifest to verify',
+      filters: [{ name: 'Manifest files', extensions: ['md', 'txt'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths?.[0]) return { ok: true, canceled: true };
+    const manifestPath = result.filePaths[0];
+    const metadata = await fs.stat(manifestPath);
+    if (!metadata.isFile() || metadata.size > 2 * 1024 * 1024) {
+      return { ok: false, error: 'Choose a manifest text file smaller than 2 MB.' };
+    }
+    const verification = verifyManifestText(await fs.readFile(manifestPath, 'utf8'));
+    if (!verification.ok) return verification;
+    return {
+      ok: true,
+      canceled: false,
+      filename: path.basename(manifestPath),
+      expected: verification.expected,
+      actual: verification.actual,
+      matched: verification.matched,
+    };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not read that manifest: ${error.message}` };
+  }
+}
+
 async function resolveAppUninstallPlan() {
   const home = app.getPath('home');
   const cctiStateDir = setupManagerDir();
@@ -1379,6 +1437,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('app:review-uninstall', async () => resolveAppUninstallPlan());
   ipcMain.handle('app:export-installation-manifest', async () => exportInstallationManifest());
   ipcMain.handle('app:open-manifest-folder', async () => openExportedManifestFolder());
+  ipcMain.handle('app:get-manifest-verification-command', async () => ({ ok: true, command: manifestVerificationCommand() }));
+  ipcMain.handle('app:verify-installation-manifest', async () => verifyInstallationManifest());
   ipcMain.handle('app:apply-uninstall', async (_event, payload) => applyAppUninstall(payload));
 
   await createWindow();

@@ -88,6 +88,9 @@ const exportProjectPrdButton = document.querySelector('#export-project-prd-butto
 const uninstallAppButton = document.querySelector('#uninstall-app-button');
 const exportInstallationManifestButton = document.querySelector('#export-installation-manifest-button');
 const openManifestFolderButton = document.querySelector('#open-manifest-folder-button');
+const verifyInstallationManifestButton = document.querySelector('#verify-installation-manifest-button');
+const copyManifestVerificationCommandButton = document.querySelector('#copy-manifest-verification-command-button');
+const manifestVerificationStatusElement = document.querySelector('#manifest-verification-status');
 const uninstallStatusNoteElement = document.querySelector('#uninstall-status-note');
 const runDiagnosticsButton = document.querySelector('#run-diagnostics-button');
 const copyDiagnosticsButton = document.querySelector('#copy-diagnostics-button');
@@ -764,6 +767,63 @@ async function runInstallation() {
 
 
 
+async function copyText(value) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const field = document.createElement('textarea');
+  field.value = value;
+  field.readOnly = true;
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  document.body.append(field);
+  field.select();
+  const copied = document.execCommand('copy');
+  field.remove();
+  if (!copied) throw new Error('Clipboard access is unavailable.');
+}
+
+async function copyManifestVerificationCommand() {
+  try {
+    copyManifestVerificationCommandButton.disabled = true;
+    const result = await window.installer.getManifestVerificationCommand();
+    if (!result.ok || !result.command) throw new Error(result.error || 'CCTI could not prepare the command.');
+    await copyText(result.command);
+    manifestVerificationStatusElement.textContent = 'Terminal verification command copied. It asks for the manifest path on Windows; on macOS/Linux, adjust the marked path if needed.';
+  } catch (error) {
+    manifestVerificationStatusElement.textContent = error.message || 'CCTI could not copy the terminal command.';
+  } finally {
+    copyManifestVerificationCommandButton.disabled = state.running || state.componentRunning;
+  }
+}
+
+async function verifySavedInstallationManifest() {
+  if (state.running || state.componentRunning) {
+    manifestVerificationStatusElement.textContent = 'Wait for the current action to finish before verifying a manifest.';
+    return;
+  }
+  try {
+    verifyInstallationManifestButton.disabled = true;
+    manifestVerificationStatusElement.textContent = 'Choose a manifest file to verify locally.';
+    const result = await window.installer.verifyInstallationManifest();
+    if (result.ok && result.canceled) {
+      manifestVerificationStatusElement.textContent = 'Manifest verification canceled. Nothing was changed.';
+    } else if (result.ok && result.matched) {
+      manifestVerificationStatusElement.textContent = `${result.filename} verified. Its Manifest payload SHA-256 matches the recorded checksum.`;
+      appendOutput(`[CCTI] Manifest verified: ${result.filename}. Payload SHA-256 matches.\n`);
+    } else if (result.ok) {
+      manifestVerificationStatusElement.textContent = `${result.filename} does not match its recorded payload checksum. Do not rely on it until you export a fresh manifest.`;
+      appendOutput(`[CCTI] Manifest verification failed: ${result.filename} does not match its recorded checksum.\n`, 'stderr');
+    } else {
+      manifestVerificationStatusElement.textContent = result.error || 'CCTI could not verify that manifest.';
+      appendOutput(`[CCTI] ${result.error || 'Manifest verification failed.'}\n`, 'stderr');
+    }
+  } finally {
+    verifyInstallationManifestButton.disabled = state.running || state.componentRunning;
+  }
+}
+
 async function openManifestFolder() {
   try {
     openManifestFolderButton.disabled = true;
@@ -1411,6 +1471,8 @@ document.querySelector('#compass-form').addEventListener('submit', (event) => {
 document.querySelectorAll('.prompt-chip').forEach((button) => button.addEventListener('click', () => askCompass(button.dataset.compassPrompt || '')));
 exportInstallationManifestButton.addEventListener('click', exportInstallationManifest);
 openManifestFolderButton.addEventListener('click', openManifestFolder);
+verifyInstallationManifestButton.addEventListener('click', verifySavedInstallationManifest);
+copyManifestVerificationCommandButton.addEventListener('click', copyManifestVerificationCommand);
 uninstallAppButton.addEventListener('click', uninstallApplication);
 runDiagnosticsButton.addEventListener('click', runDiagnostics);
 copyDiagnosticsButton.addEventListener('click', copyDiagnosticResults);
@@ -1451,6 +1513,10 @@ window.installer.onState(({ running }) => {
   removeClaudeButton.disabled = running || !state.claudeInstalled;
   recheckClaudeButton.disabled = running;
   uninstallAppButton.disabled = running;
+  exportInstallationManifestButton.disabled = running;
+  openManifestFolderButton.disabled = running;
+  verifyInstallationManifestButton.disabled = running;
+  copyManifestVerificationCommandButton.disabled = running;
   updateSummary();
 });
 window.installer.onComponentOutput(({ stream, text }) => appendOutput(`[Project components] ${text}`, stream));

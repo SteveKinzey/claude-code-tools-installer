@@ -297,6 +297,11 @@
           <div class="uninstall-actions"><button id="export-installation-manifest-button" class="button button-secondary" type="button">Save Installation Manifest</button><button id="open-manifest-folder-button" class="button button-secondary is-hidden" type="button">Open Manifest Folder</button><button id="uninstall-app-button" class="button button-danger" type="button">Uninstall This App</button></div>
         </div>
         <p id="uninstall-status-note" class="uninstall-status-note">Save an optional private manifest before uninstalling, then review the exact CCTI data removal. Claude Code, installed skills, project files, and system tools are strictly preserved.</p>
+        <div class="manifest-verification-card" aria-labelledby="manifest-verification-heading">
+          <div><h3 id="manifest-verification-heading">Verify a saved installation manifest</h3><p>Choose a manifest you exported earlier. CCTI reads it locally and compares the exact Manifest payload bytes with its recorded SHA-256 checksum. No file contents leave this computer.</p></div>
+          <div class="manifest-verification-actions"><button id="verify-installation-manifest-button" class="button button-secondary" type="button">Choose Manifest and Verify</button><button id="copy-manifest-verification-command-button" class="button button-ghost" type="button">Copy Terminal Verify Command</button></div>
+          <p id="manifest-verification-status" class="manifest-verification-status" role="status" aria-live="polite"></p>
+        </div>
       </section>
     </main>
 

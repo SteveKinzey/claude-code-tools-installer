@@ -254,3 +254,7 @@ h3 { margin: 0; font-size: 1rem; }
 .uninstall-status-note { margin: 12px 0 0; color: #ad8a93; font-size: 0.84rem; line-height: 1.45; }
 
 .uninstall-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+
+.manifest-verification-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px 22px;align-items:center;margin-top:18px;padding:16px;border:1px solid #41586f;border-radius:10px;background:rgba(8,22,38,.5)}
+.manifest-verification-card h3{margin:0 0 5px;color:#d7efff;font-size:.96rem}.manifest-verification-card p{margin:0;color:#b7cde0;font-size:.84rem;line-height:1.5}.manifest-verification-actions{display:flex;gap:9px;flex-wrap:wrap;justify-content:flex-end}.manifest-verification-status{grid-column:1/-1;min-height:1.3em;color:#a6d9d0!important}.manifest-verification-status:not(:empty){padding-top:11px;border-top:1px solid #2d4c65}@media(max-width:980px){.manifest-verification-card{grid-template-columns:1fr}.manifest-verification-actions{justify-content:flex-start}}

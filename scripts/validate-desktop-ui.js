@@ -58,6 +58,8 @@ for (const channel of [
   'app:review-uninstall',
   'app:export-installation-manifest',
   'app:open-manifest-folder',
+  'app:get-manifest-verification-command',
+  'app:verify-installation-manifest',
   'app:apply-uninstall',
 ]) {
   if (!main.includes(`'${channel}'`)) throw new Error(`Missing main-process handler for ${channel}.`);
@@ -192,10 +194,10 @@ if (!main.includes('reportAnonymousSetupSuccess') || !main.includes("JSON.string
 }
 
 
-if (!html.includes('id="uninstall-app-button"') || !html.includes('id="export-installation-manifest-button"') || !html.includes('id="open-manifest-folder-button"') || !html.includes('id="uninstall-panel"') || !renderer.includes('async function uninstallApplication()') || !renderer.includes('async function exportInstallationManifest()') || !renderer.includes('async function openManifestFolder()')) {
+if (!html.includes('id="uninstall-app-button"') || !html.includes('id="export-installation-manifest-button"') || !html.includes('id="open-manifest-folder-button"') || !html.includes('id="verify-installation-manifest-button"') || !html.includes('id="copy-manifest-verification-command-button"') || !html.includes('id="uninstall-panel"') || !renderer.includes('async function uninstallApplication()') || !renderer.includes('async function exportInstallationManifest()') || !renderer.includes('async function verifySavedInstallationManifest()') || !renderer.includes('async function copyManifestVerificationCommand()') || !renderer.includes('async function openManifestFolder()')) {
   throw new Error('The desktop app must include a bottom-placed complete app uninstall action and pre-uninstall manifest export.');
 }
-if (!main.includes('async function resolveAppUninstallPlan()') || !main.includes('async function exportInstallationManifest()') || !main.includes('async function openExportedManifestFolder()') || !main.includes('createHash') || !main.includes('function postAppUninstallNotification()') || !main.includes('async function applyAppUninstall(') || !main.includes("confirmation !== 'UNINSTALL CCTI'")) {
+if (!main.includes('async function resolveAppUninstallPlan()') || !main.includes('async function exportInstallationManifest()') || !main.includes('async function openExportedManifestFolder()') || !main.includes('async function verifyInstallationManifest()') || !main.includes('function manifestVerificationCommand()') || !main.includes('createHash') || !main.includes('function postAppUninstallNotification()') || !main.includes('async function applyAppUninstall(') || !main.includes("confirmation !== 'UNINSTALL CCTI'")) {
   throw new Error('App uninstall must export a privacy-safe manifest, require typed acknowledgment, notify post-uninstall cleanup, and leave Claude Code untouched.');
 }
 
