@@ -38,6 +38,7 @@ const electronStub = {
     isDestroyed() { return false; }
   },
   dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showSaveDialog: async () => saveDialogResult },
+  shell: { showItemInFolder: () => true, openPath: async () => '' },
   Notification: NotificationStub,
   ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
 };
@@ -75,9 +76,10 @@ async function run() {
   const previewComponents = handlers.get('components:preview');
   const reviewAppUninstall = handlers.get('app:review-uninstall');
   const exportInstallationManifest = handlers.get('app:export-installation-manifest');
+  const openManifestFolder = handlers.get('app:open-manifest-folder');
   const applyAppUninstall = handlers.get('app:apply-uninstall');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents && reviewAppUninstall && exportInstallationManifest && applyAppUninstall, 'all handlers including app uninstall should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && applyAppUninstall, 'all handlers including app uninstall and folder open should be registered');
 
   const componentCatalog = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
   const componentPreview = await previewComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id] });
@@ -150,6 +152,11 @@ async function run() {
   assert.match(manifestText, /review-tool@marketplace/);
   assert.ok(!manifestText.includes(tempRoot), 'manifest must omit private absolute paths');
   assert.match(manifestText, /does not contain credentials/i);
+  assert.match(manifestText, /Payload SHA-256: [0-9a-f]{64}/i, 'manifest must include a SHA-256 checksum');
+  assert.match(manifestText, /Export timestamp:/, 'manifest must include export timestamp');
+
+  const folderOpenResult = await openManifestFolder();
+  assert.equal(folderOpenResult.ok, true, 'openManifestFolder should succeed after export');
 
   const uninstallReview = await reviewAppUninstall();
   assert.equal(uninstallReview.ok, true, 'reviewAppUninstall should succeed');

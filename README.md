@@ -171,7 +171,7 @@ CCTI completes supported prerequisite and plugin installation steps itself. A pl
 Claude Code Tools Installer includes a dedicated **Uninstall This App** button located at the bottom of the main window.
 
 - **Non-destructive to tools:** Removing CCTI removes **only** CCTI itself (its local cache, setup history, checklists, and app preferences under `~/.setup-my-claude` and Electron user data). It leaves Claude Code, all installed tools, skills, MCP connections, and project packages completely untouched.
-- **Manifest before deletion:** A **Save Installation Manifest** option creates a private Markdown log of available tools and scopes before removal. It omits credentials, raw settings, logs, and absolute paths.
+- **Manifest with checksum and folder reveal:** A **Save Installation Manifest** option creates a private Markdown log of available tools with an export timestamp and SHA-256 checksum, plus an immediate **Open Manifest Folder** button to inspect the file without browsing manually. It strictly omits credentials, raw settings, logs, and absolute paths.
 - **Explicit user acknowledgment:** Uninstallation requires review and typing `UNINSTALL CCTI` exactly before any data is deleted.
 - **Safe exit and notification:** CCTI queues an OS desktop notification and shows the matching on-screen instruction. Once it closes, remove it through the installed-app control or delete the now-empty extracted application folder for your operating system.
 

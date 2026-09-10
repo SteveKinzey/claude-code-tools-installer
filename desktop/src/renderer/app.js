@@ -85,6 +85,7 @@ const projectInterviewOutputElement = document.querySelector('#project-interview
 const exportProjectPrdButton = document.querySelector('#export-project-prd-button');
 const uninstallAppButton = document.querySelector('#uninstall-app-button');
 const exportInstallationManifestButton = document.querySelector('#export-installation-manifest-button');
+const openManifestFolderButton = document.querySelector('#open-manifest-folder-button');
 const uninstallStatusNoteElement = document.querySelector('#uninstall-status-note');
 
 function selectedItems() {
@@ -621,6 +622,18 @@ async function runInstallation() {
 
 
 
+async function openManifestFolder() {
+  try {
+    openManifestFolderButton.disabled = true;
+    const result = await window.installer.openManifestFolder();
+    if (!result.ok) {
+      window.alert(result.error || 'Could not open manifest folder.');
+    }
+  } finally {
+    openManifestFolderButton.disabled = state.running || state.componentRunning;
+  }
+}
+
 async function exportInstallationManifest() {
   if (state.running || state.componentRunning) {
     window.alert('Another action is currently in progress. Please wait for it to finish before exporting a manifest.');
@@ -633,8 +646,9 @@ async function exportInstallationManifest() {
     if (result.ok && result.canceled) {
       uninstallStatusNoteElement.textContent = 'Installation manifest export canceled. Nothing was changed.';
     } else if (result.ok) {
-      uninstallStatusNoteElement.textContent = `Installation manifest saved: ${result.filename}. It contains names and scopes only—never credentials, raw settings, or folder paths.`;
-      appendOutput(`[CCTI] Installation manifest saved: ${result.filename}.\n`);
+      uninstallStatusNoteElement.textContent = `Installation manifest saved: ${result.filename} with verified SHA-256 checksum and export timestamp. Click "Open Manifest Folder" to view it.`;
+      appendOutput(`[CCTI] Installation manifest saved: ${result.filename} (includes verified SHA-256 checksum and timestamp).\n`);
+      openManifestFolderButton.classList.remove('is-hidden');
     } else {
       uninstallStatusNoteElement.textContent = result.error || 'CCTI could not save the installation manifest.';
       appendOutput(`[CCTI] ${result.error || 'Installation manifest export failed.'}\n`, 'stderr');
@@ -1254,6 +1268,7 @@ document.querySelector('#compass-form').addEventListener('submit', (event) => {
 });
 document.querySelectorAll('.prompt-chip').forEach((button) => button.addEventListener('click', () => askCompass(button.dataset.compassPrompt || '')));
 exportInstallationManifestButton.addEventListener('click', exportInstallationManifest);
+openManifestFolderButton.addEventListener('click', openManifestFolder);
 uninstallAppButton.addEventListener('click', uninstallApplication);
 openCompassConnectButton.addEventListener('click', async () => {
   if (state.compass.online) {

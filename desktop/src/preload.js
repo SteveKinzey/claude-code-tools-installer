@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('installer', {
   applyPluginChange: (payload) => ipcRenderer.invoke('setup-manager:apply-plugin-change', payload),
   reviewAppUninstall: () => ipcRenderer.invoke('app:review-uninstall'),
   exportInstallationManifest: () => ipcRenderer.invoke('app:export-installation-manifest'),
+  openManifestFolder: () => ipcRenderer.invoke('app:open-manifest-folder'),
   applyAppUninstall: (payload) => ipcRenderer.invoke('app:apply-uninstall', payload),
   onOutput: (callback) => ipcRenderer.on('installer:output', (_event, payload) => callback(payload)),
   onState: (callback) => ipcRenderer.on('installer:state', (_event, payload) => callback(payload)),

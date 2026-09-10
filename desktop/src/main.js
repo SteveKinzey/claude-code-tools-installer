@@ -1,6 +1,6 @@
-const { app, BrowserWindow, dialog, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Notification, shell } = require('electron');
 const { spawn } = require('node:child_process');
-const { randomUUID } = require('node:crypto');
+const { createHash, randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
@@ -385,6 +385,7 @@ function manifestLine(item) {
 
 async function buildInstallationManifest() {
   const generatedAt = new Date().toISOString();
+  const timestampUnix = Math.floor(Date.now() / 1000);
   const version = typeof app.getVersion === 'function' ? app.getVersion() : 'unknown';
   const [claude, discovery] = await Promise.all([
     claudeStatus(),
@@ -399,8 +400,14 @@ async function buildInstallationManifest() {
     ? `- Claude Code: ${claude.version || 'installed'}`
     : '- Claude Code: not detected during export';
 
-  return `# Claude Code Tools Installer installation manifest\n\nGenerated: ${generatedAt}\nPlatform: ${process.platform}\nCCTI version: ${version}\n\n## Privacy boundary\n\nThis manifest lists only product names, categories, scopes, and available versions. It does not contain credentials, secrets, account information, conversation content, raw settings, logs, or absolute folder paths.\n\n## External developer tool\n\n${claudeLine}\n\n## Active tools and additions\n\n${itemList}\n\n## Uninstall boundary\n\nRemoving Claude Code Tools Installer deletes only CCTI-owned data reviewed in the uninstall flow. Claude Code, installed tools, skills, plugins, MCP connections, project files, and browser data remain untouched.\n`;
+  const bodyContent = `Generated: ${generatedAt} (Unix: ${timestampUnix})\nPlatform: ${process.platform}\nCCTI version: ${version}\n\n## Privacy boundary\n\nThis manifest lists only product names, categories, scopes, and available versions. It does not contain credentials, secrets, account information, conversation content, raw settings, logs, or absolute folder paths.\n\n## External developer tool\n\n${claudeLine}\n\n## Active tools and additions\n\n${itemList}\n\n## Uninstall boundary\n\nRemoving Claude Code Tools Installer deletes only CCTI-owned data reviewed in the uninstall flow. Claude Code, installed tools, skills, plugins, MCP connections, project files, and browser data remain untouched.\n`;
+
+  const sha256Digest = createHash('sha256').update(bodyContent, 'utf8').digest('hex');
+
+  return `# Claude Code Tools Installer installation manifest\n\n## Integrity\n\n- Export timestamp: ${generatedAt}\n- Payload SHA-256: ${sha256Digest}\n\n${bodyContent}`;
 }
+
+let lastExportedManifestPath = '';
 
 async function exportInstallationManifest() {
   try {
@@ -412,10 +419,30 @@ async function exportInstallationManifest() {
     });
     if (result.canceled || !result.filePath) return { ok: true, canceled: true };
     await fs.writeFile(result.filePath, await buildInstallationManifest(), 'utf8');
+    lastExportedManifestPath = result.filePath;
     emit('installer:output', { stream: 'stdout', text: `[CCTI] Installation manifest saved as ${path.basename(result.filePath)}.\n` });
-    return { ok: true, canceled: false, filename: path.basename(result.filePath) };
+    return { ok: true, canceled: false, filename: path.basename(result.filePath), hasLocation: true };
   } catch (error) {
     return { ok: false, error: `CCTI could not save the installation manifest: ${error.message}` };
+  }
+}
+
+async function openExportedManifestFolder() {
+  try {
+    if (!lastExportedManifestPath) {
+      return { ok: false, error: 'No installation manifest has been exported yet in this session.' };
+    }
+    if (shell && typeof shell.showItemInFolder === 'function') {
+      shell.showItemInFolder(lastExportedManifestPath);
+      return { ok: true, revealed: true };
+    }
+    if (shell && typeof shell.openPath === 'function') {
+      await shell.openPath(path.dirname(lastExportedManifestPath));
+      return { ok: true, opened: true };
+    }
+    return { ok: false, error: 'Operating system folder explorer is unavailable in this environment.' };
+  } catch (error) {
+    return { ok: false, error: `Could not open folder: ${error.message}` };
   }
 }
 
@@ -1122,6 +1149,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('compass:ask', async (_event, payload) => askSitePoweredCompass(payload));
   ipcMain.handle('app:review-uninstall', async () => resolveAppUninstallPlan());
   ipcMain.handle('app:export-installation-manifest', async () => exportInstallationManifest());
+  ipcMain.handle('app:open-manifest-folder', async () => openExportedManifestFolder());
   ipcMain.handle('app:apply-uninstall', async (_event, payload) => applyAppUninstall(payload));
 
   await createWindow();
