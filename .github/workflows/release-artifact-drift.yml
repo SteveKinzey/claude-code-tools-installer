@@ -34,6 +34,7 @@ jobs:
       - name: Check out release check script
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - id: tag
@@ -77,11 +78,16 @@ jobs:
         env:
           TAG: ${{ steps.tag.outputs.tag }}
           RELEASE_FILE: ${{ runner.temp }}/release.json
-          TAG_CREATED_AT: ${{ github.event.created_at || github.event.repository.updated_at }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_CREATED_AT: ${{ github.event.created_at }}
         run: |
           args=(scripts/check-release-artifact-drift.js --tag "$TAG" --release-file "$RELEASE_FILE" --grace-hours 24)
-          if [[ -n "$TAG_CREATED_AT" ]]; then
-            args+=(--tag-created-at "$TAG_CREATED_AT")
+          tag_created_at="$EVENT_CREATED_AT"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag_created_at="$(git log -1 --format=%cI "${TAG}^{commit}" 2>/dev/null || true)"
+          fi
+          if [[ -n "$tag_created_at" ]]; then
+            args+=(--tag-created-at "$tag_created_at")
           fi
           node "${args[@]}"
 
