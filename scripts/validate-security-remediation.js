@@ -39,6 +39,15 @@ const workflows = fs.readdirSync(path.join(root, '.github', 'workflows'))
 const desktopWorkflows = workflows.filter((workflowPath) => fs.readFileSync(workflowPath, 'utf8').includes('working-directory: desktop'));
 assert.ok(desktopWorkflows.length > 0, 'At least one desktop CI workflow must exist.');
 
+const checkoutWorkflows = workflows.filter((workflowPath) => fs.readFileSync(workflowPath, 'utf8').includes('actions/checkout@'));
+assert.ok(checkoutWorkflows.length > 0, 'At least one workflow must check out repository source.');
+for (const workflowPath of checkoutWorkflows) {
+  const contents = fs.readFileSync(workflowPath, 'utf8');
+  const filename = path.basename(workflowPath);
+  assert.doesNotMatch(contents, /actions\/checkout@v[1-5]\b/, `${filename} must not use a deprecated Node 20 checkout action.`);
+  assert.match(contents, /actions\/checkout@v6\b/, `${filename} must use actions/checkout@v6.`);
+}
+
 for (const workflowPath of desktopWorkflows) {
   const contents = fs.readFileSync(workflowPath, 'utf8');
   const filename = path.basename(workflowPath);

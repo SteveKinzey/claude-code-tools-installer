@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout the verification script
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Verify deployed Field Guide links and downloadable PDF
         run: |
           chmod +x docs/field-guide-publication-skill/scripts/verify_live_field_guide.sh
@@ -39,7 +39,7 @@ jobs:
       FIELD_GUIDE_URL: https://stevekinzey.github.io/claude-code-tools-installer/
     steps:
       - name: Checkout the notification script
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Notify Discord or Slack webhook about the failed health check
         run: |
           chmod +x docs/field-guide-publication-skill/scripts/notify_health_check_failure.sh

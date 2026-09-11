@@ -29,7 +29,7 @@ jobs:
       CCTI_MSIX_ARTIFACT_CLASS: ${{ inputs.test_mode && 'test' || 'submission' }}
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node 22
         uses: actions/setup-node@v7

@@ -28,7 +28,7 @@ jobs:
       CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.test_mode && 'CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER_DISPLAY_NAME }}
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node 22
         uses: actions/setup-node@v7
