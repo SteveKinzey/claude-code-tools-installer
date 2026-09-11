@@ -17,6 +17,7 @@ const fieldGuideHealthWorkflow = readWorkflowText(path.join(root, '.github', 'wo
 const macReleaseWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml'));
 const weeklySecurityWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'weekly-dependency-security.yml'));
 const codeqlWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'codeql.yml'));
+const macCandidateWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'build-macos-signed-notarized-test.yml'));
 const minimumNode = '22.12.0';
 
 function versionParts(version) {
@@ -90,6 +91,9 @@ assert.match(macReleaseWorkflow, /notary_auth=apple_id/, 'macOS release workflow
 assert.match(macReleaseWorkflow, /APPLE_NOTARY_APP_PASSWORD/, 'macOS release workflow must scope the Apple ID notarization password to consuming steps.');
 assert.match(macReleaseWorkflow, /steps\.checksums\.outputs\.dmg_checksum/, 'macOS release workflow must publish a detached DMG SHA-256 checksum.');
 assert.match(macReleaseWorkflow, /steps\.checksums\.outputs\.zip_checksum/, 'macOS release workflow must publish a detached ZIP SHA-256 checksum.');
+assert.match(macCandidateWorkflow, /source_tag:/, 'macOS candidate workflow must support building an existing immutable source tag.');
+assert.match(macCandidateWorkflow, /git checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must copy runtime files from the requested source tag.');
+assert.match(macCandidateWorkflow, /git diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must verify runtime files exactly match the requested source tag.');
 assert.doesNotMatch(storeBundleWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'Store bundle secrets must be scoped to consuming steps instead of the job.');
 assert.doesNotMatch(storeWindowsTestWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'Store lifecycle test secrets must be scoped to consuming steps instead of the job.');
 assert.match(weeklySecurityWorkflow, /cron:\s*'23 8 \* \* 1'/, 'Weekly dependency security scanning must run every Monday.');

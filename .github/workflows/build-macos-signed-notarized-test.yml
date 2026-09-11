@@ -2,6 +2,12 @@ name: Build signed notarized macOS CCTI test artifact
 
 on:
   workflow_dispatch:
+    inputs:
+      source_tag:
+        description: "Optional existing source tag to build without retargeting the workflow"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -21,6 +27,28 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Prepare immutable runtime source
+        if: inputs.source_tag != ''
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          [[ "$SOURCE_TAG" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}$ ]] || {
+            echo "source_tag must be an existing dated tag such as v2026.09.11." >&2
+            exit 2
+          }
+          git rev-parse --verify --quiet "${SOURCE_TAG}^{commit}" >/dev/null || {
+            echo "source_tag was not found: $SOURCE_TAG" >&2
+            exit 2
+          }
+          git checkout "$SOURCE_TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1
+          git diff --quiet "$SOURCE_TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1 || {
+            echo "Runtime source does not exactly match $SOURCE_TAG." >&2
+            exit 2
+          }
+          printf 'Packaging runtime source: %s\n' "$(git rev-parse "${SOURCE_TAG}^{commit}")"
 
       - name: Set up Node 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
