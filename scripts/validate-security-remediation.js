@@ -11,6 +11,10 @@ const dependabotConfig = fs.readFileSync(path.join(root, '.github', 'dependabot.
 const dependencyReviewWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'dependency-review.yml'), 'utf8');
 const storeBundleWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build-windows-store-msix.yml'), 'utf8');
 const storeWindowsTestWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'test-windows-msix-clean-install.yml'), 'utf8');
+const pagesWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'deploy-field-guide-pages.yml'), 'utf8');
+const fieldGuideHealthWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'field-guide-health-check.yml'), 'utf8');
+const macReleaseWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml'), 'utf8');
+const weeklySecurityWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'weekly-dependency-security.yml'), 'utf8');
 const minimumNode = '22.12.0';
 
 function versionParts(version) {
@@ -41,11 +45,16 @@ assert.ok(desktopWorkflows.length > 0, 'At least one desktop CI workflow must ex
 
 const checkoutWorkflows = workflows.filter((workflowPath) => fs.readFileSync(workflowPath, 'utf8').includes('actions/checkout@'));
 assert.ok(checkoutWorkflows.length > 0, 'At least one workflow must check out repository source.');
-for (const workflowPath of checkoutWorkflows) {
+for (const workflowPath of workflows) {
   const contents = fs.readFileSync(workflowPath, 'utf8');
   const filename = path.basename(workflowPath);
-  assert.doesNotMatch(contents, /actions\/checkout@v[1-5]\b/, `${filename} must not use a deprecated Node 20 checkout action.`);
-  assert.match(contents, /actions\/checkout@v6\b/, `${filename} must use actions/checkout@v6.`);
+  const actionReferences = contents.match(/^\s*uses:\s+[^\s]+/gm) || [];
+  for (const reference of actionReferences) {
+    assert.match(reference, /@[0-9a-f]{40}\b/, `${filename} must pin every GitHub Action to a full commit SHA.`);
+  }
+  const checkoutReferences = contents.match(/actions\/checkout@[0-9a-f]{40}\b/g) || [];
+  const disabledCredentialPersistence = contents.match(/persist-credentials:\s*false/g) || [];
+  assert.equal(disabledCredentialPersistence.length, checkoutReferences.length, `${filename} must disable persisted credentials for every checkout action.`);
 }
 
 for (const workflowPath of desktopWorkflows) {
@@ -62,9 +71,25 @@ assert.match(dependabotConfig, /package-ecosystem:\s*npm[\s\S]*directory:\s*\/de
 assert.match(dependabotConfig, /package-ecosystem:\s*github-actions[\s\S]*directory:\s*\/[\s\S]*interval:\s*weekly/, 'Dependabot must check GitHub Actions dependencies weekly.');
 assert.match(dependabotConfig, /electron-release-line:[\s\S]*electron-builder/, 'Dependabot must group Electron and packaging dependencies for compatible review.');
 assert.match(dependencyReviewWorkflow, /pull_request:/, 'Dependency review must run on pull requests.');
-assert.match(dependencyReviewWorkflow, /actions\/dependency-review-action@v4/, 'Dependency review must use the GitHub dependency review action.');
+assert.doesNotMatch(dependencyReviewWorkflow, /pull_request_target:/, 'Dependency review must not execute with pull_request_target privileges.');
+assert.match(dependencyReviewWorkflow, /actions\/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294/, 'Dependency review must use the pinned GitHub dependency review action.');
 assert.match(dependencyReviewWorkflow, /fail-on-severity:\s*high/, 'Dependency review must block new high or critical vulnerabilities.');
 assert.match(dependencyReviewWorkflow, /fail-on-scopes:\s*development, runtime, unknown/, 'Dependency review must cover development, runtime, and unknown scopes.');
+assert.doesNotMatch(fieldGuideHealthWorkflow, /workflow_run:/, 'Health checks must not execute repository scripts from a workflow_run trigger.');
+assert.match(fieldGuideHealthWorkflow, /cron:\s*'17 9 \* \* 1'/, 'Field Guide health checks must retain their Monday schedule.');
+assert.doesNotMatch(pagesWorkflow, /^  (pages|id-token): write$/m, 'Pages write and OIDC permissions must not be granted at workflow scope.');
+assert.match(pagesWorkflow, /build:[\s\S]*?permissions:\n\s+contents: read\n\s+pages: write\n\s+id-token: write/, 'The Pages build job must declare only its required permissions.');
+assert.match(pagesWorkflow, /deploy:[\s\S]*?permissions:\n\s+pages: write\n\s+id-token: write/, 'The Pages deploy job must declare only its required permissions.');
+assert.doesNotMatch(macReleaseWorkflow, /\n  push:\n[\s\S]*?tags:/, 'The privileged macOS release workflow must not run automatically on tag pushes.');
+assert.match(macReleaseWorkflow, /workflow_dispatch:/, 'The privileged macOS release workflow must require manual dispatch.');
+assert.doesNotMatch(macReleaseWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'macOS release secrets must be scoped to consuming steps instead of the job.');
+assert.doesNotMatch(storeBundleWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'Store bundle secrets must be scoped to consuming steps instead of the job.');
+assert.doesNotMatch(storeWindowsTestWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'Store lifecycle test secrets must be scoped to consuming steps instead of the job.');
+assert.match(weeklySecurityWorkflow, /cron:\s*'23 8 \* \* 1'/, 'Weekly dependency security scanning must run every Monday.');
+assert.match(weeklySecurityWorkflow, /npm ci --ignore-scripts/, 'Weekly dependency security scanning must not execute lifecycle scripts.');
+assert.match(weeklySecurityWorkflow, /npm audit --audit-level=high/, 'Weekly dependency security scanning must fail on high or critical findings.');
+assert.match(weeklySecurityWorkflow, /retention-days:\s*30/, 'Weekly vulnerability reports must have bounded retention.');
+assert.match(weeklySecurityWorkflow, /contents: read/, 'Weekly security scanning must use a read-only token.');
 assert.match(storeBundleWorkflow, /test_mode:/, 'Store bundle workflow must offer a non-production CI test mode.');
 assert.match(storeBundleWorkflow, /CCTI\.LocalValidation/, 'Store bundle test mode must use a non-production fixture identity.');
 assert.match(storeBundleWorkflow, /store-test/, 'Store bundle test mode must label its artifact as a test artifact.');

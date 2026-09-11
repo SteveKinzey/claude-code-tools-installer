@@ -1,6 +1,6 @@
 {
   "name": "claude-code-tools-installer-desktop",
-  "version": "2026.8.26",
+  "version": "2026.9.11",
   "private": true,
   "license": "Apache-2.0",
   "description": "A safe desktop installer for a curated Claude Code tool stack.",

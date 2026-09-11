@@ -1,11 +1,6 @@
 name: Verify Live Field Guide
 
 on:
-  workflow_run:
-    workflows:
-      - Deploy Field Guide to GitHub Pages
-    types:
-      - completed
   schedule:
     - cron: '17 9 * * 1'
   workflow_dispatch:
@@ -15,14 +10,13 @@ permissions:
 
 jobs:
   verify-live-guide:
-    if: >-
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Checkout the verification script
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
       - name: Verify deployed Field Guide links and downloadable PDF
         run: |
           chmod +x docs/field-guide-publication-skill/scripts/verify_live_field_guide.sh
@@ -33,14 +27,16 @@ jobs:
     if: ${{ always() && needs.verify-live-guide.result == 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    env:
-      FIELD_GUIDE_ALERT_WEBHOOK: ${{ secrets.FIELD_GUIDE_ALERT_WEBHOOK }}
-      FIELD_GUIDE_ALERT_PROVIDER: ${{ vars.FIELD_GUIDE_ALERT_PROVIDER }}
-      FIELD_GUIDE_URL: https://stevekinzey.github.io/claude-code-tools-installer/
     steps:
       - name: Checkout the notification script
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
       - name: Notify Discord or Slack webhook about the failed health check
+        env:
+          FIELD_GUIDE_ALERT_WEBHOOK: ${{ secrets.FIELD_GUIDE_ALERT_WEBHOOK }}
+          FIELD_GUIDE_ALERT_PROVIDER: ${{ vars.FIELD_GUIDE_ALERT_PROVIDER }}
+          FIELD_GUIDE_URL: https://stevekinzey.github.io/claude-code-tools-installer/
         run: |
           chmod +x docs/field-guide-publication-skill/scripts/notify_health_check_failure.sh
           docs/field-guide-publication-skill/scripts/notify_health_check_failure.sh

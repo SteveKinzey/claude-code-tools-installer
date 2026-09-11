@@ -1,0 +1,52 @@
+name: Weekly dependency and security scan
+
+on:
+  schedule:
+    - cron: '23 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit locked desktop dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.12.0'
+          package-manager-cache: false
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Validate desktop and workflow security contracts
+        run: npm run check
+
+      - name: Scan dependency vulnerabilities
+        run: |
+          set -o pipefail
+          mkdir -p ../security-reports
+          npm audit --json > ../security-reports/npm-audit.json || true
+          npm audit --audit-level=high
+
+      - name: Upload vulnerability scan report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ccti-weekly-npm-audit-${{ github.run_id }}
+          path: security-reports/npm-audit.json
+          if-no-files-found: warn
+          retention-days: 30

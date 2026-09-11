@@ -1,8 +1,6 @@
 name: Release signed and notarized macOS DMG
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -26,16 +24,12 @@ jobs:
       run:
         working-directory: desktop
         shell: bash
-    env:
-      CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-      CSC_NAME: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
-      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
     steps:
       - name: Check out the release tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          persist-credentials: false
           ref: ${{ inputs.tag || github.ref }}
 
       - id: release
@@ -56,16 +50,19 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.12.0'
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          package-manager-cache: false
 
       - name: Confirm required secrets are available
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          CSC_NAME: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
           APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           for name in MACOS_CERTIFICATE_P12_BASE64 CSC_KEY_PASSWORD CSC_NAME APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER; do
             value="${!name:-}"
@@ -76,6 +73,7 @@ jobs:
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
         run: |
           certificate_path="$RUNNER_TEMP/claude-tools-developer-id.p12"
           api_key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
@@ -93,6 +91,9 @@ jobs:
           npm run check
 
       - name: Build a signed macOS DMG and ZIP
+        env:
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          CSC_NAME: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
         run: npm run dist:mac:signed
 
       - id: artifact
@@ -105,6 +106,8 @@ jobs:
       - name: Notarize the final DMG and staple the ticket
         env:
           DMG: ${{ steps.artifact.outputs.dmg }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           xcrun notarytool submit "$DMG" \
             --key "$APPLE_API_KEY" \
@@ -143,7 +146,7 @@ jobs:
 
       - name: Upload release evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: claude-code-tools-installer-macos-${{ steps.release.outputs.tag || github.sha }}
           path: |
@@ -155,6 +158,8 @@ jobs:
 
       - name: Remove ephemeral credentials
         if: always()
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
         run: |
           rm -f "$RUNNER_TEMP/claude-tools-developer-id.p12" \
                 "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"

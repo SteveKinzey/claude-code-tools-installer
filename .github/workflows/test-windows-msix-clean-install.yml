@@ -22,16 +22,14 @@ jobs:
       run:
         working-directory: desktop
         shell: powershell
-    env:
-      CCTI_APPX_IDENTITY_NAME: ${{ inputs.test_mode && 'CCTI.LocalValidation' || secrets.CCTI_APPX_IDENTITY_NAME }}
-      CCTI_APPX_PUBLISHER: ${{ inputs.test_mode && 'CN=CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER }}
-      CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.test_mode && 'CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER_DISPLAY_NAME }}
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Set up Node 22
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.12.0'
 
@@ -42,6 +40,10 @@ jobs:
         run: npm run check
 
       - name: Validate protected identity inputs
+        env:
+          CCTI_APPX_IDENTITY_NAME: ${{ inputs.test_mode && 'CCTI.LocalValidation' || secrets.CCTI_APPX_IDENTITY_NAME }}
+          CCTI_APPX_PUBLISHER: ${{ inputs.test_mode && 'CN=CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER }}
+          CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.test_mode && 'CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER_DISPLAY_NAME }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ('${{ inputs.test_mode }}' -eq 'true') {
@@ -55,12 +57,20 @@ jobs:
           }
 
       - name: Build Store package candidates
+        env:
+          CCTI_APPX_IDENTITY_NAME: ${{ inputs.test_mode && 'CCTI.LocalValidation' || secrets.CCTI_APPX_IDENTITY_NAME }}
+          CCTI_APPX_PUBLISHER: ${{ inputs.test_mode && 'CN=CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER }}
+          CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.test_mode && 'CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER_DISPLAY_NAME }}
         run: |
           npm run msix:prepare
           npm run dist:win:store:x64
           npm run dist:win:store:arm64
 
       - name: Bundle, install, launch, and uninstall
+        env:
+          CCTI_APPX_IDENTITY_NAME: ${{ inputs.test_mode && 'CCTI.LocalValidation' || secrets.CCTI_APPX_IDENTITY_NAME }}
+          CCTI_APPX_PUBLISHER: ${{ inputs.test_mode && 'CN=CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER }}
+          CCTI_APPX_PUBLISHER_DISPLAY_NAME: ${{ inputs.test_mode && 'CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER_DISPLAY_NAME }}
         run: |
           $ErrorActionPreference = 'Stop'
           $output = Resolve-Path '../releases/test-builds'
