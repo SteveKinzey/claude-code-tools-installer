@@ -58,7 +58,7 @@ try {
   fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.writeFileSync(output, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   console.log(`Prepared a local Store-only AppX configuration: ${path.relative(desktopDir, output)}`);
-  console.log('Next step on Windows: npm run dist:win:store');
+  console.log('Next steps on Windows: npm run dist:win:store:x64 && npm run dist:win:store:arm64');
 } catch (error) {
   console.error(`[MSIX preparation] ${error.message}`);
   process.exitCode = 2;

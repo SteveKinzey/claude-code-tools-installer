@@ -95,5 +95,5 @@ The canonical submission record is [`docs/microsoft-store-listing.md`](microsoft
 - [x] **Store package tile assets present:** Store logo, Square 150, Square 44, and Wide 310×150 verified in `desktop/build/appx/`.
 - [ ] **Partner Center app name reservation:** Reserve `Claude Code Tools Installer` in Partner Center.
 - [ ] **Identity injection:** Export `CCTI_APPX_IDENTITY_NAME`, `CCTI_APPX_APPLICATION_ID`, and `CCTI_APPX_PUBLISHER` from Partner Center.
-- [ ] **MSIX build execution:** Run `npm run dist:win:store` on a Windows runner or via `.github/workflows/build-windows-store-msix.yml`.
+- [ ] **MSIX build execution:** Run `npm run dist:win:store:x64` and `npm run dist:win:store:arm64` on a Windows runner or use `.github/workflows/build-windows-store-msix.yml`.
 - [ ] **Clean-machine test:** Verify install, execution, and uninstall on a stock Windows machine before final submission.
