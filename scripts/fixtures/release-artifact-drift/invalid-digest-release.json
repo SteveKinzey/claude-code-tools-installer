@@ -1,0 +1,14 @@
+{
+  "tag_name": "v2026.09.14",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-09-14T12:00:00Z",
+  "assets": [
+    {
+      "name": "claude-code-tools-installer-macos.dmg",
+      "state": "uploaded",
+      "size": 1048576,
+      "digest": "sha256:not-a-valid-digest"
+    }
+  ]
+}

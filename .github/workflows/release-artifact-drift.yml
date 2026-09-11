@@ -1,0 +1,145 @@
+name: Check CCTI release artifact drift
+
+on:
+  create:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing dated tag to inspect, such as v2026.08.12"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ccti-release-artifact-drift-${{ github.event.repository.full_name }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Require a verified binary after the release grace period
+    if: github.event_name == 'workflow_dispatch' || github.event.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      INPUT_TAG: ${{ inputs.tag }}
+      EVENT_TAG: ${{ github.ref }}
+      EVENT_CREATED_AT: ${{ github.event.repository.updated_at }}
+      EVENT_NAME: ${{ github.event_name }}
+    steps:
+      - name: Check out release check script
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - id: tag
+        name: Identify a dated release tag
+        shell: bash
+        run: |
+          tag="$EVENT_TAG"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
+          fi
+          if [[ ! "$tag" =~ ^v?[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            echo "checked=false" >> "$GITHUB_OUTPUT"
+            echo "Ignoring non-release tag: ${tag:-missing}." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "checked=true" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the matching public GitHub Release
+        if: steps.tag.outputs.checked == 'true'
+        id: release
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" > "$RUNNER_TEMP/release.json" 2>"$RUNNER_TEMP/release-error.txt"; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            if [[ "$status" -ne 1 ]] || ! grep -q 'HTTP 404' "$RUNNER_TEMP/release-error.txt"; then
+              cat "$RUNNER_TEMP/release-error.txt" >&2
+              exit "$status"
+            fi
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            printf 'null\n' > "$RUNNER_TEMP/release.json"
+          fi
+
+      - name: Evaluate executable artifact coverage
+        if: steps.tag.outputs.checked == 'true'
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_FILE: ${{ runner.temp }}/release.json
+          TAG_CREATED_AT: ${{ github.event.created_at || github.event.repository.updated_at }}
+        run: |
+          args=(scripts/check-release-artifact-drift.js --tag "$TAG" --release-file "$RELEASE_FILE" --grace-hours 24)
+          if [[ -n "$TAG_CREATED_AT" ]]; then
+            args+=(--tag-created-at "$TAG_CREATED_AT")
+          fi
+          node "${args[@]}"
+
+      - name: Explain remediation
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## CCTI release artifact drift detected"
+            echo
+            echo "The dated tag has outlived the 24-hour release grace period without an uploaded, SHA-256-backed desktop artifact."
+            echo "Publish the signed platform artifact and checksum to its GitHub Release, or remove/rename the tag if it is source-only work."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  audit:
+    name: Audit dated tags against verified binaries
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out all dated tags
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Audit published releases and tags
+        shell: bash
+        run: |
+          set -uo pipefail
+          releases="$RUNNER_TEMP/releases.json"
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "$releases"
+          failures=0
+          checked=0
+
+          while IFS= read -r tag; do
+            [[ "$tag" =~ ^v?[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$ ]] || continue
+            checked=$((checked + 1))
+            release="$RUNNER_TEMP/release-${checked}.json"
+            jq --arg tag "$tag" 'first(.[] | select(.tag_name == $tag)) // null' "$releases" > "$release"
+            created_at="$(git log -1 --format=%cI "${tag}^{commit}" 2>/dev/null || true)"
+            if ! node scripts/check-release-artifact-drift.js --tag "$tag" --release-file "$release" --tag-created-at "$created_at" --grace-hours 24; then
+              failures=1
+            fi
+          done < <(git tag --list 'v*' | sort -r)
+
+          echo "Audited ${checked} dated CCTI tag(s)." >> "$GITHUB_STEP_SUMMARY"
+          exit "$failures"
+
+      - name: Explain remediation
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## CCTI release artifact drift detected"
+            echo
+            echo "At least one dated tag has outlived the 24-hour grace period without an uploaded, SHA-256-backed desktop artifact."
+            echo "Publish a signed artifact plus checksum, or remove/rename source-only tags so they do not look like desktop releases."
+          } >> "$GITHUB_STEP_SUMMARY"
