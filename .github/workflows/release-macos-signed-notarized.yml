@@ -140,11 +140,8 @@ jobs:
         name: Identify release candidate
         run: |
           dmg="$(find ../releases/test-builds -maxdepth 1 -type f -name '*.dmg' -print -quit)"
-          zip="$(find ../releases/test-builds -maxdepth 1 -type f -name '*.zip' -print -quit)"
           test -n "$dmg"
-          test -n "$zip"
           echo "dmg=$dmg" >> "$GITHUB_OUTPUT"
-          echo "zip=$zip" >> "$GITHUB_OUTPUT"
 
       - name: Notarize the final DMG and staple the ticket
         env:
@@ -177,34 +174,28 @@ jobs:
         run: bash ../scripts/verify-signed-macos-dmg.sh "$DMG"
 
       - id: checksums
-        name: Create SHA-256 checksums
+        name: Create SHA-256 checksum
         env:
           DMG: ${{ steps.artifact.outputs.dmg }}
-          ZIP: ${{ steps.artifact.outputs.zip }}
           TAG: ${{ steps.release.outputs.tag }}
         run: |
           output_dir="../releases/test-builds/release"
           mkdir -p "$output_dir"
           dmg_checksum="$output_dir/claude-code-tools-installer-macos-${TAG}.dmg.sha256"
-          zip_checksum="$output_dir/claude-code-tools-installer-macos-${TAG}.zip.sha256"
           shasum -a 256 "$DMG" > "$dmg_checksum"
-          shasum -a 256 "$ZIP" > "$zip_checksum"
           echo "dmg_checksum=$dmg_checksum" >> "$GITHUB_OUTPUT"
-          echo "zip_checksum=$zip_checksum" >> "$GITHUB_OUTPUT"
 
-      - name: Attach verified macOS artifacts and checksums to the GitHub Release
+      - name: Attach notarized macOS DMG and checksum to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
           SOURCE_COMMIT: ${{ steps.release.outputs.commit }}
           DMG: ${{ steps.artifact.outputs.dmg }}
-          ZIP: ${{ steps.artifact.outputs.zip }}
           DMG_CHECKSUM: ${{ steps.checksums.outputs.dmg_checksum }}
-          ZIP_CHECKSUM: ${{ steps.checksums.outputs.zip_checksum }}
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --target "$SOURCE_COMMIT" --title "$TAG" --generate-notes
-          gh release upload "$TAG" "$DMG" "$ZIP" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"
+          gh release upload "$TAG" "$DMG" "$DMG_CHECKSUM"
 
       - name: Upload release evidence
         if: always()
