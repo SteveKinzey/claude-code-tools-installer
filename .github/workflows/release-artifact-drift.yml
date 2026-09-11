@@ -102,6 +102,13 @@ jobs:
             echo "Publish the signed platform artifact and checksum to its GitHub Release, or remove/rename the tag if it is source-only work."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Notify configured release-alert channel
+        if: failure()
+        env:
+          CCTI_RELEASE_ALERT_WEBHOOK: ${{ secrets.CCTI_RELEASE_ALERT_WEBHOOK }}
+          CCTI_RELEASE_ALERT_PROVIDER: ${{ vars.CCTI_RELEASE_ALERT_PROVIDER || 'slack' }}
+        run: bash scripts/notify-release-drift.sh
+
   audit:
     name: Audit dated tags against verified binaries
     if: github.event_name == 'schedule'
@@ -149,3 +156,10 @@ jobs:
             echo "At least one dated tag has outlived the 24-hour grace period without an uploaded, SHA-256-backed desktop artifact."
             echo "Publish a signed artifact plus checksum, or remove/rename source-only tags so they do not look like desktop releases."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify configured release-alert channel
+        if: failure()
+        env:
+          CCTI_RELEASE_ALERT_WEBHOOK: ${{ secrets.CCTI_RELEASE_ALERT_WEBHOOK }}
+          CCTI_RELEASE_ALERT_PROVIDER: ${{ vars.CCTI_RELEASE_ALERT_PROVIDER || 'slack' }}
+        run: bash scripts/notify-release-drift.sh
