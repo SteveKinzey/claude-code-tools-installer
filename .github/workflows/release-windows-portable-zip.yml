@@ -1,0 +1,115 @@
+name: Release Windows portable ZIP
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing dated release tag to build and attach
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows-portable-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-attach:
+    name: Build and attach portable Windows ZIP
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop
+        shell: pwsh
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check out the requested release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate dated release tag
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d{4}\.\d{2}\.\d{2}$') {
+            throw 'Use an existing dated tag such as v2026.09.11.'
+          }
+          git rev-parse --verify HEAD | Out-Null
+
+      - name: Set up Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.12.0'
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Validate desktop contracts
+        run: npm run check
+
+      - name: Build x64 portable ZIP
+        run: npm run dist:win:zip -- --x64
+
+      - name: Inspect portable ZIP and write checksum
+        id: artifact
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart('v')
+          $sourceZip = Get-ChildItem ../releases/test-builds/*.zip | Select-Object -First 1
+          if (-not $sourceZip) { throw 'No portable Windows ZIP was produced.' }
+
+          $archiveName = "Claude.Code.Tools.Installer-$version-windows-portable-x64.zip"
+          $archivePath = Join-Path $sourceZip.DirectoryName $archiveName
+          Move-Item -LiteralPath $sourceZip.FullName -Destination $archivePath -Force
+
+          $target = Join-Path $env:RUNNER_TEMP 'ccti-windows-portable-check'
+          Expand-Archive -Path $archivePath -DestinationPath $target -Force
+          if (-not (Get-ChildItem $target -Recurse -Filter 'Claude Code Tools Installer.exe' | Select-Object -First 1)) {
+            throw 'Portable archive is missing the packaged application executable.'
+          }
+          if (-not (Get-ChildItem $target -Recurse -Filter 'setup-my-claude.ps1' | Select-Object -First 1)) {
+            throw 'Portable archive is missing the Windows setup resource.'
+          }
+
+          $digestName = "$archiveName.sha256"
+          $digestPath = Join-Path $sourceZip.DirectoryName $digestName
+          $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $archiveName" | Set-Content -LiteralPath $digestPath -NoNewline
+          "archive_path=$archivePath" >> $env:GITHUB_OUTPUT
+          "digest_path=$digestPath" >> $env:GITHUB_OUTPUT
+          "archive_name=$archiveName" >> $env:GITHUB_OUTPUT
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Attach portable ZIP and digest to existing release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE_PATH: ${{ steps.artifact.outputs.archive_path }}
+          DIGEST_PATH: ${{ steps.artifact.outputs.digest_path }}
+        run: |
+          gh release view $env:RELEASE_TAG --repo "$env:GITHUB_REPOSITORY" | Out-Null
+          gh release upload $env:RELEASE_TAG $env:ARCHIVE_PATH $env:DIGEST_PATH --repo "$env:GITHUB_REPOSITORY" --clobber
+
+      - name: Write portable-release summary
+        shell: pwsh
+        run: |
+          @"
+          ## Portable Windows ZIP attached
+
+          - Asset: ``${{ steps.artifact.outputs.archive_name }}``
+          - SHA-256: ``${{ steps.artifact.outputs.sha256 }}``
+          - Contents: an extracted CCTI application folder plus the bundled ``setup-my-claude.ps1`` resource.
+          - Delivery boundary: this is an interim portable ZIP. Microsoft Store publication remains the supported managed Windows channel.
+          "@ | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Remove generated build output
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item ../releases/test-builds/*.zip -Force -ErrorAction SilentlyContinue
+          Remove-Item ../releases/test-builds/*.sha256 -Force -ErrorAction SilentlyContinue
