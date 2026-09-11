@@ -32,9 +32,9 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          ref: ${{ inputs.source_tag || github.ref }}
+          fetch-depth: 0
 
-      - name: Validate requested source tag
+      - name: Prepare immutable runtime source
         if: inputs.source_tag != ''
         shell: bash
         env:
@@ -44,7 +44,16 @@ jobs:
             echo "source_tag must be an existing dated tag such as v2026.09.11." >&2
             exit 2
           }
-          git describe --exact-match --tags HEAD | grep -Fx "$SOURCE_TAG"
+          git rev-parse --verify --quiet "${SOURCE_TAG}^{commit}" >/dev/null || {
+            echo "source_tag was not found: $SOURCE_TAG" >&2
+            exit 2
+          }
+          git checkout "$SOURCE_TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1
+          git diff --quiet "$SOURCE_TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1 || {
+            echo "Runtime source does not exactly match $SOURCE_TAG." >&2
+            exit 2
+          }
+          printf 'Packaging runtime source: %s\n' "$(git rev-parse "${SOURCE_TAG}^{commit}")"
 
       - name: Set up Node 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

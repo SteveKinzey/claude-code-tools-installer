@@ -26,11 +26,11 @@ jobs:
         shell: bash
 
     steps:
-      - name: Check out the release tag
+      - name: Check out hardened release automation
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - id: release
         name: Validate release tag
@@ -47,7 +47,23 @@ jobs:
             echo "Use a dated tag such as v2026.09.09." >&2
             exit 2
           }
+          git rev-parse --verify --quiet "${tag}^{commit}" >/dev/null || {
+            echo "Release tag was not found: $tag" >&2
+            exit 2
+          }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse "${tag}^{commit}")" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare immutable runtime source
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git checkout "$TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1
+          git diff --quiet "$TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1 || {
+            echo "Runtime source does not exactly match $TAG." >&2
+            exit 2
+          }
+          printf 'Packaging runtime source: %s\n' "$(git rev-parse "${TAG}^{commit}")"
 
       - name: Set up Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -180,13 +196,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_COMMIT: ${{ steps.release.outputs.commit }}
           DMG: ${{ steps.artifact.outputs.dmg }}
           ZIP: ${{ steps.artifact.outputs.zip }}
           DMG_CHECKSUM: ${{ steps.checksums.outputs.dmg_checksum }}
           ZIP_CHECKSUM: ${{ steps.checksums.outputs.zip_checksum }}
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "$TAG" --generate-notes
+            gh release create "$TAG" --target "$SOURCE_COMMIT" --title "$TAG" --generate-notes
           gh release upload "$TAG" "$DMG" "$ZIP" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"
 
       - name: Upload release evidence
