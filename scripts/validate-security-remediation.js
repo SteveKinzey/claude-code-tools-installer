@@ -85,6 +85,11 @@ assert.match(pagesWorkflow, /deploy:[\s\S]*?permissions:\n\s+pages: write\n\s+id
 assert.doesNotMatch(macReleaseWorkflow, /\n  push:\n[\s\S]*?tags:/, 'The privileged macOS release workflow must not run automatically on tag pushes.');
 assert.match(macReleaseWorkflow, /workflow_dispatch:/, 'The privileged macOS release workflow must require manual dispatch.');
 assert.doesNotMatch(macReleaseWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'macOS release secrets must be scoped to consuming steps instead of the job.');
+assert.match(macReleaseWorkflow, /notary_auth=api_key/, 'macOS release workflow must support a complete App Store Connect API-key notarization set.');
+assert.match(macReleaseWorkflow, /notary_auth=apple_id/, 'macOS release workflow must support the managed Apple ID notarization secret set.');
+assert.match(macReleaseWorkflow, /APPLE_NOTARY_APP_PASSWORD/, 'macOS release workflow must scope the Apple ID notarization password to consuming steps.');
+assert.match(macReleaseWorkflow, /steps\.checksums\.outputs\.dmg_checksum/, 'macOS release workflow must publish a detached DMG SHA-256 checksum.');
+assert.match(macReleaseWorkflow, /steps\.checksums\.outputs\.zip_checksum/, 'macOS release workflow must publish a detached ZIP SHA-256 checksum.');
 assert.doesNotMatch(storeBundleWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'Store bundle secrets must be scoped to consuming steps instead of the job.');
 assert.doesNotMatch(storeWindowsTestWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'Store lifecycle test secrets must be scoped to consuming steps instead of the job.');
 assert.match(weeklySecurityWorkflow, /cron:\s*'23 8 \* \* 1'/, 'Weekly dependency security scanning must run every Monday.');
@@ -99,6 +104,9 @@ assert.match(codeqlWorkflow, /github\/codeql-action\/analyze@b96794f015dfd88f77b
 assert.match(codeqlWorkflow, /security-events: write/, 'CodeQL must have only the security-events write permission required to upload findings.');
 assert.match(codeqlWorkflow, /languages:\s*\$\{\{ matrix\.language \}\}/, 'CodeQL must analyze the configured JavaScript and TypeScript language matrix.');
 assert.match(storeBundleWorkflow, /test_mode:/, 'Store bundle workflow must offer a non-production CI test mode.');
+assert.match(storeBundleWorkflow, /source_tag:/, 'Store bundle workflow must support building an existing immutable source tag.');
+assert.match(storeBundleWorkflow, /ref:\s*\$\{\{ inputs\.source_tag \|\| github\.ref \}\}/, 'Store bundle workflow must check out the requested source tag when one is provided.');
+assert.match(storeBundleWorkflow, /git describe --exact-match --tags HEAD/, 'Store bundle workflow must verify the requested source tag resolves to the checked-out commit.');
 assert.match(storeBundleWorkflow, /CCTI\.LocalValidation/, 'Store bundle test mode must use a non-production fixture identity.');
 assert.match(storeBundleWorkflow, /store-test/, 'Store bundle test mode must label its artifact as a test artifact.');
 assert.match(storeBundleWorkflow, /secrets\.CCTI_APPX_IDENTITY_NAME/, 'Store bundle workflow must retain protected identity secrets for final candidates.');
@@ -109,6 +117,9 @@ assert.match(storeBundleWorkflow, /npm run dist:win:store:x64/, 'Store bundle wo
 assert.match(storeBundleWorkflow, /npm run dist:win:store:arm64/, 'Store bundle workflow must use the explicit ARM64 build script.');
 assert.match(storeWindowsTestWorkflow, /workflow_dispatch:/, 'Store MSIX test workflow must be manually dispatched.');
 assert.match(storeWindowsTestWorkflow, /test_mode:/, 'Clean-Windows workflow must offer a non-production CI test mode.');
+assert.match(storeWindowsTestWorkflow, /source_tag:/, 'Clean-Windows workflow must support testing an existing immutable source tag.');
+assert.match(storeWindowsTestWorkflow, /ref:\s*\$\{\{ inputs\.source_tag \|\| github\.ref \}\}/, 'Clean-Windows workflow must check out the requested source tag when one is provided.');
+assert.match(storeWindowsTestWorkflow, /git describe --exact-match --tags HEAD/, 'Clean-Windows workflow must verify the requested source tag resolves to the checked-out commit.');
 assert.match(storeWindowsTestWorkflow, /CCTI\.LocalValidation/, 'Clean-Windows test mode must use a non-production fixture identity.');
 assert.match(storeWindowsTestWorkflow, /secrets\.CCTI_APPX_IDENTITY_NAME/, 'Clean-Windows workflow must retain protected identity secrets for final candidates.');
 assert.doesNotMatch(storeWindowsTestWorkflow, /inputs\.(identity_name|publisher|publisher_display_name)/, 'Clean-Windows workflow must not accept Partner Center identity values through workflow dispatch.');

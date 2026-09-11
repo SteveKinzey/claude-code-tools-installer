@@ -8,6 +8,11 @@ on:
         required: false
         default: false
         type: boolean
+      source_tag:
+        description: "Optional existing source tag to build without retargeting the workflow"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -27,6 +32,19 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          ref: ${{ inputs.source_tag || github.ref }}
+
+      - name: Validate requested source tag
+        if: inputs.source_tag != ''
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          [[ "$SOURCE_TAG" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}$ ]] || {
+            echo "source_tag must be an existing dated tag such as v2026.09.11." >&2
+            exit 2
+          }
+          git describe --exact-match --tags HEAD | grep -Fx "$SOURCE_TAG"
 
       - name: Set up Node 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
