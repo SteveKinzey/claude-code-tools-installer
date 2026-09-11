@@ -92,8 +92,8 @@ assert.match(macReleaseWorkflow, /APPLE_NOTARY_APP_PASSWORD/, 'macOS release wor
 assert.match(macReleaseWorkflow, /steps\.checksums\.outputs\.dmg_checksum/, 'macOS release workflow must publish a detached DMG SHA-256 checksum.');
 assert.match(macReleaseWorkflow, /steps\.checksums\.outputs\.zip_checksum/, 'macOS release workflow must publish a detached ZIP SHA-256 checksum.');
 assert.match(macCandidateWorkflow, /source_tag:/, 'macOS candidate workflow must support building an existing immutable source tag.');
-assert.match(macCandidateWorkflow, /git checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must copy runtime files from the requested source tag.');
-assert.match(macCandidateWorkflow, /git diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must verify runtime files exactly match the requested source tag.');
+assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must copy runtime files from the requested source tag at repository root.');
+assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must verify runtime files exactly match the requested source tag at repository root.');
 assert.doesNotMatch(storeBundleWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'Store bundle secrets must be scoped to consuming steps instead of the job.');
 assert.doesNotMatch(storeWindowsTestWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'Store lifecycle test secrets must be scoped to consuming steps instead of the job.');
 assert.match(weeklySecurityWorkflow, /cron:\s*'23 8 \* \* 1'/, 'Weekly dependency security scanning must run every Monday.');
@@ -109,8 +109,8 @@ assert.match(codeqlWorkflow, /security-events: write/, 'CodeQL must have only th
 assert.match(codeqlWorkflow, /languages:\s*\$\{\{ matrix\.language \}\}/, 'CodeQL must analyze the configured JavaScript and TypeScript language matrix.');
 assert.match(storeBundleWorkflow, /test_mode:/, 'Store bundle workflow must offer a non-production CI test mode.');
 assert.match(storeBundleWorkflow, /source_tag:/, 'Store bundle workflow must support building an existing immutable source tag.');
-assert.match(storeBundleWorkflow, /git checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'Store bundle workflow must copy runtime files from the requested source tag.');
-assert.match(storeBundleWorkflow, /git diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'Store bundle workflow must verify runtime files exactly match the requested source tag.');
+assert.match(storeBundleWorkflow, /git -C "\$GITHUB_WORKSPACE" checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'Store bundle workflow must copy runtime files from the requested source tag at repository root.');
+assert.match(storeBundleWorkflow, /git -C "\$GITHUB_WORKSPACE" diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'Store bundle workflow must verify runtime files exactly match the requested source tag at repository root.');
 assert.match(storeBundleWorkflow, /CCTI\.LocalValidation/, 'Store bundle test mode must use a non-production fixture identity.');
 assert.match(storeBundleWorkflow, /store-test/, 'Store bundle test mode must label its artifact as a test artifact.');
 assert.match(storeBundleWorkflow, /secrets\.CCTI_APPX_IDENTITY_NAME/, 'Store bundle workflow must retain protected identity secrets for final candidates.');
@@ -122,8 +122,8 @@ assert.match(storeBundleWorkflow, /npm run dist:win:store:arm64/, 'Store bundle 
 assert.match(storeWindowsTestWorkflow, /workflow_dispatch:/, 'Store MSIX test workflow must be manually dispatched.');
 assert.match(storeWindowsTestWorkflow, /test_mode:/, 'Clean-Windows workflow must offer a non-production CI test mode.');
 assert.match(storeWindowsTestWorkflow, /source_tag:/, 'Clean-Windows workflow must support testing an existing immutable source tag.');
-assert.match(storeWindowsTestWorkflow, /git checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'Clean-Windows workflow must copy runtime files from the requested source tag.');
-assert.match(storeWindowsTestWorkflow, /git diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'Clean-Windows workflow must verify runtime files exactly match the requested source tag.');
+assert.match(storeWindowsTestWorkflow, /git -C "\$GITHUB_WORKSPACE" checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'Clean-Windows workflow must copy runtime files from the requested source tag at repository root.');
+assert.match(storeWindowsTestWorkflow, /git -C "\$GITHUB_WORKSPACE" diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'Clean-Windows workflow must verify runtime files exactly match the requested source tag at repository root.');
 assert.match(storeWindowsTestWorkflow, /CCTI\.LocalValidation/, 'Clean-Windows test mode must use a non-production fixture identity.');
 assert.match(storeWindowsTestWorkflow, /secrets\.CCTI_APPX_IDENTITY_NAME/, 'Clean-Windows workflow must retain protected identity secrets for final candidates.');
 assert.doesNotMatch(storeWindowsTestWorkflow, /inputs\.(identity_name|publisher|publisher_display_name)/, 'Clean-Windows workflow must not accept Partner Center identity values through workflow dispatch.');
