@@ -5,16 +5,18 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const desktopPath = path.join(root, 'desktop');
+const readWorkflowText = (filePath) => fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n');
 const packageJson = JSON.parse(fs.readFileSync(path.join(desktopPath, 'package.json'), 'utf8'));
 const lockfile = JSON.parse(fs.readFileSync(path.join(desktopPath, 'package-lock.json'), 'utf8'));
-const dependabotConfig = fs.readFileSync(path.join(root, '.github', 'dependabot.yml'), 'utf8');
-const dependencyReviewWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'dependency-review.yml'), 'utf8');
-const storeBundleWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build-windows-store-msix.yml'), 'utf8');
-const storeWindowsTestWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'test-windows-msix-clean-install.yml'), 'utf8');
-const pagesWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'deploy-field-guide-pages.yml'), 'utf8');
-const fieldGuideHealthWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'field-guide-health-check.yml'), 'utf8');
-const macReleaseWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml'), 'utf8');
-const weeklySecurityWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'weekly-dependency-security.yml'), 'utf8');
+const dependabotConfig = readWorkflowText(path.join(root, '.github', 'dependabot.yml'));
+const dependencyReviewWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'dependency-review.yml'));
+const storeBundleWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'build-windows-store-msix.yml'));
+const storeWindowsTestWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'test-windows-msix-clean-install.yml'));
+const pagesWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'deploy-field-guide-pages.yml'));
+const fieldGuideHealthWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'field-guide-health-check.yml'));
+const macReleaseWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml'));
+const weeklySecurityWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'weekly-dependency-security.yml'));
+const codeqlWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'codeql.yml'));
 const minimumNode = '22.12.0';
 
 function versionParts(version) {
@@ -40,13 +42,13 @@ assert.match(packageJson.scripts?.['security:check'] || '', /npm audit --audit-l
 const workflows = fs.readdirSync(path.join(root, '.github', 'workflows'))
   .filter((name) => /\.ya?ml$/i.test(name))
   .map((name) => path.join(root, '.github', 'workflows', name));
-const desktopWorkflows = workflows.filter((workflowPath) => fs.readFileSync(workflowPath, 'utf8').includes('working-directory: desktop'));
+const desktopWorkflows = workflows.filter((workflowPath) => readWorkflowText(workflowPath).includes('working-directory: desktop'));
 assert.ok(desktopWorkflows.length > 0, 'At least one desktop CI workflow must exist.');
 
-const checkoutWorkflows = workflows.filter((workflowPath) => fs.readFileSync(workflowPath, 'utf8').includes('actions/checkout@'));
+const checkoutWorkflows = workflows.filter((workflowPath) => readWorkflowText(workflowPath).includes('actions/checkout@'));
 assert.ok(checkoutWorkflows.length > 0, 'At least one workflow must check out repository source.');
 for (const workflowPath of workflows) {
-  const contents = fs.readFileSync(workflowPath, 'utf8');
+  const contents = readWorkflowText(workflowPath);
   const filename = path.basename(workflowPath);
   const actionReferences = contents.match(/^\s*uses:\s+[^\s]+/gm) || [];
   for (const reference of actionReferences) {
@@ -58,7 +60,7 @@ for (const workflowPath of workflows) {
 }
 
 for (const workflowPath of desktopWorkflows) {
-  const contents = fs.readFileSync(workflowPath, 'utf8');
+  const contents = readWorkflowText(workflowPath);
   const filename = path.basename(workflowPath);
   assert.match(contents, /node-version:\s*['"]?22\.12\.0['"]?/, `${filename} must pin Node ${minimumNode}.`);
   assert.doesNotMatch(contents, /npm install/, `${filename} must use lockfile-deterministic npm ci instead of npm install.`);
@@ -90,6 +92,12 @@ assert.match(weeklySecurityWorkflow, /npm ci --ignore-scripts/, 'Weekly dependen
 assert.match(weeklySecurityWorkflow, /npm audit --audit-level=high/, 'Weekly dependency security scanning must fail on high or critical findings.');
 assert.match(weeklySecurityWorkflow, /retention-days:\s*30/, 'Weekly vulnerability reports must have bounded retention.');
 assert.match(weeklySecurityWorkflow, /contents: read/, 'Weekly security scanning must use a read-only token.');
+assert.match(codeqlWorkflow, /pull_request:/, 'CodeQL must scan pull requests before merge.');
+assert.match(codeqlWorkflow, /cron:\s*'41 8 \* \* 1'/, 'CodeQL must run on the established weekly schedule.');
+assert.match(codeqlWorkflow, /github\/codeql-action\/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63/, 'CodeQL initialization must use the pinned reviewed action revision.');
+assert.match(codeqlWorkflow, /github\/codeql-action\/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63/, 'CodeQL analysis must use the pinned reviewed action revision.');
+assert.match(codeqlWorkflow, /security-events: write/, 'CodeQL must have only the security-events write permission required to upload findings.');
+assert.match(codeqlWorkflow, /languages:\s*\$\{\{ matrix\.language \}\}/, 'CodeQL must analyze the configured JavaScript and TypeScript language matrix.');
 assert.match(storeBundleWorkflow, /test_mode:/, 'Store bundle workflow must offer a non-production CI test mode.');
 assert.match(storeBundleWorkflow, /CCTI\.LocalValidation/, 'Store bundle test mode must use a non-production fixture identity.');
 assert.match(storeBundleWorkflow, /store-test/, 'Store bundle test mode must label its artifact as a test artifact.');
@@ -111,4 +119,4 @@ assert.match(storeWindowsTestWorkflow, /Add-AppxPackage/, 'Store MSIX test workf
 assert.match(storeWindowsTestWorkflow, /Remove-AppxPackage/, 'Store MSIX test workflow must validate package removal.');
 assert.ok(!workflows.some((workflowPath) => /build-windows-signed-/i.test(path.basename(workflowPath))), 'Obsolete alternate Windows distribution workflows must not be present.');
 
-console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}, Dependabot policy, pull-request dependency review, and Microsoft Store MSIX clean-install verification.`);
+console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}, Dependabot policy, pull-request dependency review, CodeQL scanning, and Microsoft Store MSIX clean-install verification.`);

@@ -4,7 +4,7 @@
 
 ## Executive Summary
 
-The audit reviewed nine existing GitHub Actions workflows and remediated the four actionable workflow risks found: mutable third-party action tags, checkout credential persistence, workflow-wide Pages write permissions, and a `workflow_run` trigger that executed repository scripts before the review could prove an isolated trust boundary. A new weekly locked-dependency and vulnerability scan now supplements the existing Dependabot policy and pull-request dependency review. All workflow actions are pinned to full commit SHAs, checkout credentials are disabled, sensitive values are scoped only to their consuming steps, and the Pages write and OIDC permissions are limited to the jobs that use them.
+The audit reviewed GitHub Actions workflows and remediated the actionable workflow risks found: mutable third-party action tags, checkout credential persistence, workflow-wide Pages write permissions, and a `workflow_run` trigger that executed repository scripts before the review could prove an isolated trust boundary. A weekly locked-dependency and vulnerability scan now supplements the existing Dependabot policy and pull-request dependency review. A pinned CodeQL workflow scans the JavaScript and TypeScript sources on pull requests, relevant main-branch pushes, weekly schedule, and manual dispatch. All workflow actions are pinned to full commit SHAs, checkout credentials are disabled, sensitive values are scoped only to their consuming steps, and the Pages write and OIDC permissions are limited to the jobs that use them.
 
 The local package audit found **zero known npm vulnerabilities** in both production-only and full dependency trees. GitHub Advanced Security alert lists could not be queried because the configured GitHub integration lacks the required alert-read scope. That limitation is recorded as **not assessed**, rather than treated as a clean alert state. The public repository’s default Actions token is read-only, which is appropriate; its `main` branch has no protection rule or ruleset, which remains the principal repository-level control gap.
 
@@ -20,7 +20,9 @@ The local package audit found **zero known npm vulnerabilities** in both product
 | Secret value scanning | No values exposed in source | No credential values are present in workflows or scripts; secret references are named only. |
 | npm production dependency scan | Passed | `npm audit --omit=dev` found 0 vulnerabilities. |
 | npm full dependency scan | Passed | `npm audit` found 0 vulnerabilities. |
-| Dependabot, code-scanning, and secret-scanning alert state | Not assessed | The GitHub integration returned HTTP 403 for alert-list endpoints. |
+| Dependabot alert state | Passed | Owner-authenticated GitHub review showed **0 open** alerts and 2 closed alerts. |
+| Code-scanning workflow | Implemented | Pinned CodeQL scans JavaScript and TypeScript; first workflow result is required before treating its alert queue as assessed. |
+| Secret-scanning alert state | Not assessed | The GitHub integration returned HTTP 403 for alert-list endpoints. |
 
 ## Remediated Findings
 
@@ -74,6 +76,7 @@ The local package audit found **zero known npm vulnerabilities** in both product
 | Dependabot GitHub Actions updates | Weekly | Opens CI update pull requests against `main`. |
 | Dependency review | Pull requests changing dependencies or workflows | Blocks new high-severity findings across development, runtime, and unknown scopes. |
 | Weekly dependency and security scan | Monday at 08:23 UTC and manual dispatch | Installs the locked dependency graph without lifecycle scripts, validates the workflow security contract, runs `npm audit`, and retains the JSON report for 30 days. |
+| CodeQL code scanning | Pull requests, relevant `main` pushes, Monday at 08:41 UTC, and manual dispatch | Uploads JavaScript and TypeScript findings with only `security-events: write` permission. |
 | Security contract | Local check and CI | Fails on unpinned workflow actions, persisted checkout credentials, invalid workflow permissions, unsafe triggers, or missing scheduled security scans. |
 | GitHub secret scanning and push protection | Repository feature | Enabled according to repository metadata. |
 
@@ -82,7 +85,8 @@ The local package audit found **zero known npm vulnerabilities** in both product
 | Priority | Control gap | Recommended owner action |
 |---|---|---|
 | High | `main` has no branch protection rule or ruleset. | Require pull requests, one approving review, passing dependency review, passing weekly scan when relevant, and prohibit force pushes/deletions. |
-| High | GitHub alert endpoints were inaccessible to the configured integration. | Review Dependabot, code-scanning, and secret-scanning alert queues in repository Settings or grant alert-read capability to the auditing integration. |
+| High | CodeQL is newly configured and has not yet produced its first alert scan. | Require its first successful run, then review and triage the CodeQL queue before considering the code-scanning surface assessed. |
+| High | Secret-scanning alert endpoints were inaccessible to the configured integration. | Review the secret-scanning queue in repository Settings or grant alert-read capability to the auditing integration. |
 | Medium | `msix-store-release` has no approval rule. | Before adding production Partner Center secrets, require a named reviewer and disable administrator bypass where operationally feasible. |
 | Medium | macOS release secrets could not be inventoried through the configured integration. | Confirm the required signing secrets reside only in GitHub Actions secrets, rotate any secret exposed outside the approved secret manager, and use an environment with required reviewers for production releases. |
 | Low | The npm tree contains deprecated transitive packages but no current audit finding. | Continue updating Electron/electron-builder release lines via reviewed Dependabot pull requests. |
