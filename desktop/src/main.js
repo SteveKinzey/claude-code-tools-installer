@@ -341,8 +341,44 @@ async function readCatalogDetails() {
   return JSON.parse(await fs.readFile(catalogDetailsResource(), 'utf8'));
 }
 
+function normalizedPluginId(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function pluginIdsFromList(stdout) {
+  return String(stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim().split(/\s+/)[0])
+    .filter(Boolean)
+    .map(normalizedPluginId);
+}
+
+function pluginIsInstalled(installedIds, requestedId) {
+  const requested = normalizedPluginId(requestedId);
+  const requestedName = requested.split('@')[0];
+  return installedIds.some((installed) => installed === requested || installed === requestedName || installed.startsWith(`${requested}@`) || installed.startsWith(`${requestedName}@`));
+}
+
+async function installedClaudePluginIds() {
+  const claude = await claudeStatus();
+  if (!claude.installed) return [];
+  try {
+    const result = await runProcess('claude', ['plugin', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 8000 });
+    return result.code === 0 ? pluginIdsFromList(result.stdout) : [];
+  } catch {
+    return [];
+  }
+}
+
 async function installReviewedPlugins(selectedIds) {
+  const installedIds = await installedClaudePluginIds();
   for (const id of selectedIds) {
+    const installAction = (reviewedPluginPlans[id] || []).find((args) => args[0] === 'plugin' && args[1] === 'install');
+    const requestedPlugin = installAction?.[2];
+    if (requestedPlugin && pluginIsInstalled(installedIds, requestedPlugin)) {
+      emit('installer:output', { stream: 'stdout', text: `[CCTI] Did not add ${id}: ${requestedPlugin} is already available in Claude Code.\n` });
+      continue;
+    }
     for (const args of reviewedPluginPlans[id] || []) {
       emit('installer:output', { stream: 'stdout', text: `[CCTI] Running reviewed plugin action: claude ${args.join(' ')}\n` });
       const result = await runProcess('claude', args, { cwd: app.getPath('home'), env: claudeProcessEnv() });
@@ -1178,8 +1214,9 @@ async function listSkillsAt(rootPath, scope) {
       if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
       const skillPath = path.join(skillRoot, entry.name);
       try {
-        await fs.access(path.join(skillPath, 'SKILL.md'));
-        skills.push({ id: `skill:${skillPath}`, type: 'skill', name: entry.name, scope, path: skillPath, description: 'A saved set of instructions for Claude Code.' });
+        const skillFile = path.join(skillPath, 'SKILL.md');
+        const metadata = await fs.stat(skillFile);
+        skills.push({ id: `skill:${skillPath}`, type: 'skill', name: entry.name, scope, path: skillPath, updatedAt: metadata.mtime.toISOString(), description: 'A saved set of instructions for Claude Code.' });
       } catch {
         // A folder without SKILL.md is not presented as an installed skill.
       }
@@ -1189,6 +1226,14 @@ async function listSkillsAt(rootPath, scope) {
     if (error.code === 'ENOENT') return [];
     return [{ id: `skill-root:${skillRoot}`, type: 'attention', name: 'Skills folder needs attention', scope, path: skillRoot, description: 'The app could not read this skills folder. It did not change anything.' }];
   }
+}
+
+async function installedSkillsMatching(skillName, projectPath = '') {
+  const normalizedName = normalizedFindingName(skillName);
+  const locations = [{ root: app.getPath('home'), scope: 'Just you' }];
+  if (projectPath) locations.push({ root: projectPath, scope: 'This project' });
+  const skills = (await Promise.all(locations.map(({ root, scope }) => listSkillsAt(root, scope)))).flat();
+  return skills.filter((item) => item.type === 'skill' && normalizedFindingName(item.name) === normalizedName);
 }
 
 function settingsFindings(json, filePath, scope) {
@@ -1322,11 +1367,12 @@ async function reviewCustomAddOn({ source, scope, projectPath }) {
   const cleanSource = String(source || '').trim();
   const cleanScope = ['user', 'project'].includes(scope) ? scope : 'user';
   let resolvedProject = '';
-  if (cleanScope === 'project') {
+  const requestedProjectPath = String(projectPath || '').trim();
+  if (cleanScope === 'project' || requestedProjectPath) {
     try {
-      resolvedProject = await validateSetupProjectFolder(projectPath);
+      resolvedProject = await validateSetupProjectFolder(requestedProjectPath);
     } catch (error) {
-      return { ok: false, error: error.message };
+      if (cleanScope === 'project') return { ok: false, error: error.message };
     }
   }
   if (!cleanSource) return { ok: false, error: 'Choose a folder or enter a trusted marketplace source first.' };
@@ -1351,6 +1397,20 @@ async function reviewCustomAddOn({ source, scope, projectPath }) {
       await fs.access(path.join(sourcePath, 'SKILL.md'));
       const root = cleanScope === 'user' ? app.getPath('home') : resolvedProject;
       const destination = path.join(root, '.claude', 'skills', path.basename(sourcePath));
+      const existing = await installedSkillsMatching(path.basename(sourcePath), resolvedProject);
+      if (existing.length > 0) {
+        return {
+          ok: true,
+          blocked: true,
+          kind: 'duplicate-skill',
+          name: path.basename(sourcePath),
+          source: sourcePath,
+          scope: cleanScope,
+          destination,
+          existing,
+          description: `CCTI did not add ${path.basename(sourcePath)} because this skill is already available in Claude Code.`,
+        };
+      }
       return { ok: true, kind: 'skill-copy', source: sourcePath, scope: cleanScope, destination, description: 'Copies this local skill folder into the selected Claude Code scope. The original folder stays where it is.' };
     } catch {
       try {
@@ -1368,10 +1428,13 @@ async function reviewCustomAddOn({ source, scope, projectPath }) {
 async function applyCustomAddOn(payload) {
   const review = await reviewCustomAddOn(payload);
   if (!review.ok) return review;
+  if (review.kind === 'duplicate-skill' || review.blocked) {
+    return { ok: false, code: 'already-available', error: review.description, name: review.name, existing: review.existing || [] };
+  }
   if (review.kind === 'skill-copy') {
     try {
       await fs.access(review.destination);
-      return { ok: false, error: 'A skill folder with that name already exists in the selected scope. Review your installed items before adding another copy.' };
+      return { ok: false, code: 'already-available', error: `CCTI did not add ${path.basename(review.destination)} because this skill is already available in Claude Code.` };
     } catch {
       await fs.mkdir(path.dirname(review.destination), { recursive: true });
       await fs.cp(review.source, review.destination, { recursive: true, errorOnExist: true });

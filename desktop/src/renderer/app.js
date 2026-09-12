@@ -69,6 +69,9 @@ const setupManagerResultsElement = document.querySelector('#setup-manager-result
 const managerProjectNoteElement = document.querySelector('#manager-project-note');
 const duplicateReviewElement = document.querySelector('#duplicate-review');
 const duplicateReviewListElement = document.querySelector('#duplicate-review-list');
+const duplicateSkillDialogElement = document.querySelector('#duplicate-skill-dialog');
+const duplicateSkillDialogCopyElement = document.querySelector('#duplicate-skill-dialog-copy');
+const duplicateSkillDialogListElement = document.querySelector('#duplicate-skill-dialog-list');
 const customAddOnSourceElement = document.querySelector('#custom-addon-source');
 const customAddOnScopeElement = document.querySelector('#custom-addon-scope');
 const customAddOnOutputElement = document.querySelector('#custom-addon-output');
@@ -1183,6 +1186,52 @@ async function installProjectComponents() {
   }
 }
 
+function localSkillDate(item) {
+  const date = new Date(item.updatedAt || '');
+  return Number.isNaN(date.getTime()) ? 'Last edited date unavailable' : `Last edited ${date.toLocaleString()}`;
+}
+
+function openDuplicateSkillDialog(duplicates, { additionBlocked = false } = {}) {
+  const skillGroups = (Array.isArray(duplicates) ? duplicates : []).filter((duplicate) => duplicate.type === 'skill' && duplicate.items?.length > 1);
+  if (!skillGroups.length || typeof duplicateSkillDialogElement?.showModal !== 'function') return;
+
+  duplicateSkillDialogCopyElement.textContent = additionBlocked
+    ? 'CCTI did not add another copy because this skill is already available in Claude Code. Choose an older local copy only if you want to move it to a backup. Nothing is deleted automatically.'
+    : 'CCTI found skills with the same name in more than one Claude Code location. Use the last-edited dates only to identify a possible older copy; CCTI cannot determine which version you still need. Nothing is deleted automatically.';
+  duplicateSkillDialogListElement.replaceChildren();
+
+  for (const duplicate of skillGroups) {
+    const group = document.createElement('article');
+    group.className = 'duplicate-skill-dialog-item';
+    const heading = document.createElement('h3');
+    heading.textContent = duplicate.name;
+    const copy = document.createElement('p');
+    copy.textContent = 'Review each copy before moving one to backup.';
+    group.append(heading, copy);
+
+    const orderedItems = [...duplicate.items].sort((left, right) => new Date(left.updatedAt || 0) - new Date(right.updatedAt || 0));
+    orderedItems.forEach((item, index) => {
+      const location = document.createElement('div');
+      location.className = 'duplicate-skill-dialog-location';
+      const label = document.createElement('span');
+      label.textContent = `${index === 0 ? 'Older local copy by date' : 'Another local copy'} · ${item.scope} · ${localSkillDate(item)}\n${item.path}`;
+      const moveButton = document.createElement('button');
+      moveButton.type = 'button';
+      moveButton.className = 'button button-ghost';
+      moveButton.textContent = 'Move this copy to backup';
+      moveButton.addEventListener('click', async () => {
+        duplicateSkillDialogElement.close();
+        await reviewAndApplyCleanup(item);
+      });
+      location.append(label, moveButton);
+      group.append(location);
+    });
+    duplicateSkillDialogListElement.append(group);
+  }
+
+  if (!duplicateSkillDialogElement.open) duplicateSkillDialogElement.showModal();
+}
+
 function renderSetupManager(report) {
   state.managerReport = report;
   const items = Array.isArray(report?.findings) ? report.findings : [];
@@ -1282,6 +1331,7 @@ async function scanSetup() {
   duplicateReviewElement.classList.add('is-hidden');
   const result = await window.installer.discoverSetup({ projectPath: state.managerProjectPath });
   renderSetupManager(result);
+  openDuplicateSkillDialog(result.duplicates);
 }
 
 async function chooseManagerProject() {
@@ -1334,6 +1384,17 @@ async function reviewCustomAddOn() {
     applyCustomAddOnButton.disabled = true;
     customAddOnOutputElement.textContent = result.error;
     customAddOnOutputElement.classList.add('has-error');
+    return;
+  }
+  if (result.blocked && result.kind === 'duplicate-skill') {
+    state.customAddOnReview = null;
+    applyCustomAddOnButton.disabled = true;
+    customAddOnOutputElement.classList.add('has-error');
+    const locations = (result.existing || []).map((item) => `• ${item.scope}: ${item.path}`).join('\n');
+    customAddOnOutputElement.textContent = `${result.description}\n\nAvailable here:\n${locations || 'A Claude Code skill location found by CCTI.'}\n\nCCTI will not add a duplicate.`;
+    if ((result.existing || []).length > 1) {
+      openDuplicateSkillDialog([{ name: result.name, type: 'skill', items: result.existing }], { additionBlocked: true });
+    }
     return;
   }
   state.customAddOnReview = result;

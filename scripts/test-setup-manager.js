@@ -12,6 +12,8 @@ const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-setup-manager-tes
 const home = path.join(tempRoot, 'home');
 const project = path.join(tempRoot, 'project');
 const sourceSkill = path.join(tempRoot, 'my-skill');
+const duplicateSourceSkill = path.join(tempRoot, 'duplicate-skill');
+const fakeClaudeLog = path.join(tempRoot, 'fake-claude.log');
 const handlers = new Map();
 let readyCallback;
 let saveDialogResult = { canceled: true, filePath: '' };
@@ -62,8 +64,23 @@ async function run() {
   await writeSkill(path.join(home, '.claude', 'skills', 'duplicate-skill'), 'Duplicate');
   await writeSkill(path.join(project, '.claude', 'skills', 'duplicate-skill'), 'Duplicate');
   await writeSkill(sourceSkill, 'My skill');
+  await writeSkill(duplicateSourceSkill, 'Duplicate source');
   await fsp.mkdir(path.join(home, '.claude'), { recursive: true });
   await fsp.writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: { 'review-tool@marketplace': true } }), 'utf8');
+  if (process.platform !== 'win32') {
+    const fakeClaudePath = path.join(home, '.local', 'bin', 'claude');
+    const fakeClaudeContents = [
+      '#!/bin/sh',
+      `printf '%s\\n' "$*" >> ${JSON.stringify(fakeClaudeLog)}`,
+      'if [ "$1" = "--version" ]; then echo "claude test"; exit 0; fi',
+      'if [ "$1" = "plugin" ] && [ "$2" = "list" ]; then echo "frontend-design@claude-plugins-official enabled"; exit 0; fi',
+      'if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then exit 0; fi',
+      'exit 0',
+      '',
+    ].join('\n');
+    await fsp.mkdir(path.dirname(fakeClaudePath), { recursive: true });
+    await fsp.writeFile(fakeClaudePath, fakeClaudeContents, { mode: 0o755 });
+  }
 
   require(path.join(root, 'desktop', 'src', 'main.js'));
   await readyCallback();
@@ -75,6 +92,7 @@ async function run() {
   const applyCleanup = handlers.get('setup-manager:apply-cleanup');
   const reviewPluginChange = handlers.get('setup-manager:review-plugin-change');
   const applyPluginChange = handlers.get('setup-manager:apply-plugin-change');
+  const runInstall = handlers.get('install:run');
   const previewComponents = handlers.get('components:preview');
   const reviewAppUninstall = handlers.get('app:review-uninstall');
   const exportInstallationManifest = handlers.get('app:export-installation-manifest');
@@ -85,7 +103,7 @@ async function run() {
   const compareInstallationManifests = handlers.get('app:compare-installation-manifests');
   const applyAppUninstall = handlers.get('app:apply-uninstall');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && verifyDroppedInstallationManifest && compareInstallationManifests && applyAppUninstall, 'all handlers including app uninstall and manifest verification should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && runInstall && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && verifyDroppedInstallationManifest && compareInstallationManifests && applyAppUninstall, 'all handlers including app uninstall and manifest verification should be registered');
 
   const componentCatalog = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
   const componentPreview = await previewComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id] });
@@ -114,8 +132,33 @@ async function run() {
   assert.equal(report.duplicates.length, 1);
   const userSkill = report.findings.find((item) => item.type === 'skill' && item.scope === 'Just you');
   assert.ok(userSkill, 'the user skill should be found');
+  assert.match(userSkill.updatedAt, /^\d{4}-\d{2}-\d{2}T/, 'discovered skills should expose their SKILL.md last-edited time for a user-reviewed cleanup choice');
   const userPlugin = report.findings.find((item) => item.type === 'plugin' && item.scope === 'Just you');
   assert.ok(userPlugin, 'a user-scope plugin should be found');
+
+  const duplicateReview = await reviewCustom(null, { source: duplicateSourceSkill, scope: 'user', projectPath: project });
+  assert.equal(duplicateReview.ok, true, 'a duplicate review should complete without copying anything');
+  assert.equal(duplicateReview.blocked, true, 'CCTI must block a duplicate skill before approval');
+  assert.equal(duplicateReview.kind, 'duplicate-skill');
+  assert.equal(duplicateReview.name, 'duplicate-skill');
+  assert.equal(duplicateReview.existing.length, 2, 'duplicate review should identify both installed Claude Code copies');
+  assert.match(duplicateReview.description, /already available in Claude Code/i);
+  const blockedDuplicate = await applyCustom(null, { source: duplicateSourceSkill, scope: 'user', projectPath: project });
+  assert.equal(blockedDuplicate.ok, false, 'CCTI must never copy a duplicate skill');
+  assert.equal(blockedDuplicate.code, 'already-available');
+  await fsp.access(path.join(duplicateSourceSkill, 'SKILL.md'));
+  await fsp.access(path.join(home, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'));
+  await fsp.access(path.join(project, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'));
+
+  if (process.platform !== 'win32') {
+    await fsp.writeFile(fakeClaudeLog, '', 'utf8');
+    const duplicatePluginResult = await runInstall(null, { selectedIds: ['frontend-design'], dryRun: false });
+    assert.equal(duplicatePluginResult.ok, true, 'the catalog action should complete after safely skipping an installed plugin');
+    const fakeClaudeCalls = await fsp.readFile(fakeClaudeLog, 'utf8');
+    assert.match(fakeClaudeCalls, /plugin list/, 'CCTI should check the installed Claude Code plugins first');
+    assert.doesNotMatch(fakeClaudeCalls, /plugin install|plugin marketplace add/, 'CCTI must not reinstall an already available curated plugin or repeat its marketplace add command');
+  }
+
   const forgedPlugin = await reviewPluginChange(null, { discoveryId: report.discoveryId, findingId: 'plugin:/etc', action: 'disable' });
   assert.equal(forgedPlugin.ok, false);
   const pluginPlan = await reviewPluginChange(null, { discoveryId: report.discoveryId, findingId: userPlugin.id, action: 'disable' });

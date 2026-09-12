@@ -130,7 +130,7 @@
             </label>
             <button id="review-custom-addon-button" class="button button-secondary" type="button">Review this add-on</button>
           </div>
-          <pre id="custom-addon-output" class="component-plan-output">Nothing has been added. Review a folder or trusted source first.</pre>
+          <pre id="custom-addon-output" class="component-plan-output" role="status" aria-live="polite">Nothing has been added. Review a folder or trusted source first.</pre>
           <button id="apply-custom-addon-button" class="button button-primary" type="button" disabled>Add after review</button>
         </section>
       </section>
@@ -341,6 +341,18 @@
       </div>
     </aside>
     <button id="compass-toggle" class="compass-toggle" type="button" aria-label="Open Compass tool advisor">?</button>
+
+    <dialog id="duplicate-skill-dialog" class="duplicate-skill-dialog" aria-labelledby="duplicate-skill-dialog-heading" aria-describedby="duplicate-skill-dialog-copy">
+      <form method="dialog" class="duplicate-skill-dialog-content">
+        <p class="eyebrow">SKILL CHECKUP</p>
+        <h2 id="duplicate-skill-dialog-heading">Review duplicate skills</h2>
+        <p id="duplicate-skill-dialog-copy">CCTI did not add another copy. Choose a listed skill only if you want to move the older local copy to a backup. Nothing is deleted automatically.</p>
+        <div id="duplicate-skill-dialog-list" class="duplicate-skill-dialog-list"></div>
+        <div class="duplicate-skill-dialog-actions">
+          <button id="close-duplicate-skill-dialog" class="button button-secondary" type="submit">Keep all copies</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="../project-interview.js"></script>
     <script src="app.js"></script>

@@ -470,8 +470,12 @@ function Install-Skill {
     [string]$ItemId
   )
   $dest = Join-Path $HOME ".claude\skills\$Skill"
-  if (Test-Path $dest) {
-    Write-Log "Existing skill detected: $dest"
+  if (Test-Path (Join-Path $dest "SKILL.md")) {
+    Write-Log "CCTI did not add '$Skill': this skill is already available in Claude Code at $dest."
+    return
+  }
+  elseif (Test-Path $dest) {
+    Write-Log "CCTI did not add '$Skill': a folder already uses this Claude Code skill name at $dest. Review it before adding a copy."
     return
   }
   Invoke-Logged npx @("-y", "skills", "add", $Repo, "--skill", $Skill, "--agent", "claude-code")

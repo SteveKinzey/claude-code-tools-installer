@@ -7,6 +7,8 @@ const html = fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'inde
 const renderer = fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'app.js'), 'utf8');
 const preload = fs.readFileSync(path.join(root, 'desktop', 'src', 'preload.js'), 'utf8');
 const main = fs.readFileSync(path.join(root, 'desktop', 'src', 'main.js'), 'utf8');
+const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'));
+const duplicateUiTestPath = path.join(root, 'scripts', 'test-duplicate-skill-ui.js');
 
 const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]));
 const selectorIds = new Set([...renderer.matchAll(/querySelector\(['"]#([^'"]+)['"]\)/g)].map((match) => match[1]));
@@ -159,6 +161,23 @@ if (!renderer.includes("setAttribute('role', 'switch')") || !renderer.includes("
 }
 if (!main.includes('const reviewedPluginPlans') || !main.includes('const reviewedPluginIds') || !main.includes('installReviewedPlugins(reviewedPluginIds)') || !main.includes("runProcess('claude', args")) {
   throw new Error('Supported fixed plugin choices must run inside CCTI after the approved tool plan succeeds.');
+}
+if (!main.includes('async function installedSkillsMatching') || !main.includes("kind: 'duplicate-skill'") || !main.includes("code: 'already-available'")) {
+  throw new Error('Custom skill additions must stop before copying a skill already available in Claude Code.');
+}
+if (!main.includes('async function installedClaudePluginIds') || !main.includes('pluginIsInstalled(installedIds, requestedPlugin)')) {
+  throw new Error('Curated plugin installs must skip plugins Claude Code already reports as installed.');
+}
+if (!html.includes('id="duplicate-skill-dialog"') || !renderer.includes('Move this copy to backup') || !renderer.includes('function openDuplicateSkillDialog') || !renderer.includes('CCTI did not add another copy')) {
+  throw new Error('Duplicate skills must open a review-first dialog with reversible backup actions.');
+}
+if (!fs.existsSync(duplicateUiTestPath) || !desktopPackage.scripts?.['duplicate-skill-ui:check']?.includes('test-duplicate-skill-ui.js') || !desktopPackage.scripts?.check?.includes('duplicate-skill-ui:check')) {
+  throw new Error('The complete desktop suite must exercise the rendered duplicate-skill dialog and backup prompt.');
+}
+for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
+  if (!fs.readFileSync(path.join(root, adapter), 'utf8').includes('this skill is already available in Claude Code')) {
+    throw new Error(`${adapter} must explain that CCTI skipped an existing Claude Code skill instead of silently adding a duplicate.`);
+  }
 }
 const catalog = fs.readFileSync(path.join(root, 'desktop', 'catalog.json'), 'utf8');
 if (!catalog.includes('"prerequisites":["Node.js","Git","Bun"]') || !renderer.includes('CCTI will check and prepare:') || !renderer.includes('Preparing prerequisites and installing selected tools')) {

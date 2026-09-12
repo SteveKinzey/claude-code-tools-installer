@@ -488,8 +488,11 @@ clone_or_update() {
 install_skill() {
   local repo="$1" skill="$2" item="$3"
   local dest="${HOME}/.claude/skills/${skill}"
-  if already_path "$dest"; then
-    log "Existing skill detected: $dest"
+  if [[ -f "$dest/SKILL.md" ]]; then
+    log "CCTI did not add '$skill': this skill is already available in Claude Code at $dest."
+    return 0
+  elif already_path "$dest"; then
+    log "CCTI did not add '$skill': a folder already uses this Claude Code skill name at $dest. Review it before adding a copy."
     return 0
   fi
   run_cmd npx -y skills add "$repo" --skill "$skill" --agent claude-code

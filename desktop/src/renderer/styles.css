@@ -160,6 +160,19 @@ h3 { margin: 0; font-size: 1rem; }
 .duplicate-group p { margin: 0 0 10px; color: #decda8; font-size: 0.82rem; line-height: 1.45; }
 .duplicate-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid #4e402a; color: #b9cfe1; font: 0.74rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
 .duplicate-row .button { flex: 0 0 auto; font-family: inherit; }
+.duplicate-skill-dialog { width: min(680px, calc(100vw - 48px)); max-height: min(720px, calc(100vh - 48px)); padding: 0; overflow: auto; border: 1px solid #a17a3d; border-radius: 14px; background: #111c2e; color: #e9f1ff; box-shadow: 0 24px 80px #000c; }
+.duplicate-skill-dialog::backdrop { background: #020713b8; }
+.duplicate-skill-dialog-content { display: grid; gap: 12px; padding: 24px; }
+.duplicate-skill-dialog h2 { margin: 0; color: #ffe4a6; font-size: 1.25rem; }
+.duplicate-skill-dialog-content > p:not(.eyebrow) { margin: 0; color: #c6d6e8; line-height: 1.5; }
+.duplicate-skill-dialog-list { display: grid; gap: 12px; max-height: 400px; overflow: auto; padding: 3px; }
+.duplicate-skill-dialog-item { padding: 14px; border: 1px solid #5d4d31; border-radius: 10px; background: #1b1a15; }
+.duplicate-skill-dialog-item h3 { margin: 0 0 6px; color: #fff0c7; }
+.duplicate-skill-dialog-item p { margin: 0; color: #dacda9; font-size: .84rem; line-height: 1.45; }
+.duplicate-skill-dialog-location { display: grid; gap: 8px; margin-top: 11px; padding-top: 11px; border-top: 1px solid #50432e; }
+.duplicate-skill-dialog-location > span { color: #b8cde2; font: .74rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
+.duplicate-skill-dialog-location .button { justify-self: start; }
+.duplicate-skill-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
 .custom-addon-controls { display: grid; grid-template-columns: minmax(210px, 1.35fr) auto minmax(175px, 0.7fr) auto; align-items: end; gap: 10px; margin: 14px 0 10px; }
 .custom-addon .component-plan-output { margin-bottom: 10px; }
 .custom-addon code { padding: 1px 4px; border-radius: 3px; background: #3a321e; color: #ffe3aa; }
