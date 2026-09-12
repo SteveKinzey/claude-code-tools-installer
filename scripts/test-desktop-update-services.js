@@ -43,18 +43,26 @@ Module._load = function patchedLoad(request, parent, isMain) {
 global.setInterval = () => ({ unref() {} });
 global.fetch = async (url) => {
   fetchCalls += 1;
-  assert.equal(url, 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases/latest');
+  assert.equal(url, 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases?per_page=100');
   return {
     ok: true,
     status: 200,
-    json: async () => ({
-      tag_name: 'v2026.09.01',
-      html_url: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.01',
-      assets: [
-        { name: 'ccti-macos.dmg', digest: `sha256:${'a'.repeat(64)}` },
-        { name: 'ccti-windows.zip' },
-      ],
-    }),
+    json: async () => [
+      {
+        // A newer source-only record must never displace a verified executable release.
+        tag_name: 'v2026.09.11',
+        html_url: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.11',
+        assets: [{ name: 'CCTI-v2026.09.11-SHA256SUMS.txt', size: 711, state: 'uploaded', digest: `sha256:${'b'.repeat(64)}` }],
+      },
+      {
+        tag_name: 'v2026.09.01',
+        html_url: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.01',
+        assets: [
+          { name: 'ccti-macos.dmg', size: 2048, state: 'uploaded', digest: `sha256:${'a'.repeat(64)}` },
+          { name: 'ccti-windows.zip', size: 2048, state: 'uploaded' },
+        ],
+      },
+    ],
   };
 };
 
@@ -84,7 +92,7 @@ async function run() {
     assert.deepEqual(openedUrls, ['https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.01']);
     assert.equal((await getStatus()).state, 'available');
 
-    console.log('Desktop update behavior passed: GitHub checks are background-only, release links are validated, and no artifact is downloaded or installed.');
+    console.log('Desktop update behavior passed: the newest verified executable release is selected even when GitHub latest metadata is stale, and no artifact is downloaded or installed.');
   } finally {
     Module._load = originalLoad;
     global.fetch = originalFetch;

@@ -20,7 +20,7 @@ const maximumDiagnosticReports = 5;
 const maximumDiagnosticReportBytes = 64 * 1024;
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
-const releaseApiEndpoint = 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases/latest';
+const releaseApiEndpoint = 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases?per_page=100';
 const releaseUrlPrefix = 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/';
 const updateCheckIntervalMs = 6 * 60 * 60 * 1000;
 let updateCheckPromise = null;
@@ -176,6 +176,38 @@ function isNewerVersion(candidate, current) {
   return false;
 }
 
+function compareVersions(left, right) {
+  const leftParts = versionSegments(left);
+  const rightParts = versionSegments(right);
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length, 3); index += 1) {
+    const difference = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function isVerifiedDesktopArtifact(asset) {
+  const name = String(asset?.name || '').toLowerCase();
+  const hasReleaseDigest = /^sha256:[a-f0-9]{64}$/i.test(String(asset?.digest || ''));
+  const isUploaded = asset?.state === 'uploaded';
+  const hasPositiveSize = Number.isFinite(Number(asset?.size)) && Number(asset.size) > 0;
+  const isDesktopArchive = /\.(dmg|zip|tar\.gz)$/.test(name) && !/(?:sha256sums|\.sha256)$/.test(name);
+  return isUploaded && hasPositiveSize && hasReleaseDigest && isDesktopArchive;
+}
+
+function isPublicReleaseRecord(release) {
+  const version = String(release?.tag_name || '').replace(/^v/i, '');
+  const releaseUrl = String(release?.html_url || '');
+  return Boolean(version) && releaseUrl.startsWith(releaseUrlPrefix) && !release?.draft && !release?.prerelease;
+}
+
+function newestVerifiedRelease(releases) {
+  const candidates = (Array.isArray(releases) ? releases : [])
+    .filter(isPublicReleaseRecord)
+    .filter((release) => Array.isArray(release.assets) && release.assets.some(isVerifiedDesktopArtifact));
+  return candidates.sort((left, right) => compareVersions(String(right.tag_name || ''), String(left.tag_name || '')))[0] || null;
+}
+
 function publishUpdateStatus() {
   emit('updates:status', { ...updateStatus });
 }
@@ -228,7 +260,9 @@ async function checkForUpdates() {
         signal: controller?.signal,
       });
       if (!response.ok) throw new Error(response.status === 404 ? 'No public CCTI release is published yet.' : `GitHub returned ${response.status}.`);
-      const release = await response.json();
+      const releases = await response.json();
+      const release = newestVerifiedRelease(releases);
+      if (!release) throw new Error('No verified public CCTI release is available yet.');
       const latestVersion = String(release?.tag_name || '').replace(/^v/i, '');
       const releaseUrl = String(release?.html_url || '');
       if (!latestVersion || !releaseUrl.startsWith(releaseUrlPrefix)) throw new Error('GitHub returned an incomplete release record.');
@@ -254,7 +288,7 @@ async function checkForUpdates() {
           ? `CCTI ${latestVersion} is available. Review the release before downloading it.`
           : latestVersion === currentVersion
             ? `CCTI ${currentVersion} is the newest published release.`
-            : `This CCTI build (${currentVersion}) is newer than the latest published release (${latestVersion}).`,
+            : `CCTI ${currentVersion} is ahead of the newest verified public release (${latestVersion}). No download action is needed.`,
       };
       publishUpdateStatus();
       return { ...updateStatus };

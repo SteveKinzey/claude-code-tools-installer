@@ -50,30 +50,8 @@ jobs:
       - name: Install desktop dependencies
         run: npm ci
 
-      - name: Validate tagged desktop application contracts
-        # The dated tag is intentionally checked out for the build. Its bundled
-        # security guard asserts newer Pages-workflow policy that did not exist
-        # at this historical source revision, so validate the application and
-        # package contracts directly rather than failing on that unrelated
-        # future-workflow assertion.
-        run: |
-          npm run catalog:check
-          npm run components:check
-          npm run details:check
-          npm run ui:check
-          npm run setup-manager:check
-          npm run diagnostics:check
-          npm run updates:check
-          npm run project-prerequisites:check
-          npm run project-interview:check
-          npm run release:check
-          node --check src/main.js
-          node --check src/preload.js
-          node --check src/renderer/app.js
-          node --check src/project-prerequisites.js
-          node --check src/project-interview.js
-          node --check build/notarize.js
-          node --check ../scripts/prepare-msix-config.js
+      - name: Run complete desktop validation gate
+        run: npm run check
 
       - name: Build x64 portable ZIP
         run: npm run dist:win:zip -- --x64
