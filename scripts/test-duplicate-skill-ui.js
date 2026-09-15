@@ -7,8 +7,12 @@ const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow } = require('electron');
 
 if (process.platform === 'linux') {
+  // GitHub's Ubuntu runners cannot use Electron's packaged SUID sandbox helper.
+  // This is a local, fixture-only renderer test; the production BrowserWindow
+  // remains sandboxed in desktop/src/main.js.
   app.commandLine.appendSwitch('headless');
   app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('no-sandbox');
 }
 
 const root = path.resolve(__dirname, '..');
