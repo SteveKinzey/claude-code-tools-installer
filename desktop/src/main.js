@@ -10,9 +10,11 @@ let activeInstall = false;
 let activeComponentInstall = false;
 const discoveredSkillCleanup = new Map();
 const reviewedCleanupPlans = new Map();
+const reviewedBulkCleanupPlans = new Map();
 const reviewedPluginChanges = new Map();
 const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
+let activeSkillCleanup = false;
 const diagnosticReports = new Map();
 const diagnosticTimers = new Map();
 const diagnosticReportLifetimeMs = 10 * 60 * 1000;
@@ -1205,6 +1207,47 @@ function normalizedFindingName(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
+function duplicateSkillSort(left, right) {
+  const leftDate = Date.parse(left.updatedAt || '') || 0;
+  const rightDate = Date.parse(right.updatedAt || '') || 0;
+  if (leftDate !== rightDate) return rightDate - leftDate;
+  const scopeRank = (item) => item.scope === 'Just you' ? 0 : item.scope === 'This project' ? 1 : 2;
+  const scopeDifference = scopeRank(left) - scopeRank(right);
+  if (scopeDifference !== 0) return scopeDifference;
+  return String(left.path || '').localeCompare(String(right.path || ''));
+}
+
+function skillSourceWithinCheckedRoot(report, source) {
+  const userSkillRoot = path.join(app.getPath('home'), '.claude', 'skills');
+  const projectSkillRoot = report?.projectPath ? path.join(report.projectPath, '.claude', 'skills') : '';
+  const parent = path.dirname(source);
+  return parent === userSkillRoot || parent === projectSkillRoot;
+}
+
+function skillBackupDestination(report, source) {
+  const projectSkillRoot = report?.projectPath ? path.join(report.projectPath, '.claude', 'skills') : '';
+  const isProjectSkill = path.dirname(source) === projectSkillRoot;
+  const backupRoot = isProjectSkill
+    ? path.join(report.projectPath, '.claude', '.setup-my-claude-disabled')
+    : path.join(setupManagerDir(), 'disabled-skills');
+  return path.join(backupRoot, `${path.basename(source)}-${Date.now()}-${randomUUID().slice(0, 8)}`);
+}
+
+function duplicateSkillCleanupGroups(report) {
+  const grouped = new Map();
+  for (const finding of report?.skills?.values?.() || []) {
+    const key = normalizedFindingName(finding.name);
+    grouped.set(key, [...(grouped.get(key) || []), finding]);
+  }
+  return [...grouped.values()]
+    .filter((items) => items.length > 1)
+    .map((items) => {
+      const ordered = [...items].sort(duplicateSkillSort);
+      return { name: ordered[0].name, keep: ordered[0], moves: ordered.slice(1) };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
 async function listSkillsAt(rootPath, scope) {
   const skillRoot = path.join(rootPath, '.claude', 'skills');
   try {
@@ -1253,6 +1296,7 @@ function settingsFindings(json, filePath, scope) {
 
 async function discoverClaudeSetup(projectPath = '') {
   const home = app.getPath('home');
+  const skillLocations = [{ root: home, scope: 'Just you' }];
   const locations = [
     { root: home, scope: 'Just you', settings: path.join(home, '.claude', 'settings.json') },
     { root: home, scope: 'Just you', settings: path.join(home, '.claude.json') },
@@ -1260,6 +1304,7 @@ async function discoverClaudeSetup(projectPath = '') {
   let resolvedProjectPath = '';
   if (projectPath) {
     resolvedProjectPath = await validateSetupProjectFolder(projectPath);
+    skillLocations.push({ root: resolvedProjectPath, scope: 'This project' });
     locations.push(
       { root: resolvedProjectPath, scope: 'This project', settings: path.join(resolvedProjectPath, '.claude', 'settings.json') },
       { root: resolvedProjectPath, scope: 'Only you in this project', settings: path.join(resolvedProjectPath, '.claude', 'settings.local.json') },
@@ -1267,8 +1312,10 @@ async function discoverClaudeSetup(projectPath = '') {
   }
 
   const findings = await managedPrerequisiteFindings();
-  for (const location of locations) {
+  for (const location of skillLocations) {
     findings.push(...await listSkillsAt(location.root, location.scope));
+  }
+  for (const location of locations) {
     const settings = await readJsonIfPresent(location.settings);
     if (settings.found) findings.push(...settingsFindings(settings.json, location.settings, location.scope));
   }
@@ -1312,7 +1359,13 @@ async function discoverClaudeSetup(projectPath = '') {
   const manageablePlugins = findings.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
   discoveredSkillCleanup.set(discoveryId, {
     createdAt: Date.now(),
-    skills: new Map(skills.map((item) => [item.id, { path: item.path, scope: item.scope }])),
+    skills: new Map(skills.map((item) => [item.id, {
+      id: item.id,
+      name: item.name,
+      path: item.path,
+      scope: item.scope,
+      updatedAt: item.updatedAt,
+    }])),
     plugins: new Map(manageablePlugins.map((item) => [item.id, { name: item.name, scope: item.scope }])),
     projectPath: resolvedProjectPath,
   });
@@ -1457,17 +1510,10 @@ async function reviewCleanup({ discoveryId, findingId }) {
     return { ok: false, error: 'For safety, this app only offers cleanup for a skill folder it found during this check.' };
   }
   const source = path.resolve(finding.path);
-  const userSkillRoot = path.join(app.getPath('home'), '.claude', 'skills');
-  const projectSkillRoot = report.projectPath ? path.join(report.projectPath, '.claude', 'skills') : '';
-  const parent = path.dirname(source);
-  if (parent !== userSkillRoot && parent !== projectSkillRoot) {
+  if (!skillSourceWithinCheckedRoot(report, source)) {
     return { ok: false, error: 'For safety, this skill is outside the Claude Code locations checked by this app.' };
   }
-  const isProjectSkill = parent === projectSkillRoot;
-  const backupRoot = isProjectSkill
-    ? path.join(report.projectPath, '.claude', '.setup-my-claude-disabled')
-    : path.join(setupManagerDir(), 'disabled-skills');
-  const destination = path.join(backupRoot, `${path.basename(source)}-${Date.now()}-${randomUUID().slice(0, 8)}`);
+  const destination = skillBackupDestination(report, source);
   const reviewId = randomUUID();
   const plan = { ok: true, reviewId, discoveryId, findingId, source, destination, description: 'This moves the selected skill to a backup folder. It does not delete it. You can move it back later.' };
   reviewedCleanupPlans.set(reviewId, { ...plan, createdAt: Date.now() });
@@ -1492,6 +1538,96 @@ async function applyCleanup({ reviewId }) {
     return { ok: true, message: 'The selected skill was moved to a backup folder. No other settings were changed.' };
   } catch {
     return { ok: false, error: 'The selected skill could not be moved. It may already be gone or no longer be a skill folder.' };
+  }
+}
+
+async function reviewAllDuplicateSkills({ discoveryId } = {}) {
+  const report = discoveredSkillCleanup.get(String(discoveryId || ''));
+  if (!report) return { ok: false, error: 'Run the checkup again before removing duplicate skills.' };
+  const groups = duplicateSkillCleanupGroups(report);
+  const moves = groups.flatMap((group) => group.moves.map((finding) => ({
+    findingId: finding.id,
+    name: finding.name,
+    source: finding.path,
+    destination: skillBackupDestination(report, finding.path),
+    scope: finding.scope,
+  })));
+  if (!moves.length) return { ok: false, error: 'This checkup no longer has duplicate skills to move.' };
+
+  const reviewId = randomUUID();
+  const plan = {
+    ok: true,
+    reviewId,
+    discoveryId,
+    groups: groups.map((group) => ({
+      name: group.name,
+      keep: { name: group.keep.name, path: group.keep.path, scope: group.keep.scope, updatedAt: group.keep.updatedAt },
+      moveCount: group.moves.length,
+    })),
+    moves: moves.map(({ name, source, destination, scope }) => ({ name, source, destination, scope })),
+    description: 'CCTI keeps the newest local copy of each duplicate skill and moves every other discovered copy to a backup folder. Nothing is deleted.',
+  };
+  reviewedBulkCleanupPlans.set(reviewId, { ...plan, createdAt: Date.now(), moves });
+  for (const [id, review] of reviewedBulkCleanupPlans) {
+    if (Date.now() - review.createdAt > 10 * 60 * 1000) reviewedBulkCleanupPlans.delete(id);
+  }
+  return plan;
+}
+
+async function applyAllDuplicateSkills({ reviewId } = {}) {
+  const plan = reviewedBulkCleanupPlans.get(String(reviewId || ''));
+  const report = plan && discoveredSkillCleanup.get(plan.discoveryId);
+  if (!plan || !report || Date.now() - plan.createdAt > 10 * 60 * 1000) {
+    return { ok: false, error: 'This duplicate cleanup review has expired. Run the checkup again before continuing.' };
+  }
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) {
+    return { ok: false, error: 'Another CCTI action is running. Wait for it to finish before removing duplicate skills.' };
+  }
+
+  for (const move of plan.moves) {
+    const finding = report.skills.get(move.findingId);
+    if (!finding || finding.path !== move.source || !path.isAbsolute(move.source) || !skillSourceWithinCheckedRoot(report, move.source)) {
+      return { ok: false, error: 'The discovered duplicate list changed. Run the checkup again before continuing.' };
+    }
+    try {
+      await fs.access(path.join(move.source, 'SKILL.md'));
+    } catch (error) {
+      return { ok: false, error: error.code === 'ENOENT' ? 'A duplicate skill folder is no longer available. Run the checkup again before continuing.' : 'CCTI could not recheck one of the duplicate skill folders. Nothing was moved.' };
+    }
+    try {
+      await fs.access(move.destination);
+      return { ok: false, error: 'A backup location is already in use. Run the checkup again to create a new cleanup plan.' };
+    } catch (error) {
+      if (error.code !== 'ENOENT') return { ok: false, error: 'CCTI could not prepare a backup folder. Nothing was moved.' };
+    }
+  }
+
+  activeSkillCleanup = true;
+  const moved = [];
+  try {
+    for (const move of plan.moves) {
+      await fs.mkdir(path.dirname(move.destination), { recursive: true });
+      await fs.rename(move.source, move.destination);
+      report.skills.delete(move.findingId);
+      moved.push(move);
+    }
+    reviewedBulkCleanupPlans.delete(plan.reviewId);
+    return {
+      ok: true,
+      movedCount: moved.length,
+      groupCount: plan.groups.length,
+      message: `Moved ${moved.length} duplicate skill ${moved.length === 1 ? 'copy' : 'copies'} to backup folders. CCTI kept the newest discovered copy of each skill. No other settings were changed.`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      movedCount: moved.length,
+      error: moved.length
+        ? `CCTI moved ${moved.length} reviewed duplicate ${moved.length === 1 ? 'copy' : 'copies'} before stopping. Review the backup folders, then run the checkup again.`
+        : 'CCTI could not move the reviewed duplicate skills. Nothing was deleted.',
+    };
+  } finally {
+    activeSkillCleanup = false;
   }
 }
 
@@ -1534,6 +1670,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup-manager:apply-custom', async (_event, payload) => applyCustomAddOn(payload || {}));
   ipcMain.handle('setup-manager:review-cleanup', async (_event, payload) => reviewCleanup(payload || {}));
   ipcMain.handle('setup-manager:apply-cleanup', async (_event, payload) => applyCleanup(payload || {}));
+  ipcMain.handle('setup-manager:review-all-duplicates', async (_event, payload) => reviewAllDuplicateSkills(payload || {}));
+  ipcMain.handle('setup-manager:apply-all-duplicates', async (_event, payload) => applyAllDuplicateSkills(payload || {}));
 
   ipcMain.handle('claude:install-only', async () => {
     if (activeInstall) return { ok: false, error: 'An installation is already running.', installed: false, version: '' };

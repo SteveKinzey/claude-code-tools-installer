@@ -56,6 +56,8 @@ for (const channel of [
   'setup-manager:apply-custom',
   'setup-manager:review-cleanup',
   'setup-manager:apply-cleanup',
+  'setup-manager:review-all-duplicates',
+  'setup-manager:apply-all-duplicates',
   'setup-manager:review-plugin-change',
   'setup-manager:apply-plugin-change',
   'app:review-uninstall',
@@ -169,8 +171,8 @@ if (!main.includes('async function installedSkillsMatching') || !main.includes("
 if (!main.includes('async function installedClaudePluginIds') || !main.includes('pluginIsInstalled(installedIds, requestedPlugin)')) {
   throw new Error('Curated plugin installs must skip plugins Claude Code already reports as installed.');
 }
-if (!html.includes('id="duplicate-skill-dialog"') || !renderer.includes('Move this copy to backup') || !renderer.includes('function openDuplicateSkillDialog') || !renderer.includes('CCTI did not add another copy')) {
-  throw new Error('Duplicate skills must open a review-first dialog with reversible backup actions.');
+if (!html.includes('id="duplicate-skill-dialog"') || !html.includes('id="deduplicate-all-skills-button"') || !renderer.includes('async function deduplicateAllSkills()') || !renderer.includes('reviewAllDuplicates') || !renderer.includes('applyAllDuplicates') || !renderer.includes('CCTI did not add another copy')) {
+  throw new Error('Duplicate skills must open a review-first dialog with one reversible de-duplicate action.');
 }
 if (!fs.existsSync(duplicateUiTestPath) || !fs.existsSync(duplicateUiLauncherPath) || !desktopPackage.scripts?.['duplicate-skill-ui:check']?.includes('run-duplicate-skill-ui-test.js') || !desktopPackage.scripts?.check?.includes('duplicate-skill-ui:check')) {
   throw new Error('The complete desktop suite must exercise the rendered duplicate-skill dialog and backup prompt.');

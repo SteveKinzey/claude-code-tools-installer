@@ -63,6 +63,10 @@ async function run() {
   await fsp.mkdir(project, { recursive: true });
   await writeSkill(path.join(home, '.claude', 'skills', 'duplicate-skill'), 'Duplicate');
   await writeSkill(path.join(project, '.claude', 'skills', 'duplicate-skill'), 'Duplicate');
+  await writeSkill(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill'), 'Bulk duplicate');
+  await writeSkill(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill'), 'Bulk duplicate');
+  await fsp.utimes(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'), new Date('2026-01-15T10:00:00.000Z'), new Date('2026-01-15T10:00:00.000Z'));
+  await fsp.utimes(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'), new Date('2026-08-15T10:00:00.000Z'), new Date('2026-08-15T10:00:00.000Z'));
   await writeSkill(sourceSkill, 'My skill');
   await writeSkill(duplicateSourceSkill, 'Duplicate source');
   await fsp.mkdir(path.join(home, '.claude'), { recursive: true });
@@ -90,6 +94,8 @@ async function run() {
   const discover = handlers.get('setup-manager:discover');
   const reviewCleanup = handlers.get('setup-manager:review-cleanup');
   const applyCleanup = handlers.get('setup-manager:apply-cleanup');
+  const reviewAllDuplicates = handlers.get('setup-manager:review-all-duplicates');
+  const applyAllDuplicates = handlers.get('setup-manager:apply-all-duplicates');
   const reviewPluginChange = handlers.get('setup-manager:review-plugin-change');
   const applyPluginChange = handlers.get('setup-manager:apply-plugin-change');
   const runInstall = handlers.get('install:run');
@@ -103,7 +109,7 @@ async function run() {
   const compareInstallationManifests = handlers.get('app:compare-installation-manifests');
   const applyAppUninstall = handlers.get('app:apply-uninstall');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewPluginChange && applyPluginChange && runInstall && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && verifyDroppedInstallationManifest && compareInstallationManifests && applyAppUninstall, 'all handlers including app uninstall and manifest verification should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewAllDuplicates && applyAllDuplicates && reviewPluginChange && applyPluginChange && runInstall && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && verifyDroppedInstallationManifest && compareInstallationManifests && applyAppUninstall, 'all handlers including bulk duplicate cleanup, app uninstall, and manifest verification should be registered');
 
   const componentCatalog = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
   const componentPreview = await previewComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id] });
@@ -129,8 +135,8 @@ async function run() {
   const report = await discover(null, { projectPath: project });
   assert.ok(report.discoveryId, 'a discovery session is required for cleanup');
   assert.ok(report.findings.some((item) => item.type === 'attention' && item.name === 'Project package file will be created when needed' && item.scope === 'This project'), 'the inventory should explain automatic package initialization for a selected project');
-  assert.equal(report.duplicates.length, 1);
-  const userSkill = report.findings.find((item) => item.type === 'skill' && item.scope === 'Just you');
+  assert.equal(report.duplicates.length, 2);
+  const userSkill = report.findings.find((item) => item.type === 'skill' && item.scope === 'Just you' && item.name === 'duplicate-skill');
   assert.ok(userSkill, 'the user skill should be found');
   assert.match(userSkill.updatedAt, /^\d{4}-\d{2}-\d{2}T/, 'discovered skills should expose their SKILL.md last-edited time for a user-reviewed cleanup choice');
   const userPlugin = report.findings.find((item) => item.type === 'plugin' && item.scope === 'Just you');
@@ -176,6 +182,20 @@ async function run() {
   assert.equal(cleanupResult.ok, true);
   await assert.rejects(fsp.access(userSkill.path));
   await fsp.access(path.join(cleanupPlan.destination, 'SKILL.md'));
+
+  const bulkPlan = await reviewAllDuplicates(null, { discoveryId: report.discoveryId });
+  assert.equal(bulkPlan.ok, true, 'a bulk duplicate review should be generated from only the discovered global and project skill roots');
+  assert.equal(bulkPlan.groups.length, 1, 'the already moved duplicate skill should not be included in the bulk plan');
+  assert.equal(bulkPlan.groups[0].name, 'bulk-duplicate-skill');
+  assert.equal(bulkPlan.groups[0].keep.scope, 'This project', 'the newest local duplicate should remain available');
+  assert.equal(bulkPlan.moves.length, 1);
+  assert.equal(bulkPlan.moves[0].scope, 'Just you');
+  const bulkResult = await applyAllDuplicates(null, { reviewId: bulkPlan.reviewId });
+  assert.equal(bulkResult.ok, true, 'all reviewed duplicate copies should move to backup in one action');
+  assert.equal(bulkResult.movedCount, 1);
+  await assert.rejects(fsp.access(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill')));
+  await fsp.access(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
+  await fsp.access(path.join(bulkPlan.moves[0].destination, 'SKILL.md'));
 
   const copyReview = await reviewCustom(null, { source: sourceSkill, scope: 'project', projectPath: project });
   assert.equal(copyReview.ok, true);

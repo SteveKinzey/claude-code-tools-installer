@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('installer', {
   applyCustomAddOn: (payload) => ipcRenderer.invoke('setup-manager:apply-custom', payload),
   reviewCleanup: (payload) => ipcRenderer.invoke('setup-manager:review-cleanup', payload),
   applyCleanup: (payload) => ipcRenderer.invoke('setup-manager:apply-cleanup', payload),
+  reviewAllDuplicates: (payload) => ipcRenderer.invoke('setup-manager:review-all-duplicates', payload),
+  applyAllDuplicates: (payload) => ipcRenderer.invoke('setup-manager:apply-all-duplicates', payload),
   reviewPluginChange: (payload) => ipcRenderer.invoke('setup-manager:review-plugin-change', payload),
   applyPluginChange: (payload) => ipcRenderer.invoke('setup-manager:apply-plugin-change', payload),
   reviewAppUninstall: () => ipcRenderer.invoke('app:review-uninstall'),
