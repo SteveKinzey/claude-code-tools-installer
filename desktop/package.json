@@ -16,7 +16,7 @@
     "details:check": "node ../scripts/validate-catalog-details.js",
     "release:check": "node ../scripts/validate-macos-release-config.js",
     "ui:check": "node ../scripts/validate-desktop-ui.js",
-    "duplicate-skill-ui:check": "electron ../scripts/test-duplicate-skill-ui.js",
+    "duplicate-skill-ui:check": "electron --no-sandbox ../scripts/test-duplicate-skill-ui.js",
     "setup-manager:check": "node ../scripts/test-setup-manager.js",
     "diagnostics:check": "node ../scripts/test-desktop-diagnostics-services.js",
     "updates:check": "node ../scripts/test-desktop-update-services.js",
