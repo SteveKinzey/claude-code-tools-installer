@@ -32,6 +32,11 @@ jobs:
       - name: Install locked dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
 
+      - name: Install virtual display for renderer validation
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes xvfb
+
       - name: Validate desktop and workflow security contracts
         run: npm run check
 

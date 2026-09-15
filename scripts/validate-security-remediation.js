@@ -98,6 +98,7 @@ assert.doesNotMatch(storeBundleWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [
 assert.doesNotMatch(storeWindowsTestWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'Store lifecycle test secrets must be scoped to consuming steps instead of the job.');
 assert.match(weeklySecurityWorkflow, /cron:\s*'23 8 \* \* 1'/, 'Weekly dependency security scanning must run every Monday.');
 assert.match(weeklySecurityWorkflow, /npm ci --ignore-scripts/, 'Weekly dependency security scanning must not execute lifecycle scripts.');
+assert.match(weeklySecurityWorkflow, /sudo apt-get install --yes xvfb/, 'Weekly dependency security scanning must provide a virtual display for the Electron renderer integration test.');
 assert.match(weeklySecurityWorkflow, /npm audit --audit-level=high/, 'Weekly dependency security scanning must fail on high or critical findings.');
 assert.match(weeklySecurityWorkflow, /retention-days:\s*30/, 'Weekly vulnerability reports must have bounded retention.');
 assert.match(weeklySecurityWorkflow, /contents: read/, 'Weekly security scanning must use a read-only token.');
