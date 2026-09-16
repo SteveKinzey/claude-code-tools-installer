@@ -54,6 +54,14 @@ h3 { margin: 0; font-size: 1rem; }
 .setup-option-run .setup-option-title { color: #c9e9ff; }
 .setup-option-title { font-size: 0.98rem; font-weight: 800; }
 .setup-option-copy, .setup-note { color: #b5c5e0; font-size: 0.86rem; line-height: 1.45; }
+.terminal-preference { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 0.48fr); gap: 16px 22px; align-items: end; margin-top: 16px; padding: 15px 16px; border: 1px solid #3f6680; border-radius: 10px; background: #0c1d2e; }
+.terminal-preference .eyebrow { margin-bottom: 5px; }
+.terminal-preference label { color: #d9edff; font-size: .9rem; font-weight: 800; }
+.terminal-preference p:not(.eyebrow) { margin: 6px 0 0; color: #acc5d8; font-size: .82rem; line-height: 1.45; }
+.terminal-preference-control { display: grid; gap: 8px; }
+.terminal-preference-control select { width: 100%; border: 1px solid #4b7190; border-radius: 8px; background: #091523; color: #e9f3ff; padding: 10px 11px; }
+.terminal-preference-note { min-height: 1.3em; margin: 0 !important; color: #a7cce5 !important; font-size: .78rem !important; }
+.terminal-preference-note.is-error { color: #ffc2d0 !important; }
 .setup-note { margin-top: 15px !important; }
 .workflow-section { margin-top: 34px; }
 .is-hidden { display: none !important; }

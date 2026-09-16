@@ -42,6 +42,8 @@ const recheckClaudeButton = document.querySelector('#recheck-claude-button');
 const browseButton = document.querySelector('#browse-button');
 const runClaudeButton = document.querySelector('#run-claude-button');
 const removeClaudeButton = document.querySelector('#remove-claude-button');
+const terminalPreferenceSelectElement = document.querySelector('#terminal-preference-select');
+const terminalPreferenceNoteElement = document.querySelector('#terminal-preference-note');
 const toggleReferencesButton = document.querySelector('#toggle-references-button');
 const referencesContentElement = document.querySelector('#references-content');
 const referenceSearchElement = document.querySelector('#reference-search');
@@ -694,7 +696,7 @@ async function installClaudeCode() {
 
 async function runClaudeCode() {
   runClaudeButton.disabled = true;
-  setupNoteElement.textContent = 'Opening Claude Code now. It will open in your computer’s terminal window for the selected project folder, or your home folder when no project is selected.';
+  setupNoteElement.textContent = 'Opening Claude Code in your selected terminal for the selected project folder, or your home folder when no project is selected.';
   runStatusElement.textContent = 'Opening Claude Code';
   const result = await window.installer.runClaudeCode({ projectPath: state.projectPath || undefined });
   if (result.ok) {
@@ -707,6 +709,58 @@ async function runClaudeCode() {
     appendOutput(`[CCTI] ${result.error || 'Claude Code could not be opened.'}\n`, 'stderr');
   }
   runClaudeButton.disabled = !state.claudeInstalled || state.running;
+}
+
+function displayTerminalPreference(preference) {
+  const options = Array.isArray(preference?.options) ? preference.options : [{ id: 'default', label: 'Default Terminal', available: true }];
+  terminalPreferenceSelectElement.replaceChildren(...options.map((option) => {
+    const element = document.createElement('option');
+    element.value = option.id;
+    element.textContent = option.available === false ? `${option.label} (not installed)` : option.label;
+    element.disabled = option.available === false;
+    return element;
+  }));
+  terminalPreferenceSelectElement.value = options.some((option) => option.id === preference?.selectedId) ? preference.selectedId : 'default';
+  terminalPreferenceNoteElement.textContent = preference?.message || 'CCTI will use Default Terminal.';
+  terminalPreferenceNoteElement.classList.toggle('is-error', Boolean(preference?.error));
+}
+
+async function loadTerminalPreference() {
+  if (typeof window.installer.getTerminalPreference !== 'function') {
+    displayTerminalPreference(null);
+    return;
+  }
+  try {
+    const preference = await window.installer.getTerminalPreference();
+    displayTerminalPreference(preference);
+  } catch {
+    displayTerminalPreference({ error: true, message: 'CCTI could not load the terminal preference. Default Terminal remains selected.' });
+  }
+}
+
+async function changeTerminalPreference() {
+  const requestedId = terminalPreferenceSelectElement.value;
+  if (typeof window.installer.setTerminalPreference !== 'function') return;
+  terminalPreferenceSelectElement.disabled = true;
+  terminalPreferenceNoteElement.setAttribute('aria-busy', 'true');
+  try {
+    const result = await window.installer.setTerminalPreference({ terminalId: requestedId });
+    if (result.ok) {
+      displayTerminalPreference(result);
+      setupNoteElement.textContent = result.message;
+      return;
+    }
+    terminalPreferenceNoteElement.textContent = result.error || 'CCTI could not save that terminal preference.';
+    terminalPreferenceNoteElement.classList.add('is-error');
+    await loadTerminalPreference();
+  } catch {
+    terminalPreferenceNoteElement.textContent = 'CCTI could not save that terminal preference. Your prior selection was kept.';
+    terminalPreferenceNoteElement.classList.add('is-error');
+    await loadTerminalPreference();
+  } finally {
+    terminalPreferenceSelectElement.disabled = false;
+    terminalPreferenceNoteElement.setAttribute('aria-busy', 'false');
+  }
 }
 
 async function removeClaudeCode() {
@@ -1726,6 +1780,7 @@ useExistingButton.addEventListener('click', () => {
 installClaudeButton.addEventListener('click', installClaudeCode);
 runClaudeButton.addEventListener('click', runClaudeCode);
 removeClaudeButton.addEventListener('click', removeClaudeCode);
+terminalPreferenceSelectElement.addEventListener('change', changeTerminalPreference);
 toggleReferencesButton.addEventListener('click', toggleReferences);
 referenceSearchElement.addEventListener('input', renderReferences);
 recheckClaudeButton.addEventListener('click', async () => {
@@ -1900,6 +1955,7 @@ window.installer.onUpdateStatus(displayUpdateStatus);
     chooseBy((tool) => tool.default);
     updateCompassConnectionUi();
     displayUpdateStatus(initialUpdateStatus);
+    await loadTerminalPreference();
     await refreshClaudeStatus();
   } catch (error) {
     bootstrapStatusElement.textContent = 'App setup failed';

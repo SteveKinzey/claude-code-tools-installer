@@ -86,6 +86,20 @@
             <span class="setup-option-copy">Deletes local Claude Code versions, settings, session history, MCP configuration, and this app’s tool stack before Complete setup runs again.</span>
           </button>
         </div>
+        <div class="terminal-preference" aria-labelledby="terminal-preference-label">
+          <div>
+            <p class="eyebrow">TERMINAL PREFERENCE</p>
+            <label id="terminal-preference-label" for="terminal-preference-select">Open Claude Code in</label>
+            <p>Choose where the <strong>Run Claude Code</strong> button opens your selected project. CCTI supports only the listed terminal apps and never accepts a custom shell command.</p>
+          </div>
+          <div class="terminal-preference-control">
+            <select id="terminal-preference-select" aria-describedby="terminal-preference-note">
+              <option value="default">Default Terminal</option>
+              <option value="iterm2">iTerm2</option>
+            </select>
+            <p id="terminal-preference-note" role="status" aria-live="polite" aria-busy="false">Checking which supported terminal apps are available…</p>
+          </div>
+        </div>
         <p id="setup-note" class="setup-note">You will see either “Yes, Claude Code is installed” or “No, Claude Code is not installed.” If it is not installed, choose “Yes, install Claude Code.” This app does not send you to a Claude Code webpage.</p>
       </section>
 

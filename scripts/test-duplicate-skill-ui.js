@@ -88,6 +88,8 @@ function injectedBridge() {
     const backedUpReport = ${JSON.stringify(backedUpReport)};
     const restoredReport = ${JSON.stringify(restoredReport)};
     let scanCount = 0;
+    let terminalId = 'default';
+    const terminalOptions = [{ id: 'default', label: 'Default Terminal', available: true }, { id: 'iterm2', label: 'iTerm2', available: true }];
     window.__duplicateUiCalls = [];
     window.confirm = (message) => {
       window.__duplicateUiCalls.push({ method: 'confirm', message });
@@ -100,6 +102,8 @@ function injectedBridge() {
       getComponentCatalog: async () => ({ components: [], count: 0 }),
       getCompassStatus: async () => ({ available: false }),
       getUpdateStatus: async () => ({ status: 'idle', message: 'No update check has run yet.' }),
+      getTerminalPreference: async () => ({ ok: true, selectedId: terminalId, options: terminalOptions, message: 'Claude Code will open in ' + (terminalId === 'iterm2' ? 'iTerm2' : 'Default Terminal') + '.' }),
+      setTerminalPreference: async (payload) => { record('setTerminalPreference', payload); terminalId = payload.terminalId; return { ok: true, selectedId: terminalId, options: terminalOptions, message: 'CCTI will open Claude Code in ' + (terminalId === 'iterm2' ? 'iTerm2' : 'Default Terminal') + '.' }; },
       getClaudeStatus: async () => ({ installed: true, version: 'test', path: '/fixture-home/.local/bin/claude' }),
       discoverSetup: async (payload) => { record('discoverSetup', payload); scanCount += 1; return scanCount === 1 ? discoveryReport : scanCount === 2 ? backedUpReport : restoredReport; },
       reviewCleanup: async (payload) => {
@@ -211,6 +215,37 @@ async function run() {
   try {
     await window.loadFile(fixturePath);
     await waitFor(window, () => document.querySelector('#claude-status-text')?.textContent.includes('Yes, Claude Code is installed'), 'renderer startup');
+
+    const terminalControl = await pageValue(window, `(() => ({
+      value: document.querySelector('#terminal-preference-select').value,
+      note: document.querySelector('#terminal-preference-note').textContent,
+      live: document.querySelector('#terminal-preference-note').getAttribute('aria-live'),
+      busy: document.querySelector('#terminal-preference-note').getAttribute('aria-busy'),
+      options: [...document.querySelector('#terminal-preference-select').options].map((option) => ({ value: option.value, disabled: option.disabled })),
+    }))()`);
+    assert.deepEqual(terminalControl, {
+      value: 'default',
+      note: 'Claude Code will open in Default Terminal.',
+      live: 'polite',
+      busy: 'false',
+      options: [{ value: 'default', disabled: false }, { value: 'iterm2', disabled: false }],
+    });
+    await pageValue(window, `(() => {
+      const terminal = document.querySelector('#terminal-preference-select');
+      terminal.value = 'iterm2';
+      terminal.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'setTerminalPreference'), 'terminal preference save');
+    const terminalSave = await pageValue(window, `(() => ({
+      call: window.__duplicateUiCalls.find((item) => item.method === 'setTerminalPreference'),
+      value: document.querySelector('#terminal-preference-select').value,
+      note: document.querySelector('#terminal-preference-note').textContent,
+    }))()`);
+    assert.deepEqual(terminalSave, {
+      call: { method: 'setTerminalPreference', payload: { terminalId: 'iterm2' } },
+      value: 'iterm2',
+      note: 'CCTI will open Claude Code in iTerm2.',
+    });
 
     await pageValue(window, "document.querySelector('#scan-setup-button').click()");
     await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === true, 'duplicate skills dialog after a checkup scan');

@@ -82,6 +82,8 @@ function injectedBridge() {
       getComponentCatalog: async () => ({ components: [], count: 0 }),
       getCompassStatus: async () => ({ available: false }),
       getUpdateStatus: async () => ({ status: 'idle', message: 'No update check has run yet.' }),
+      getTerminalPreference: async () => ({ ok: true, selectedId: 'default', options: [{ id: 'default', label: 'Default Terminal', available: true }, { id: 'iterm2', label: 'iTerm2', available: true }], message: 'Claude Code will open in Default Terminal.' }),
+      setTerminalPreference: async () => ({ ok: true, selectedId: 'default', options: [{ id: 'default', label: 'Default Terminal', available: true }, { id: 'iterm2', label: 'iTerm2', available: true }], message: 'CCTI will open Claude Code in Default Terminal.' }),
       getClaudeStatus: async () => ({ installed: true, version: 'test', path: '/fixture-home/.local/bin/claude' }),
       discoverSetup: async () => { scanCount += 1; return scanCount === 1 ? discoveryReport : backupReport; },
       reviewAllDuplicates: async () => ({
@@ -169,6 +171,7 @@ async function run() {
       { id: 'component-results', role: null, live: 'polite', busy: null },
       { id: 'component-detail', role: null, live: 'polite', busy: null },
       { id: 'anonymous-success-message', role: null, live: 'polite', busy: null },
+      { id: 'terminal-preference-note', role: 'status', live: 'polite', busy: 'false' },
       { id: 'run-status', role: 'status', live: 'polite', busy: 'false' },
       { id: 'output', role: null, live: 'polite', busy: null },
       { id: 'update-status-note', role: 'status', live: 'polite', busy: 'false' },
