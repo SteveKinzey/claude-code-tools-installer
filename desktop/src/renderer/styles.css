@@ -173,6 +173,13 @@ h3 { margin: 0; font-size: 1rem; }
 .duplicate-skill-dialog-location > span { color: #b8cde2; font: .74rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
 .duplicate-skill-dialog-location .button { justify-self: start; }
 .duplicate-skill-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+.duplicate-backup-preview { display: grid; gap: 8px; padding: 14px; border: 1px solid #497a85; border-radius: 10px; background: #10282c; }
+.duplicate-backup-preview h3 { color: #bdf2e9; }
+.duplicate-backup-preview > p { margin: 0; color: #c5dedc; font-size: .82rem; line-height: 1.45; }
+.duplicate-backup-preview-list { display: grid; gap: 10px; max-height: 300px; overflow: auto; padding: 2px; }
+.duplicate-backup-preview-entry { display: grid; gap: 6px; padding: 10px; border: 1px solid #315a60; border-radius: 8px; background: #0b1b25; }
+.duplicate-backup-preview-entry strong { color: #d3fbf4; font-size: .82rem; }
+.duplicate-backup-preview-entry span { color: #a8c8d4; font: .72rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
 .custom-addon-controls { display: grid; grid-template-columns: minmax(210px, 1.35fr) auto minmax(175px, 0.7fr) auto; align-items: end; gap: 10px; margin: 14px 0 10px; }
 .custom-addon .component-plan-output { margin-bottom: 10px; }
 .custom-addon code { padding: 1px 4px; border-radius: 3px; background: #3a321e; color: #ffe3aa; }

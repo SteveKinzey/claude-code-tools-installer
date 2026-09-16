@@ -102,6 +102,12 @@ function injectedBridge() {
             scope: duplicateItems[0].scope,
             source: duplicateItems[0].path,
             destination: '/fixture-home/.setup-my-claude/disabled-skills/revenue-systems-backup',
+            files: [{
+              source: '/fixture-home/.claude/skills/revenue-systems/SKILL.md',
+              destination: '/fixture-home/.setup-my-claude/disabled-skills/revenue-systems-backup/SKILL.md',
+              size: 42,
+              sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            }],
           }],
         };
       },
@@ -193,12 +199,28 @@ async function run() {
     assert.match(scanDialog.locations[1], /^Keep newest discovered copy by date · This project/);
 
     await pageValue(window, "document.querySelector('#deduplicate-all-skills-button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === false, 'exact backup file preview');
+    const backupPreview = await pageValue(window, `(() => ({
+      button: document.querySelector('#deduplicate-all-skills-button').textContent,
+      summary: document.querySelector('#duplicate-backup-preview-summary').textContent,
+      files: document.querySelector('#duplicate-backup-preview-list').textContent,
+      backVisible: document.querySelector('#cancel-deduplicate-preview-button').hidden === false,
+      confirmCalls: window.__duplicateUiCalls.filter((call) => call.method === 'confirm').length,
+    }))()`);
+    assert.equal(backupPreview.button, 'Back up listed duplicates');
+    assert.match(backupPreview.summary, /1 exact file/i);
+    assert.match(backupPreview.files, /\/fixture-home\/\.claude\/skills\/revenue-systems\/SKILL\.md/);
+    assert.match(backupPreview.files, /\/fixture-home\/\.setup-my-claude\/disabled-skills\/revenue-systems-backup\/SKILL\.md/);
+    assert.match(backupPreview.files, /SHA-256 a{64}/);
+    assert.equal(backupPreview.backVisible, true);
+    assert.equal(backupPreview.confirmCalls, 0, 'the preview should open before the final confirmation is shown');
+
+    await pageValue(window, "document.querySelector('#deduplicate-all-skills-button').click()");
     await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'applyAllDuplicates'), 'reviewed bulk backup move');
     const cleanupCalls = await pageValue(window, 'window.__duplicateUiCalls');
     const cleanupConfirmation = cleanupCalls.find((call) => call.method === 'confirm')?.message || '';
-    assert.match(cleanupConfirmation, /De-duplicate all discovered skills\?/);
-    assert.match(cleanupConfirmation, /Keep revenue-systems: This project/);
-    assert.match(cleanupConfirmation, /To backup:/);
+    assert.match(cleanupConfirmation, /Back up exactly 1 reviewed file/);
+    assert.match(cleanupConfirmation, /exact file list and backup destinations are shown in the CCTI dialog/i);
     assert.match(cleanupConfirmation, /does not delete any skill/i);
     assert.deepEqual(cleanupCalls.find((call) => call.method === 'reviewAllDuplicates')?.payload, {
       discoveryId: 'duplicate-ui-fixture',

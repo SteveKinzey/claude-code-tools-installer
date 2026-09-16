@@ -13,6 +13,7 @@ const state = {
   setupMode: '',
   managerProjectPath: '',
   managerReport: null,
+  duplicateCleanupReview: null,
   customAddOnReview: null,
   compass: { online: false, history: [], opened: false },
   projectInterview: { active: false, step: 0, answers: {}, result: null },
@@ -73,6 +74,10 @@ const duplicateSkillDialogElement = document.querySelector('#duplicate-skill-dia
 const duplicateSkillDialogCopyElement = document.querySelector('#duplicate-skill-dialog-copy');
 const duplicateSkillDialogListElement = document.querySelector('#duplicate-skill-dialog-list');
 const deduplicateAllSkillsButton = document.querySelector('#deduplicate-all-skills-button');
+const duplicateBackupPreviewElement = document.querySelector('#duplicate-backup-preview');
+const duplicateBackupPreviewSummaryElement = document.querySelector('#duplicate-backup-preview-summary');
+const duplicateBackupPreviewListElement = document.querySelector('#duplicate-backup-preview-list');
+const cancelDeduplicatePreviewButton = document.querySelector('#cancel-deduplicate-preview-button');
 const customAddOnSourceElement = document.querySelector('#custom-addon-source');
 const customAddOnScopeElement = document.querySelector('#custom-addon-scope');
 const customAddOnOutputElement = document.querySelector('#custom-addon-output');
@@ -1192,13 +1197,51 @@ function localSkillDate(item) {
   return Number.isNaN(date.getTime()) ? 'Last edited date unavailable' : `Last edited ${date.toLocaleString()}`;
 }
 
+function clearDuplicateBackupPreview() {
+  state.duplicateCleanupReview = null;
+  duplicateBackupPreviewElement.hidden = true;
+  duplicateBackupPreviewSummaryElement.textContent = '';
+  duplicateBackupPreviewListElement.replaceChildren();
+  cancelDeduplicatePreviewButton.hidden = true;
+  deduplicateAllSkillsButton.textContent = 'De-duplicate all skills';
+}
+
+function formatByteCount(value) {
+  const bytes = Number(value) || 0;
+  return `${bytes.toLocaleString()} byte${bytes === 1 ? '' : 's'}`;
+}
+
+function showDuplicateBackupPreview(review) {
+  state.duplicateCleanupReview = review;
+  const fileCount = review.moves.reduce((count, move) => count + (move.files || []).length, 0);
+  duplicateBackupPreviewElement.hidden = false;
+  duplicateBackupPreviewSummaryElement.textContent = `Review ${fileCount} exact file${fileCount === 1 ? '' : 's'} across ${review.moves.length} duplicate skill ${review.moves.length === 1 ? 'folder' : 'folders'}. The next action moves only these files into the shown backup locations.`;
+  duplicateBackupPreviewListElement.replaceChildren();
+  for (const move of review.moves) {
+    const entry = document.createElement('article');
+    entry.className = 'duplicate-backup-preview-entry';
+    const heading = document.createElement('strong');
+    heading.textContent = `${move.name} · ${move.scope}`;
+    const files = (move.files || []).map((file) => `• ${file.source}\n  → ${file.destination}\n  ${formatByteCount(file.size)} · SHA-256 ${file.sha256}`).join('\n');
+    const details = document.createElement('span');
+    details.textContent = `Skill folder:\n${move.source}\n\nFiles to back up:\n${files || 'No verified files were returned. This action is unavailable.'}`;
+    entry.append(heading, details);
+    duplicateBackupPreviewListElement.append(entry);
+  }
+  duplicateSkillDialogCopyElement.textContent = 'Review the exact files and backup destinations below. CCTI does not delete skills. Choose “Back up listed duplicates” only when this preview is correct.';
+  deduplicateAllSkillsButton.textContent = 'Back up listed duplicates';
+  deduplicateAllSkillsButton.disabled = review.moves.length === 0 || fileCount === 0;
+  cancelDeduplicatePreviewButton.hidden = false;
+}
+
 function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanupAvailable = !additionBlocked } = {}) {
   const skillGroups = (Array.isArray(duplicates) ? duplicates : []).filter((duplicate) => duplicate.type === 'skill' && duplicate.items?.length > 1);
   if (!skillGroups.length || typeof duplicateSkillDialogElement?.showModal !== 'function') return;
 
+  clearDuplicateBackupPreview();
   duplicateSkillDialogCopyElement.textContent = additionBlocked
     ? 'CCTI did not add another copy because this skill is already available in Claude Code. Choose an older local copy only if you want to move it to a backup. Nothing is deleted automatically.'
-    : 'CCTI found skills with the same name in more than one Claude Code location. The single De-duplicate action keeps the newest discovered copy of each name and moves every other local copy to a backup folder. Nothing is deleted automatically.';
+    : 'CCTI found skills that overlap by name or identical verified content in more than one Claude Code location. The single De-duplicate action keeps the newest discovered copy of each group and moves every other local copy to a backup folder. Nothing is deleted automatically.';
   deduplicateAllSkillsButton.hidden = !cleanupAvailable;
   deduplicateAllSkillsButton.disabled = !cleanupAvailable;
   duplicateSkillDialogListElement.replaceChildren();
@@ -1209,9 +1252,16 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
     const heading = document.createElement('h3');
     heading.textContent = duplicate.name;
     const copy = document.createElement('p');
+    const match = duplicate.match === 'content-hash'
+      ? (new Set((duplicate.items || []).map((item) => item.name)).size === 1
+        ? 'These folders have the same name and an identical verified content hash.'
+        : 'These folders have different names but an identical verified content hash.')
+      : duplicate.match === 'name'
+        ? 'These folders share a normalized skill name.'
+        : 'These folders overlap by name or identical verified content.';
     copy.textContent = cleanupAvailable
-      ? 'CCTI will keep the newest discovered copy by date and move every other copy to backup. Review the locations before continuing.'
-      : 'Review the locations before deciding whether to keep all copies.';
+      ? `${match} CCTI will keep the newest discovered copy by date and move every other copy to backup. Review the locations before continuing.`
+      : `${match} Review the locations before deciding whether to keep all copies.`;
     group.append(heading, copy);
 
     const orderedItems = [...duplicate.items].sort((left, right) => new Date(left.updatedAt || 0) - new Date(right.updatedAt || 0));
@@ -1352,6 +1402,18 @@ async function reviewAndApplyCleanup(finding) {
 async function deduplicateAllSkills() {
   const discoveryId = state.managerReport?.discoveryId;
   if (!discoveryId) return;
+  if (state.duplicateCleanupReview) {
+    const review = state.duplicateCleanupReview;
+    const fileCount = review.moves.reduce((count, move) => count + (move.files || []).length, 0);
+    if (!window.confirm(`Back up exactly ${fileCount} reviewed file${fileCount === 1 ? '' : 's'} from ${review.moves.length} duplicate skill ${review.moves.length === 1 ? 'folder' : 'folders'}?\n\nThe exact file list and backup destinations are shown in the CCTI dialog. This does not delete any skill. Plugins, settings, connections, and project files will not change.`)) return;
+    duplicateSkillDialogElement.close();
+    const result = await window.installer.applyAllDuplicates({ reviewId: review.reviewId });
+    clearDuplicateBackupPreview();
+    appendOutput(`[Checkup] ${result.ok ? result.message : result.error}\n`, result.ok ? 'stdout' : 'stderr');
+    if (result.ok || result.movedCount > 0) await scanSetup();
+    else deduplicateAllSkillsButton.disabled = false;
+    return;
+  }
   deduplicateAllSkillsButton.disabled = true;
   const review = await window.installer.reviewAllDuplicates({ discoveryId });
   if (!review.ok) {
@@ -1359,18 +1421,7 @@ async function deduplicateAllSkills() {
     deduplicateAllSkillsButton.disabled = false;
     return;
   }
-  const retained = review.groups.map((group) => `• Keep ${group.name}: ${group.keep.scope}\n  ${group.keep.path}`).join('\n');
-  const backups = review.moves.map((move) => `• Move ${move.name} (${move.scope})\n  From: ${move.source}\n  To backup: ${move.destination}`).join('\n');
-  const confirmed = window.confirm(`De-duplicate all discovered skills?\n\nCCTI will keep the newest discovered copy for each name:\n${retained}\n\nIt will move these duplicate copies to timestamped backup folders:\n${backups}\n\nThis does not delete any skill. Plugins, settings, connections, and project files will not change.`);
-  if (!confirmed) {
-    deduplicateAllSkillsButton.disabled = false;
-    return;
-  }
-  duplicateSkillDialogElement.close();
-  const result = await window.installer.applyAllDuplicates({ reviewId: review.reviewId });
-  appendOutput(`[Checkup] ${result.ok ? result.message : result.error}\n`, result.ok ? 'stdout' : 'stderr');
-  if (result.ok || result.movedCount > 0) await scanSetup();
-  else deduplicateAllSkillsButton.disabled = false;
+  showDuplicateBackupPreview(review);
 }
 
 async function chooseCustomSource() {
@@ -1599,6 +1650,7 @@ installComponentsButton.addEventListener('click', installProjectComponents);
 document.querySelector('#scan-setup-button').addEventListener('click', scanSetup);
 document.querySelector('#choose-manager-project-button').addEventListener('click', chooseManagerProject);
 deduplicateAllSkillsButton.addEventListener('click', deduplicateAllSkills);
+cancelDeduplicatePreviewButton.addEventListener('click', () => openDuplicateSkillDialog(state.managerReport?.duplicates || []));
 document.querySelector('#choose-custom-source-button').addEventListener('click', chooseCustomSource);
 document.querySelector('#review-custom-addon-button').addEventListener('click', reviewCustomAddOn);
 applyCustomAddOnButton.addEventListener('click', applyCustomAddOn);

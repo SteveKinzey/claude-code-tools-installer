@@ -20,6 +20,8 @@ const diagnosticTimers = new Map();
 const diagnosticReportLifetimeMs = 10 * 60 * 1000;
 const maximumDiagnosticReports = 5;
 const maximumDiagnosticReportBytes = 64 * 1024;
+const maximumSkillHashFiles = 2000;
+const maximumSkillHashBytes = 25 * 1024 * 1024;
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
 const releaseApiEndpoint = 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases?per_page=100';
@@ -1233,19 +1235,111 @@ function skillBackupDestination(report, source) {
   return path.join(backupRoot, `${path.basename(source)}-${Date.now()}-${randomUUID().slice(0, 8)}`);
 }
 
-function duplicateSkillCleanupGroups(report) {
-  const grouped = new Map();
-  for (const finding of report?.skills?.values?.() || []) {
-    const key = normalizedFindingName(finding.name);
-    grouped.set(key, [...(grouped.get(key) || []), finding]);
+async function skillContentManifest(skillPath) {
+  const root = path.resolve(skillPath);
+  const files = [];
+  let totalBytes = 0;
+  const walk = async (directory) => {
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (entry.isSymbolicLink()) throw new Error('A skill contains a symbolic link.');
+      const filePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await walk(filePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (files.length >= maximumSkillHashFiles) throw new Error('A skill contains too many files to verify safely.');
+      const metadata = await fs.stat(filePath);
+      totalBytes += metadata.size;
+      if (totalBytes > maximumSkillHashBytes) throw new Error('A skill is too large to verify safely.');
+      const relativePath = path.relative(root, filePath).split(path.sep).join('/');
+      const contents = await fs.readFile(filePath);
+      files.push({ path: relativePath, size: metadata.size, sha256: createHash('sha256').update(contents).digest('hex') });
+    }
+  };
+  await walk(root);
+  if (!files.some((file) => file.path === 'SKILL.md')) throw new Error('The skill no longer contains SKILL.md.');
+  const identity = createHash('sha256').update(files.map((file) => `${file.path}\0${file.sha256}\0${file.size}\n`).join(''), 'utf8').digest('hex');
+  return { identity, files, totalBytes };
+}
+
+async function describeSkillForDiscovery(skillPath, scope, name) {
+  const skillFile = path.join(skillPath, 'SKILL.md');
+  const [metadata, manifest] = await Promise.all([
+    fs.stat(skillFile),
+    skillContentManifest(skillPath),
+  ]);
+  return {
+    id: `skill:${skillPath}`,
+    type: 'skill',
+    name,
+    scope,
+    path: skillPath,
+    updatedAt: metadata.mtime.toISOString(),
+    contentHash: manifest.identity,
+    files: manifest.files,
+    totalBytes: manifest.totalBytes,
+    description: 'A saved set of instructions for Claude Code.',
+  };
+}
+
+function moveFilesForPreview(move) {
+  return (Array.isArray(move.files) ? move.files : []).map((file) => ({
+    source: path.join(move.source, ...file.path.split('/')),
+    destination: path.join(move.destination, ...file.path.split('/')),
+    size: file.size,
+    sha256: file.sha256,
+  }));
+}
+
+function duplicateSkillGroups(skills) {
+  const all = Array.isArray(skills) ? skills : [];
+  const groups = [];
+  const movedByContent = new Set();
+  const contentIndex = new Map();
+  for (const item of all) {
+    const key = String(item.contentHash || '');
+    if (!key) continue;
+    contentIndex.set(key, [...(contentIndex.get(key) || []), item]);
   }
-  return [...grouped.values()]
-    .filter((items) => items.length > 1)
-    .map((items) => {
-      const ordered = [...items].sort(duplicateSkillSort);
-      return { name: ordered[0].name, keep: ordered[0], moves: ordered.slice(1) };
-    })
-    .sort((left, right) => left.name.localeCompare(right.name));
+  for (const items of contentIndex.values()) {
+    if (items.length < 2) continue;
+    const ordered = [...items].sort(duplicateSkillSort);
+    const names = [...new Set(ordered.map((entry) => entry.name))].sort((left, right) => left.localeCompare(right));
+    ordered.slice(1).forEach((entry) => movedByContent.add(entry.id));
+    groups.push({
+      name: names.join(' / '),
+      names,
+      match: 'content-hash',
+      keep: ordered[0],
+      moves: ordered.slice(1),
+      items: ordered,
+    });
+  }
+
+  const nameIndex = new Map();
+  for (const item of all.filter((entry) => !movedByContent.has(entry.id))) {
+    const key = normalizedFindingName(item.name);
+    nameIndex.set(key, [...(nameIndex.get(key) || []), item]);
+  }
+  for (const items of nameIndex.values()) {
+    if (items.length < 2) continue;
+    const ordered = [...items].sort(duplicateSkillSort);
+    groups.push({
+      name: ordered[0].name,
+      names: [...new Set(ordered.map((entry) => entry.name))],
+      match: 'name',
+      keep: ordered[0],
+      moves: ordered.slice(1),
+      items: ordered,
+    });
+  }
+  return groups.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function duplicateSkillCleanupGroups(report) {
+  return duplicateSkillGroups([...(report?.skills?.values?.() || [])]);
 }
 
 async function listSkillsAt(rootPath, scope) {
@@ -1257,11 +1351,14 @@ async function listSkillsAt(rootPath, scope) {
       if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
       const skillPath = path.join(skillRoot, entry.name);
       try {
-        const skillFile = path.join(skillPath, 'SKILL.md');
-        const metadata = await fs.stat(skillFile);
-        skills.push({ id: `skill:${skillPath}`, type: 'skill', name: entry.name, scope, path: skillPath, updatedAt: metadata.mtime.toISOString(), description: 'A saved set of instructions for Claude Code.' });
-      } catch {
-        // A folder without SKILL.md is not presented as an installed skill.
+        skills.push(await describeSkillForDiscovery(skillPath, scope, entry.name));
+      } catch (error) {
+        try {
+          await fs.access(path.join(skillPath, 'SKILL.md'));
+          skills.push({ id: `skill:${skillPath}`, type: 'attention', name: entry.name, scope, path: skillPath, description: `This skill could not be verified for duplicate cleanup: ${error.message} It was not changed.` });
+        } catch {
+          // A folder without SKILL.md is not presented as an installed skill.
+        }
       }
     }
     return skills;
@@ -1271,12 +1368,12 @@ async function listSkillsAt(rootPath, scope) {
   }
 }
 
-async function installedSkillsMatching(skillName, projectPath = '') {
+async function installedSkillsMatching(skillName, projectPath = '', contentHash = '') {
   const normalizedName = normalizedFindingName(skillName);
   const locations = [{ root: app.getPath('home'), scope: 'Just you' }];
   if (projectPath) locations.push({ root: projectPath, scope: 'This project' });
   const skills = (await Promise.all(locations.map(({ root, scope }) => listSkillsAt(root, scope)))).flat();
-  return skills.filter((item) => item.type === 'skill' && normalizedFindingName(item.name) === normalizedName);
+  return skills.filter((item) => item.type === 'skill' && (normalizedFindingName(item.name) === normalizedName || (contentHash && item.contentHash === contentHash)));
 }
 
 function settingsFindings(json, filePath, scope) {
@@ -1343,19 +1440,41 @@ async function discoverClaudeSetup(projectPath = '') {
     if (connections.code === 0) connections.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/)[0]).filter(Boolean).forEach((name) => findings.push({ id: `connection-cli:${name}`, type: 'connection', name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
   }
 
-  const grouped = new Map();
-  findings.filter((item) => ['skill', 'plugin', 'connection'].includes(item.type)).forEach((item) => {
+  const nonSkillGroups = new Map();
+  findings.filter((item) => ['plugin', 'connection'].includes(item.type)).forEach((item) => {
     const key = `${item.type}:${normalizedFindingName(item.name)}`;
-    grouped.set(key, [...(grouped.get(key) || []), item]);
+    nonSkillGroups.set(key, [...(nonSkillGroups.get(key) || []), item]);
   });
-  const duplicates = [...grouped.values()].filter((items) => items.length > 1).map((items) => ({
-    name: items[0].name,
-    type: items[0].type,
-    items,
-    explanation: 'This name appears in more than one Claude Code location. That can be useful, but review the scopes before keeping more than one copy.',
-  }));
-  const discoveryId = randomUUID();
   const skills = findings.filter((item) => item.type === 'skill');
+  const skillDuplicates = duplicateSkillGroups(skills).map((group) => {
+    const sameName = group.names.length === 1;
+    return {
+      name: group.name,
+      type: 'skill',
+      match: group.match,
+      names: group.names,
+      contentHash: group.items[0].contentHash,
+      items: group.items,
+      explanation: group.match === 'content-hash'
+        ? sameName
+          ? 'These skill folders have the same name and identical verified file content. Review the scopes before keeping more than one copy.'
+          : 'These skill folders have different names but identical verified file content. Review the scopes before keeping more than one copy.'
+        : group.match === 'name'
+          ? 'These skill folders have the same name in more than one Claude Code location. Review the scopes and content before keeping more than one copy.'
+          : 'These skill folders overlap by name or identical verified file content. Review the scopes and content before keeping more than one copy.',
+    };
+  });
+  const duplicates = [
+    ...skillDuplicates,
+    ...[...nonSkillGroups.values()].filter((items) => items.length > 1).map((items) => ({
+      name: items[0].name,
+      type: items[0].type,
+      match: 'name',
+      items,
+      explanation: 'This name appears in more than one Claude Code location. That can be useful, but review the scopes before keeping more than one copy.',
+    })),
+  ];
+  const discoveryId = randomUUID();
   const manageablePlugins = findings.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
   discoveredSkillCleanup.set(discoveryId, {
     createdAt: Date.now(),
@@ -1365,6 +1484,9 @@ async function discoverClaudeSetup(projectPath = '') {
       path: item.path,
       scope: item.scope,
       updatedAt: item.updatedAt,
+      contentHash: item.contentHash,
+      files: item.files,
+      totalBytes: item.totalBytes,
     }])),
     plugins: new Map(manageablePlugins.map((item) => [item.id, { name: item.name, scope: item.scope }])),
     projectPath: resolvedProjectPath,
@@ -1445,23 +1567,28 @@ async function reviewCustomAddOn({ source, scope, projectPath }) {
   const sourcePath = path.resolve(cleanSource);
   try {
     const info = await fs.lstat(sourcePath);
-    if (!info.isDirectory()) throw new Error();
+    if (info.isSymbolicLink() || !info.isDirectory()) return { ok: false, error: 'Choose a direct local skill folder, not a symbolic link or file.' };
     try {
       await fs.access(path.join(sourcePath, 'SKILL.md'));
       const root = cleanScope === 'user' ? app.getPath('home') : resolvedProject;
       const destination = path.join(root, '.claude', 'skills', path.basename(sourcePath));
-      const existing = await installedSkillsMatching(path.basename(sourcePath), resolvedProject);
+      const sourceManifest = await skillContentManifest(sourcePath);
+      const existing = await installedSkillsMatching(path.basename(sourcePath), resolvedProject, sourceManifest.identity);
       if (existing.length > 0) {
+        const contentMatch = existing.some((item) => item.contentHash === sourceManifest.identity);
         return {
           ok: true,
           blocked: true,
           kind: 'duplicate-skill',
+          match: contentMatch ? 'content-hash' : 'name',
           name: path.basename(sourcePath),
           source: sourcePath,
           scope: cleanScope,
           destination,
           existing,
-          description: `CCTI did not add ${path.basename(sourcePath)} because this skill is already available in Claude Code.`,
+          description: contentMatch
+            ? `CCTI did not add ${path.basename(sourcePath)} because identical skill content is already available in Claude Code.`
+            : `CCTI did not add ${path.basename(sourcePath)} because this skill name is already available in Claude Code.`,
         };
       }
       return { ok: true, kind: 'skill-copy', source: sourcePath, scope: cleanScope, destination, description: 'Copies this local skill folder into the selected Claude Code scope. The original folder stays where it is.' };
@@ -1551,6 +1678,8 @@ async function reviewAllDuplicateSkills({ discoveryId } = {}) {
     source: finding.path,
     destination: skillBackupDestination(report, finding.path),
     scope: finding.scope,
+    contentHash: finding.contentHash,
+    files: finding.files,
   })));
   if (!moves.length) return { ok: false, error: 'This checkup no longer has duplicate skills to move.' };
 
@@ -1561,11 +1690,13 @@ async function reviewAllDuplicateSkills({ discoveryId } = {}) {
     discoveryId,
     groups: groups.map((group) => ({
       name: group.name,
-      keep: { name: group.keep.name, path: group.keep.path, scope: group.keep.scope, updatedAt: group.keep.updatedAt },
+      names: group.names,
+      match: group.match,
+      keep: { name: group.keep.name, path: group.keep.path, scope: group.keep.scope, updatedAt: group.keep.updatedAt, contentHash: group.keep.contentHash },
       moveCount: group.moves.length,
     })),
-    moves: moves.map(({ name, source, destination, scope }) => ({ name, source, destination, scope })),
-    description: 'CCTI keeps the newest local copy of each duplicate skill and moves every other discovered copy to a backup folder. Nothing is deleted.',
+    moves: moves.map(({ name, source, destination, scope, contentHash, files }) => ({ name, source, destination, scope, contentHash, files: moveFilesForPreview({ source, destination, files }) })),
+    description: 'CCTI keeps the newest discovered copy of each identical skill content group and moves every other discovered copy to a backup folder. The review lists every backed-up file. Nothing is deleted.',
   };
   reviewedBulkCleanupPlans.set(reviewId, { ...plan, createdAt: Date.now(), moves });
   for (const [id, review] of reviewedBulkCleanupPlans) {
@@ -1586,11 +1717,14 @@ async function applyAllDuplicateSkills({ reviewId } = {}) {
 
   for (const move of plan.moves) {
     const finding = report.skills.get(move.findingId);
-    if (!finding || finding.path !== move.source || !path.isAbsolute(move.source) || !skillSourceWithinCheckedRoot(report, move.source)) {
+    if (!finding || finding.path !== move.source || finding.contentHash !== move.contentHash || !path.isAbsolute(move.source) || !skillSourceWithinCheckedRoot(report, move.source)) {
       return { ok: false, error: 'The discovered duplicate list changed. Run the checkup again before continuing.' };
     }
     try {
-      await fs.access(path.join(move.source, 'SKILL.md'));
+      const currentManifest = await skillContentManifest(move.source);
+      if (currentManifest.identity !== move.contentHash || JSON.stringify(currentManifest.files) !== JSON.stringify(move.files)) {
+        return { ok: false, error: 'A duplicate skill changed after the preview. Run the checkup again before continuing.' };
+      }
     } catch (error) {
       return { ok: false, error: error.code === 'ENOENT' ? 'A duplicate skill folder is no longer available. Run the checkup again before continuing.' : 'CCTI could not recheck one of the duplicate skill folders. Nothing was moved.' };
     }

@@ -348,8 +348,14 @@
         <h2 id="duplicate-skill-dialog-heading">Review duplicate skills</h2>
         <p id="duplicate-skill-dialog-copy">CCTI did not add another copy. Choose a listed skill only if you want to move the older local copy to a backup. Nothing is deleted automatically.</p>
         <div id="duplicate-skill-dialog-list" class="duplicate-skill-dialog-list"></div>
+        <section id="duplicate-backup-preview" class="duplicate-backup-preview" aria-labelledby="duplicate-backup-preview-heading" hidden>
+          <h3 id="duplicate-backup-preview-heading">Files that will be backed up</h3>
+          <p id="duplicate-backup-preview-summary"></p>
+          <div id="duplicate-backup-preview-list" class="duplicate-backup-preview-list"></div>
+        </section>
         <div class="duplicate-skill-dialog-actions">
           <button id="deduplicate-all-skills-button" class="button button-danger" type="button" hidden>De-duplicate all skills</button>
+          <button id="cancel-deduplicate-preview-button" class="button button-ghost" type="button" hidden>Back to review</button>
           <button id="close-duplicate-skill-dialog" class="button button-secondary" type="submit">Keep all copies</button>
         </div>
       </form>

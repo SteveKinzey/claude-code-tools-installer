@@ -53,9 +53,14 @@ Module._load = function patchedLoad(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
-async function writeSkill(folder, name) {
+async function writeSkill(folder, name, { contents, files = {} } = {}) {
   await fsp.mkdir(folder, { recursive: true });
-  await fsp.writeFile(path.join(folder, 'SKILL.md'), `# ${name}\n`, 'utf8');
+  await fsp.writeFile(path.join(folder, 'SKILL.md'), contents || `# ${name}\n`, 'utf8');
+  for (const [relativePath, content] of Object.entries(files)) {
+    const target = path.join(folder, relativePath);
+    await fsp.mkdir(path.dirname(target), { recursive: true });
+    await fsp.writeFile(target, content, 'utf8');
+  }
 }
 
 async function run() {
@@ -67,6 +72,11 @@ async function run() {
   await writeSkill(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill'), 'Bulk duplicate');
   await fsp.utimes(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'), new Date('2026-01-15T10:00:00.000Z'), new Date('2026-01-15T10:00:00.000Z'));
   await fsp.utimes(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'), new Date('2026-08-15T10:00:00.000Z'), new Date('2026-08-15T10:00:00.000Z'));
+  const hashCollision = { contents: '# Same instructions\n', files: { 'references/guide.md': 'Identical guide\n' } };
+  await writeSkill(path.join(home, '.claude', 'skills', 'global-revenue-playbook'), 'Global revenue playbook', hashCollision);
+  await writeSkill(path.join(project, '.claude', 'skills', 'local-gtm-playbook'), 'Local go-to-market playbook', hashCollision);
+  await fsp.utimes(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'), new Date('2026-02-15T10:00:00.000Z'), new Date('2026-02-15T10:00:00.000Z'));
+  await fsp.utimes(path.join(project, '.claude', 'skills', 'local-gtm-playbook', 'SKILL.md'), new Date('2026-09-15T10:00:00.000Z'), new Date('2026-09-15T10:00:00.000Z'));
   await writeSkill(sourceSkill, 'My skill');
   await writeSkill(duplicateSourceSkill, 'Duplicate source');
   await fsp.mkdir(path.join(home, '.claude'), { recursive: true });
@@ -135,7 +145,12 @@ async function run() {
   const report = await discover(null, { projectPath: project });
   assert.ok(report.discoveryId, 'a discovery session is required for cleanup');
   assert.ok(report.findings.some((item) => item.type === 'attention' && item.name === 'Project package file will be created when needed' && item.scope === 'This project'), 'the inventory should explain automatic package initialization for a selected project');
-  assert.equal(report.duplicates.length, 2);
+  assert.equal(report.duplicates.length, 3);
+  const hashCollisionGroup = report.duplicates.find((group) => group.match === 'content-hash' && group.names.includes('global-revenue-playbook'));
+  assert.ok(hashCollisionGroup, 'identical skill content with different folder names should be reported as a hash collision');
+  assert.deepEqual(hashCollisionGroup.names, ['global-revenue-playbook', 'local-gtm-playbook']);
+  assert.equal(hashCollisionGroup.items[0].contentHash, hashCollisionGroup.items[1].contentHash);
+  assert.ok(hashCollisionGroup.items[0].files.some((file) => file.path === 'references/guide.md'), 'discovery should retain every verified file for the cleanup preview');
   const userSkill = report.findings.find((item) => item.type === 'skill' && item.scope === 'Just you' && item.name === 'duplicate-skill');
   assert.ok(userSkill, 'the user skill should be found');
   assert.match(userSkill.updatedAt, /^\d{4}-\d{2}-\d{2}T/, 'discovered skills should expose their SKILL.md last-edited time for a user-reviewed cleanup choice');
@@ -183,19 +198,40 @@ async function run() {
   await assert.rejects(fsp.access(userSkill.path));
   await fsp.access(path.join(cleanupPlan.destination, 'SKILL.md'));
 
+  const staleBulkPlan = await reviewAllDuplicates(null, { discoveryId: report.discoveryId });
+  await fsp.writeFile(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'), '# Changed after preview\n', 'utf8');
+  const staleBulkResult = await applyAllDuplicates(null, { reviewId: staleBulkPlan.reviewId });
+  assert.equal(staleBulkResult.ok, false, 'bulk cleanup must refuse a preview whose exact file content changed before apply');
+  await fsp.access(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'));
+  await fsp.writeFile(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'), hashCollision.contents, 'utf8');
+
   const bulkPlan = await reviewAllDuplicates(null, { discoveryId: report.discoveryId });
   assert.equal(bulkPlan.ok, true, 'a bulk duplicate review should be generated from only the discovered global and project skill roots');
-  assert.equal(bulkPlan.groups.length, 1, 'the already moved duplicate skill should not be included in the bulk plan');
-  assert.equal(bulkPlan.groups[0].name, 'bulk-duplicate-skill');
-  assert.equal(bulkPlan.groups[0].keep.scope, 'This project', 'the newest local duplicate should remain available');
-  assert.equal(bulkPlan.moves.length, 1);
-  assert.equal(bulkPlan.moves[0].scope, 'Just you');
+  assert.equal(bulkPlan.groups.length, 2, 'the already moved duplicate skill should not be included in the bulk plan');
+  const namedBulkGroup = bulkPlan.groups.find((group) => group.name === 'bulk-duplicate-skill');
+  const hashedBulkGroup = bulkPlan.groups.find((group) => group.match === 'content-hash' && group.names.includes('global-revenue-playbook'));
+  assert.equal(namedBulkGroup.keep.scope, 'This project', 'the newest local same-name duplicate should remain available');
+  assert.equal(hashedBulkGroup.keep.name, 'local-gtm-playbook', 'the newest local hash collision should remain available');
+  assert.equal(bulkPlan.moves.length, 2);
+  const namedBulkMove = bulkPlan.moves.find((move) => move.name === 'bulk-duplicate-skill');
+  const hashCollisionMove = bulkPlan.moves.find((move) => move.name === 'global-revenue-playbook');
+  assert.equal(namedBulkMove.scope, 'Just you');
+  assert.equal(hashCollisionMove.scope, 'Just you');
+  assert.deepEqual(hashCollisionMove.files.map((file) => file.source).sort((left, right) => left.localeCompare(right)), [
+    path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'),
+    path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'references', 'guide.md'),
+  ].sort((left, right) => left.localeCompare(right)), 'the cleanup review must preview every exact file that will be backed up');
+  assert.ok(hashCollisionMove.files.every((file) => file.destination.startsWith(hashCollisionMove.destination)), 'each previewed file must show its exact backup destination');
   const bulkResult = await applyAllDuplicates(null, { reviewId: bulkPlan.reviewId });
   assert.equal(bulkResult.ok, true, 'all reviewed duplicate copies should move to backup in one action');
-  assert.equal(bulkResult.movedCount, 1);
+  assert.equal(bulkResult.movedCount, 2);
   await assert.rejects(fsp.access(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill')));
   await fsp.access(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
-  await fsp.access(path.join(bulkPlan.moves[0].destination, 'SKILL.md'));
+  await fsp.access(path.join(namedBulkMove.destination, 'SKILL.md'));
+  await assert.rejects(fsp.access(path.join(home, '.claude', 'skills', 'global-revenue-playbook')));
+  await fsp.access(path.join(project, '.claude', 'skills', 'local-gtm-playbook', 'references', 'guide.md'));
+  await fsp.access(path.join(hashCollisionMove.destination, 'SKILL.md'));
+  await fsp.access(path.join(hashCollisionMove.destination, 'references', 'guide.md'));
 
   const copyReview = await reviewCustom(null, { source: sourceSkill, scope: 'project', projectPath: project });
   assert.equal(copyReview.ok, true);

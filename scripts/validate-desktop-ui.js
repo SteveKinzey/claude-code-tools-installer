@@ -165,14 +165,14 @@ if (!renderer.includes("setAttribute('role', 'switch')") || !renderer.includes("
 if (!main.includes('const reviewedPluginPlans') || !main.includes('const reviewedPluginIds') || !main.includes('installReviewedPlugins(reviewedPluginIds)') || !main.includes("runProcess('claude', args")) {
   throw new Error('Supported fixed plugin choices must run inside CCTI after the approved tool plan succeeds.');
 }
-if (!main.includes('async function installedSkillsMatching') || !main.includes("kind: 'duplicate-skill'") || !main.includes("code: 'already-available'")) {
-  throw new Error('Custom skill additions must stop before copying a skill already available in Claude Code.');
+if (!main.includes('async function installedSkillsMatching') || !main.includes('skillContentManifest') || !main.includes("kind: 'duplicate-skill'") || !main.includes("code: 'already-available'")) {
+  throw new Error('Custom skill additions must stop before copying a skill with an existing name or identical verified content in Claude Code.');
 }
 if (!main.includes('async function installedClaudePluginIds') || !main.includes('pluginIsInstalled(installedIds, requestedPlugin)')) {
   throw new Error('Curated plugin installs must skip plugins Claude Code already reports as installed.');
 }
-if (!html.includes('id="duplicate-skill-dialog"') || !html.includes('id="deduplicate-all-skills-button"') || !renderer.includes('async function deduplicateAllSkills()') || !renderer.includes('reviewAllDuplicates') || !renderer.includes('applyAllDuplicates') || !renderer.includes('CCTI did not add another copy')) {
-  throw new Error('Duplicate skills must open a review-first dialog with one reversible de-duplicate action.');
+if (!html.includes('id="duplicate-skill-dialog"') || !html.includes('id="deduplicate-all-skills-button"') || !html.includes('id="duplicate-backup-preview"') || !html.includes('id="duplicate-backup-preview-list"') || !renderer.includes('async function deduplicateAllSkills()') || !renderer.includes('showDuplicateBackupPreview') || !renderer.includes('reviewAllDuplicates') || !renderer.includes('applyAllDuplicates') || !main.includes('duplicateSkillGroups') || !main.includes('content-hash') || !renderer.includes('CCTI did not add another copy')) {
+  throw new Error('Duplicate skills must use hash-aware detection and show an exact reversible backup-file preview before bulk cleanup.');
 }
 if (!fs.existsSync(duplicateUiTestPath) || !fs.existsSync(duplicateUiLauncherPath) || !desktopPackage.scripts?.['duplicate-skill-ui:check']?.includes('run-duplicate-skill-ui-test.js') || !desktopPackage.scripts?.check?.includes('duplicate-skill-ui:check')) {
   throw new Error('The complete desktop suite must exercise the rendered duplicate-skill dialog and backup prompt.');
