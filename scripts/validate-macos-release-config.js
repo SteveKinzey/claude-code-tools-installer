@@ -5,6 +5,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const desktop = path.join(root, 'desktop');
 const packageJson = JSON.parse(fs.readFileSync(path.join(desktop, 'package.json'), 'utf8'));
+const releaseWorkflowPath = path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml');
 const entitlementPaths = [
   path.join(desktop, 'build', 'entitlements.mac.plist'),
   path.join(desktop, 'build', 'entitlements.mac.inherit.plist'),
@@ -28,6 +29,15 @@ expect(Boolean(packageJson.devDependencies?.['@electron/notarize']), 'Missing @e
 expect(packageJson.dependencies?.['electron-updater'], 'Missing electron-updater production dependency.');
 expect(packageJson.build?.publish?.provider === 'github' && packageJson.build.publish.owner === 'SteveKinzey' && packageJson.build.publish.repo === 'claude-code-tools-installer', 'Native updater must use the verified public GitHub Releases feed.');
 expect(packageJson.build?.artifactName === 'Claude-Code-Tools-Installer-${version}-${os}-${arch}.${ext}', 'macOS native update metadata needs space-free artifact names.');
+expect(fs.existsSync(releaseWorkflowPath), 'Missing signed macOS release workflow.');
+
+if (fs.existsSync(releaseWorkflowPath)) {
+  const releaseWorkflow = fs.readFileSync(releaseWorkflowPath, 'utf8');
+  const packageVersionLine = releaseWorkflow.split('\n').find((line) => line.includes('package_version=')) || '';
+  expect(packageVersionLine.includes("node -e '"), 'Release tag validation must quote the Node version normalizer so Bash cannot expand its source.');
+  expect(!packageVersionLine.includes('`v${'), 'Release tag validation must not contain a Bash-expandable JavaScript template literal.');
+  expect(releaseWorkflow.includes('checkout "$TAG" -- desktop scripts setup-my-claude.sh'), 'Release workflow must restore the tagged desktop runtime and test scripts before validation.');
+}
 
 for (const entitlementPath of entitlementPaths) {
   expect(fs.existsSync(entitlementPath), `Missing entitlement file: ${path.relative(root, entitlementPath)}.`);
