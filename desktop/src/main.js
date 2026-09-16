@@ -366,7 +366,7 @@ function configureNativeUpdaterEvents() {
   if (nativeUpdaterEventsConfigured || !nativeUpdaterSupported()) return;
   nativeUpdaterEventsConfigured = true;
   getNativeUpdater().autoDownload = false;
-  getNativeUpdater().autoInstallOnAppQuit = true;
+  getNativeUpdater().autoInstallOnAppQuit = false;
   getNativeUpdater().on('checking-for-update', () => {
     updateStatus = {
       ...updateStatus,
@@ -421,7 +421,7 @@ function configureNativeUpdaterEvents() {
       latestVersion,
       releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(latestVersion),
       checkedAt: new Date().toISOString(),
-      message: `CCTI ${latestVersion} is downloaded and verified. Restart to apply it now, or it will apply the next time the app quits.`,
+      message: `CCTI ${latestVersion} is downloaded and verified. Select Restart to Update to apply it.`,
       canDownload: false,
       canInstall: true,
     };

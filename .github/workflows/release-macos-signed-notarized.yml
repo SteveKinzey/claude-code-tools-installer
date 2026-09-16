@@ -51,6 +51,11 @@ jobs:
             echo "Release tag was not found: $tag" >&2
             exit 2
           }
+          package_version="$(git -C "$GITHUB_WORKSPACE" show "$tag:desktop/package.json" | node -e "let body=''; process.stdin.on('data', (chunk) => { body += chunk; }); process.stdin.on('end', () => { const v=JSON.parse(body).version.split('.').map(Number); if (v.length !== 3 || v.some((part) => !Number.isInteger(part) || part < 0)) process.exit(2); process.stdout.write(`v${String(v[0]).padStart(4, '0')}.${String(v[1]).padStart(2, '0')}.${String(v[2]).padStart(2, '0')}`); });")"
+          [[ "$tag" == "$package_version" ]] || {
+            echo "Release tag $tag must match desktop/package.json version $package_version." >&2
+            exit 2
+          }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "commit=$(git -C "$GITHUB_WORKSPACE" rev-parse "${tag}^{commit}")" >> "$GITHUB_OUTPUT"
 

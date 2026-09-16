@@ -18,7 +18,7 @@ let updaterInstalls = 0;
 
 const autoUpdaterStub = {
   autoDownload: true,
-  autoInstallOnAppQuit: false,
+  autoInstallOnAppQuit: true,
   on: (event, callback) => updaterListeners.set(event, callback),
   checkForUpdates: async () => {
     updaterChecks += 1;
@@ -112,6 +112,8 @@ async function run() {
     assert.equal(updaterDownloads, 1, 'the native updater must download the signed package after a user action');
     assert.equal(downloaded.state, 'downloaded');
     assert.equal(downloaded.canInstall, true);
+    assert.equal(autoUpdaterStub.autoDownload, false, 'the updater must never download during background checks');
+    assert.equal(autoUpdaterStub.autoInstallOnAppQuit, false, 'a downloaded update must never install merely because the app exits');
     assert.match(downloaded.message, /downloaded and verified/i);
     assert.ok(sentEvents.some((event) => event.channel === 'updates:status' && event.payload.state === 'downloading'), 'the renderer must receive download progress');
     assert.ok(sentEvents.some((event) => event.channel === 'updates:status' && event.payload.state === 'downloaded'), 'the renderer must receive a verified download state');
