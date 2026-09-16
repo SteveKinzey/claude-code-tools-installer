@@ -196,6 +196,12 @@ jobs:
           fi
           xcrun stapler staple "$DMG"
 
+      - name: Refresh native update metadata after DMG stapling
+        env:
+          DMG: ${{ steps.artifact.outputs.dmg }}
+          METADATA: ${{ steps.artifact.outputs.metadata }}
+        run: node ../scripts/refresh-macos-update-metadata.js "$METADATA" "$DMG"
+
       - name: Verify signature, Gatekeeper, and stapled ticket
         env:
           DMG: ${{ steps.artifact.outputs.dmg }}

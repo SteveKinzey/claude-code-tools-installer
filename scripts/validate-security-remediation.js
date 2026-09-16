@@ -91,6 +91,7 @@ assert.match(macReleaseWorkflow, /notary_auth=apple_id/, 'macOS release workflow
 assert.match(macReleaseWorkflow, /APPLE_NOTARY_APP_PASSWORD/, 'macOS release workflow must scope the Apple ID notarization password to consuming steps.');
 assert.match(macReleaseWorkflow, /steps\.checksums\.outputs\.dmg_checksum/, 'macOS release workflow must publish a detached DMG SHA-256 checksum.');
 assert.match(macReleaseWorkflow, /notarytool submit \"\$ZIP\"/, 'macOS native update ZIP must be notarized before release upload.');
+assert.match(macReleaseWorkflow, /refresh-macos-update-metadata\.js \"\$METADATA\" \"\$DMG\"/, 'macOS release workflow must refresh latest-mac.yml after stapling changes final DMG bytes.');
 assert.match(macReleaseWorkflow, /gh release upload[^\n]*\$ZIP[^\n]*\$METADATA[^\n]*--clobber/, 'macOS release workflow must upload the notarized native update ZIP with latest-mac.yml metadata and permit safe artifact retry replacement.');
 assert.match(macCandidateWorkflow, /source_tag:/, 'macOS candidate workflow must support building an existing immutable source tag.');
 assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must copy runtime files from the requested source tag at repository root.');
