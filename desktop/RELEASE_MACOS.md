@@ -137,3 +137,9 @@ Only after these checks should the artifact be renamed or uploaded as the new pu
 - [Apple: Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
 - [Apple: TN3147, `notarytool` migration and Keychain profiles](https://developer.apple.com/documentation/technotes/tn3147-migrating-to-the-latest-notarization-tool)
 - [Electron Builder: Code signing configuration](https://www.electron.build/docs/features/code-signing/)
+
+## Native update channel
+
+CCTI’s packaged macOS build uses `electron-updater` with the public GitHub Releases feed. Each signed release must include the signed and notarized **macOS ZIP** plus the generated `latest-mac.yml` alongside the customer-facing notarized DMG. `latest-mac.yml` contains the SHA-512 metadata used by the updater to select and verify the ZIP; it is not a substitute for the public SHA-256 release checksums.
+
+The application never downloads an update at launch or during its background check. A user selects **Check for Updates**, the application checks the signed feed and downloads only a newer package, then exposes **Restart to Update**. If the feed, signature, or metadata is unavailable, the application does not install anything and directs the user to the GitHub release page instead.

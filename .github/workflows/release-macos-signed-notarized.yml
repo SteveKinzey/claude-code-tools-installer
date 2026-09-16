@@ -137,15 +137,28 @@ jobs:
         run: npm run dist:mac:signed
 
       - id: artifact
-        name: Identify release candidate
+        name: Identify release candidate and native update metadata
         run: |
           dmg="$(find ../releases/test-builds -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          zip="$(find ../releases/test-builds -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          metadata="$(find ../releases/test-builds -maxdepth 1 -type f -name 'latest-mac.yml' -print -quit)"
           test -n "$dmg"
+          test -n "$zip"
+          test -n "$metadata"
+          grep -q 'sha512:' "$metadata"
+          for artifact in "$dmg" "$zip"; do
+            grep -Fq "$(basename "$artifact")" "$metadata" || {
+              echo "Native update metadata does not reference $(basename "$artifact")." >&2
+              exit 2
+            }
+          done
           echo "dmg=$dmg" >> "$GITHUB_OUTPUT"
-
-      - name: Notarize the final DMG and staple the ticket
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+          echo "metadata=$metadata" >> "$GITHUB_OUTPUT"
+      - name: Notarize the final DMG and native update ZIP, then staple the DMG
         env:
           DMG: ${{ steps.artifact.outputs.dmg }}
+          ZIP: ${{ steps.artifact.outputs.zip }}
           NOTARY_AUTH: ${{ steps.notary_auth.outputs.notary_auth }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -159,8 +172,18 @@ jobs:
               --key-id "$APPLE_API_KEY_ID" \
               --issuer "$APPLE_API_ISSUER" \
               --wait
+            xcrun notarytool submit "$ZIP" \
+              --key "$APPLE_API_KEY" \
+              --key-id "$APPLE_API_KEY_ID" \
+              --issuer "$APPLE_API_ISSUER" \
+              --wait
           else
             xcrun notarytool submit "$DMG" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+            xcrun notarytool submit "$ZIP" \
               --apple-id "$APPLE_ID" \
               --password "$APPLE_APP_SPECIFIC_PASSWORD" \
               --team-id "$APPLE_TEAM_ID" \
@@ -174,28 +197,35 @@ jobs:
         run: bash ../scripts/verify-signed-macos-dmg.sh "$DMG"
 
       - id: checksums
-        name: Create SHA-256 checksum
+        name: Create SHA-256 checksums
         env:
           DMG: ${{ steps.artifact.outputs.dmg }}
+          ZIP: ${{ steps.artifact.outputs.zip }}
           TAG: ${{ steps.release.outputs.tag }}
         run: |
           output_dir="../releases/test-builds/release"
           mkdir -p "$output_dir"
           dmg_checksum="$output_dir/claude-code-tools-installer-macos-${TAG}.dmg.sha256"
+          zip_checksum="$output_dir/claude-code-tools-installer-macos-${TAG}.zip.sha256"
           shasum -a 256 "$DMG" > "$dmg_checksum"
+          shasum -a 256 "$ZIP" > "$zip_checksum"
           echo "dmg_checksum=$dmg_checksum" >> "$GITHUB_OUTPUT"
+          echo "zip_checksum=$zip_checksum" >> "$GITHUB_OUTPUT"
 
-      - name: Attach notarized macOS DMG and checksum to the GitHub Release
+      - name: Attach native update files, notarized DMG, and checksums to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
           SOURCE_COMMIT: ${{ steps.release.outputs.commit }}
           DMG: ${{ steps.artifact.outputs.dmg }}
+          ZIP: ${{ steps.artifact.outputs.zip }}
+          METADATA: ${{ steps.artifact.outputs.metadata }}
           DMG_CHECKSUM: ${{ steps.checksums.outputs.dmg_checksum }}
+          ZIP_CHECKSUM: ${{ steps.checksums.outputs.zip_checksum }}
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --target "$SOURCE_COMMIT" --title "$TAG" --generate-notes
-          gh release upload "$TAG" "$DMG" "$DMG_CHECKSUM"
+          gh release upload "$TAG" "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"
 
       - name: Upload release evidence
         if: always()

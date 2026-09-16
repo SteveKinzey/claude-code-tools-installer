@@ -48,7 +48,7 @@
     "productName": "Claude Code Tools Installer",
     "forceCodeSigning": false,
     "afterSign": "build/notarize.js",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "Claude-Code-Tools-Installer-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "../releases/test-builds"
     },
@@ -111,6 +111,15 @@
       "target": [
         "tar.gz"
       ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "SteveKinzey",
+      "repo": "claude-code-tools-installer",
+      "releaseType": "release"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

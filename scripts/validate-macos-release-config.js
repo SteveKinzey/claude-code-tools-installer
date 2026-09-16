@@ -25,6 +25,9 @@ expect(packageJson.scripts?.['dist:mac:signed']?.includes('forceCodeSigning=true
 expect(packageJson.scripts?.['dist:mac:release']?.includes('NOTARIZE=1'), 'Release build must enable the notarization hook.');
 expect(packageJson.scripts?.['dist:mac:release']?.includes('forceCodeSigning=true'), 'Release build must require a signing identity.');
 expect(Boolean(packageJson.devDependencies?.['@electron/notarize']), 'Missing @electron/notarize development dependency.');
+expect(packageJson.dependencies?.['electron-updater'], 'Missing electron-updater production dependency.');
+expect(packageJson.build?.publish?.provider === 'github' && packageJson.build.publish.owner === 'SteveKinzey' && packageJson.build.publish.repo === 'claude-code-tools-installer', 'Native updater must use the verified public GitHub Releases feed.');
+expect(packageJson.build?.artifactName === 'Claude-Code-Tools-Installer-${version}-${os}-${arch}.${ext}', 'macOS native update metadata needs space-free artifact names.');
 
 for (const entitlementPath of entitlementPaths) {
   expect(fs.existsSync(entitlementPath), `Missing entitlement file: ${path.relative(root, entitlementPath)}.`);
