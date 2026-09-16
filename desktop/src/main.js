@@ -11,6 +11,7 @@ let activeComponentInstall = false;
 const discoveredSkillCleanup = new Map();
 const reviewedCleanupPlans = new Map();
 const reviewedBulkCleanupPlans = new Map();
+const reviewedBulkRestorePlans = new Map();
 const reviewedPluginChanges = new Map();
 const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
@@ -28,7 +29,10 @@ const releaseApiEndpoint = 'https://api.github.com/repos/SteveKinzey/claude-code
 const releaseUrlPrefix = 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/';
 const updateCheckIntervalMs = 6 * 60 * 60 * 1000;
 let updateCheckPromise = null;
+let nativeUpdatePromise = null;
 let updateCheckTimer = null;
+let nativeUpdaterEventsConfigured = false;
+let nativeUpdater = null;
 let updateStatus = {
   state: 'idle',
   currentVersion: '',
@@ -38,6 +42,8 @@ let updateStatus = {
   message: 'Update status has not been checked yet.',
   artifactDigestSummary: { total: 0, verified: 0, missing: [] },
   digestAlert: null,
+  canDownload: false,
+  canInstall: false,
 };
 const reviewedPluginPlans = {
   superpowers: [['plugin', 'marketplace', 'add', 'obra/superpowers-marketplace'], ['plugin', 'install', 'superpowers@superpowers-marketplace', '--scope', 'user']],
@@ -216,6 +222,20 @@ function publishUpdateStatus() {
   emit('updates:status', { ...updateStatus });
 }
 
+function nativeUpdaterSupported() {
+  return process.platform === 'darwin' && app.isPackaged;
+}
+
+function getNativeUpdater() {
+  if (!nativeUpdater) ({ autoUpdater: nativeUpdater } = require('electron-updater'));
+  return nativeUpdater;
+}
+
+function updateReleaseUrlFor(version) {
+  const normalized = String(version || '').replace(/^v/i, '');
+  return normalized ? `${releaseUrlPrefix}tag/v${normalized}` : '';
+}
+
 function currentAppVersion() {
   return typeof app.getVersion === 'function' ? app.getVersion() : 'development';
 }
@@ -280,6 +300,7 @@ async function checkForUpdates() {
           message: `${artifactDigestSummary.missing.length} published release artifact${artifactDigestSummary.missing.length === 1 ? '' : 's'} ${artifactDigestSummary.missing.length === 1 ? 'is' : 'are'} missing a SHA-256 digest.`,
         }
         : null;
+      const canDownload = available && nativeUpdaterSupported();
       updateStatus = {
         state: available ? 'available' : 'current',
         currentVersion,
@@ -288,9 +309,13 @@ async function checkForUpdates() {
         checkedAt: new Date().toISOString(),
         artifactDigestSummary,
         digestAlert,
+        canDownload,
+        canInstall: false,
         message: available
-          ? `CCTI ${latestVersion} is available. Review the release before downloading it.`
-          : latestVersion === currentVersion
+          ? canDownload
+            ? `CCTI ${latestVersion} is available. Select Check for Updates to download the signed update now.`
+            : `CCTI ${latestVersion} is available. This build does not support in-app updates; use View Release to update.`
+          : compareVersions(latestVersion, currentVersion) === 0
             ? `CCTI ${currentVersion} is the newest published release.`
             : `CCTI ${currentVersion} is ahead of the newest verified public release (${latestVersion}). No download action is needed.`,
       };
@@ -334,6 +359,141 @@ async function openPublishedRelease() {
     return { ok: true };
   } catch {
     return { ok: false, error: 'CCTI could not open the verified release page.' };
+  }
+}
+
+function configureNativeUpdaterEvents() {
+  if (nativeUpdaterEventsConfigured || !nativeUpdaterSupported()) return;
+  nativeUpdaterEventsConfigured = true;
+  getNativeUpdater().autoDownload = false;
+  getNativeUpdater().autoInstallOnAppQuit = true;
+  getNativeUpdater().on('checking-for-update', () => {
+    updateStatus = {
+      ...updateStatus,
+      state: 'checking',
+      message: 'Checking GitHub for a signed CCTI update…',
+      canDownload: false,
+      canInstall: false,
+    };
+    publishUpdateStatus();
+  });
+  getNativeUpdater().on('update-available', (info) => {
+    const latestVersion = String(info?.version || updateStatus.latestVersion || '').replace(/^v/i, '');
+    updateStatus = {
+      ...updateStatus,
+      state: 'downloading',
+      latestVersion,
+      releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(latestVersion),
+      message: `Downloading the signed CCTI ${latestVersion} update…`,
+      canDownload: false,
+      canInstall: false,
+    };
+    publishUpdateStatus();
+  });
+  getNativeUpdater().on('update-not-available', () => {
+    if (updateStatus.state === 'checking' || updateStatus.state === 'downloading') {
+      updateStatus = {
+        ...updateStatus,
+        state: 'current',
+        message: `CCTI ${currentAppVersion()} is the newest signed update available.`,
+        canDownload: false,
+        canInstall: false,
+      };
+      publishUpdateStatus();
+    }
+  });
+  getNativeUpdater().on('download-progress', (progress) => {
+    const percent = Math.max(0, Math.min(100, Math.round(Number(progress?.percent) || 0)));
+    updateStatus = {
+      ...updateStatus,
+      state: 'downloading',
+      message: `Downloading the signed CCTI ${updateStatus.latestVersion || 'latest'} update… ${percent}%`,
+      canDownload: false,
+      canInstall: false,
+    };
+    publishUpdateStatus();
+  });
+  getNativeUpdater().on('update-downloaded', (info) => {
+    const latestVersion = String(info?.version || updateStatus.latestVersion || '').replace(/^v/i, '');
+    updateStatus = {
+      ...updateStatus,
+      state: 'downloaded',
+      latestVersion,
+      releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(latestVersion),
+      checkedAt: new Date().toISOString(),
+      message: `CCTI ${latestVersion} is downloaded and verified. Restart to apply it now, or it will apply the next time the app quits.`,
+      canDownload: false,
+      canInstall: true,
+    };
+    publishUpdateStatus();
+  });
+  getNativeUpdater().on('error', () => {
+    if (!nativeUpdatePromise && updateStatus.state !== 'checking' && updateStatus.state !== 'downloading') return;
+    updateStatus = {
+      ...updateStatus,
+      state: 'available',
+      message: `CCTI ${updateStatus.latestVersion || 'update'} is available, but its signed in-app update package is not ready. Use View Release to update safely.`,
+      canDownload: nativeUpdaterSupported(),
+      canInstall: false,
+    };
+    publishUpdateStatus();
+  });
+}
+
+async function downloadAvailableUpdate() {
+  if (nativeUpdatePromise) return nativeUpdatePromise;
+  nativeUpdatePromise = (async () => {
+    const status = await checkForUpdates();
+    if (status.state === 'current') return status;
+    if (status.state !== 'available') return status;
+    if (!nativeUpdaterSupported()) {
+      return {
+        ...status,
+        message: `CCTI ${status.latestVersion} is available, but this build cannot update itself. Use View Release to update.`,
+      };
+    }
+    configureNativeUpdaterEvents();
+    updateStatus = {
+      ...status,
+      state: 'checking',
+      message: `Checking GitHub for the signed CCTI ${status.latestVersion} update…`,
+      canDownload: false,
+      canInstall: false,
+    };
+    publishUpdateStatus();
+    try {
+      const result = await getNativeUpdater().checkForUpdates();
+      if (!result?.updateInfo || !isNewerVersion(result.updateInfo.version, currentAppVersion())) return { ...updateStatus };
+      await getNativeUpdater().downloadUpdate();
+      return { ...updateStatus };
+    } catch {
+      updateStatus = {
+        ...updateStatus,
+        state: 'available',
+        message: `CCTI ${status.latestVersion} is available, but its signed in-app update package is not ready. Use View Release to update safely.`,
+        canDownload: nativeUpdaterSupported(),
+        canInstall: false,
+      };
+      publishUpdateStatus();
+      return { ...updateStatus };
+    }
+  })();
+  try {
+    return await nativeUpdatePromise;
+  } finally {
+    nativeUpdatePromise = null;
+  }
+}
+
+async function restartAndInstallUpdate() {
+  if (!nativeUpdaterSupported() || !updateStatus.canInstall) {
+    return { ok: false, error: 'No downloaded CCTI update is ready to install.' };
+  }
+  try {
+    getNativeUpdater().quitAndInstall();
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'CCTI could not restart to install the downloaded update.' };
   }
 }
 
@@ -1235,6 +1395,82 @@ function skillBackupDestination(report, source) {
   return path.join(backupRoot, `${path.basename(source)}-${Date.now()}-${randomUUID().slice(0, 8)}`);
 }
 
+function backupNameDetails(backupName) {
+  const match = String(backupName || '').match(/^(.+)-(\d{13})-([a-f0-9]{8})$/i);
+  if (!match || !match[1] || path.basename(match[1]) !== match[1] || match[1].startsWith('.')) return null;
+  return { name: match[1], createdAt: Number(match[2]) };
+}
+
+function originalSkillNameFromBackup(backupName) {
+  return backupNameDetails(backupName)?.name || '';
+}
+
+async function listRestorableSkillBackups(projectPath = '') {
+  const locations = [{
+    backupRoot: path.join(setupManagerDir(), 'disabled-skills'),
+    skillRoot: path.join(app.getPath('home'), '.claude', 'skills'),
+    scope: 'Just you',
+  }];
+  if (projectPath) locations.push({
+    backupRoot: path.join(projectPath, '.claude', '.setup-my-claude-disabled'),
+    skillRoot: path.join(projectPath, '.claude', 'skills'),
+    scope: 'This project',
+  });
+  const backups = [];
+  for (const location of locations) {
+    let entries;
+    try {
+      entries = await fs.readdir(location.backupRoot, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === 'ENOENT') continue;
+      backups.push({ id: `backup-root:${location.backupRoot}`, type: 'attention', name: 'Skill backups folder needs attention', scope: location.scope, path: location.backupRoot, description: 'CCTI could not read this skill backup folder. It was not changed.' });
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      const backupDetails = backupNameDetails(entry.name);
+      if (!backupDetails) continue;
+      const { name, createdAt: backupCreatedAt } = backupDetails;
+      const backupPath = path.join(location.backupRoot, entry.name);
+      const destination = path.join(location.skillRoot, name);
+      try {
+        const manifest = await skillContentManifest(backupPath);
+        const destinationExists = await pathExists(destination);
+        backups.push({
+          id: `backup:${backupPath}`,
+          type: 'skill-backup',
+          name,
+          scope: location.scope,
+          path: backupPath,
+          destination,
+          contentHash: manifest.identity,
+          files: manifest.files,
+          totalBytes: manifest.totalBytes,
+          backupCreatedAt,
+          restorable: !destinationExists,
+          description: destinationExists
+            ? 'A preserved skill backup. CCTI will not restore it because its original skill folder already exists.'
+            : 'A preserved CCTI skill backup that can be restored to its original Claude Code location.',
+        });
+      } catch (error) {
+        backups.push({ id: `backup:${backupPath}`, type: 'attention', name, scope: location.scope, path: backupPath, destination, description: `This skill backup could not be verified: ${error.message} It was not changed.` });
+      }
+    }
+  }
+  const backupsByDestination = new Map();
+  for (const backup of backups.filter((item) => item.type === 'skill-backup' && item.restorable)) {
+    backupsByDestination.set(backup.destination, [...(backupsByDestination.get(backup.destination) || []), backup]);
+  }
+  for (const destinationBackups of backupsByDestination.values()) {
+    destinationBackups.sort((left, right) => right.backupCreatedAt - left.backupCreatedAt);
+    for (const olderBackup of destinationBackups.slice(1)) {
+      olderBackup.restorable = false;
+      olderBackup.description = 'A preserved CCTI skill backup. CCTI will not restore it automatically because a newer backup targets the same original skill location.';
+    }
+  }
+  return backups;
+}
+
 async function skillContentManifest(skillPath) {
   const root = path.resolve(skillPath);
   const files = [];
@@ -1429,6 +1665,7 @@ async function discoverClaudeSetup(projectPath = '') {
       findings.push({ id: `project-file-attention:${resolvedProjectPath}`, type: 'attention', name: 'Project package file needs attention', scope: 'This project', path: path.join(resolvedProjectPath, 'package.json'), description: error.message });
     }
   }
+  findings.push(...await listRestorableSkillBackups(resolvedProjectPath));
 
   const claude = await claudeStatus();
   if (claude.installed) {
@@ -1476,6 +1713,7 @@ async function discoverClaudeSetup(projectPath = '') {
   ];
   const discoveryId = randomUUID();
   const manageablePlugins = findings.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
+  const skillBackups = findings.filter((item) => item.type === 'skill-backup');
   discoveredSkillCleanup.set(discoveryId, {
     createdAt: Date.now(),
     skills: new Map(skills.map((item) => [item.id, {
@@ -1487,6 +1725,17 @@ async function discoverClaudeSetup(projectPath = '') {
       contentHash: item.contentHash,
       files: item.files,
       totalBytes: item.totalBytes,
+    }])),
+    backups: new Map(skillBackups.map((item) => [item.id, {
+      id: item.id,
+      name: item.name,
+      path: item.path,
+      destination: item.destination,
+      scope: item.scope,
+      contentHash: item.contentHash,
+      files: item.files,
+      totalBytes: item.totalBytes,
+      restorable: item.restorable,
     }])),
     plugins: new Map(manageablePlugins.map((item) => [item.id, { name: item.name, scope: item.scope }])),
     projectPath: resolvedProjectPath,
@@ -1765,6 +2014,94 @@ async function applyAllDuplicateSkills({ reviewId } = {}) {
   }
 }
 
+function backupSourceWithinCheckedRoot(report, source) {
+  const roots = [path.join(setupManagerDir(), 'disabled-skills')];
+  if (report?.projectPath) roots.push(path.join(report.projectPath, '.claude', '.setup-my-claude-disabled'));
+  return roots.includes(path.dirname(source)) && Boolean(originalSkillNameFromBackup(path.basename(source)));
+}
+
+async function reviewAllSkillBackups({ discoveryId } = {}) {
+  const report = discoveredSkillCleanup.get(String(discoveryId || ''));
+  if (!report?.backups) return { ok: false, error: 'Run the checkup again before restoring skill backups.' };
+  const moves = [...report.backups.values()]
+    .filter((backup) => backup.restorable && path.isAbsolute(backup.path) && path.isAbsolute(backup.destination))
+    .map((backup) => ({
+      backupId: backup.id,
+      name: backup.name,
+      source: backup.path,
+      destination: backup.destination,
+      scope: backup.scope,
+      contentHash: backup.contentHash,
+      files: backup.files,
+    }));
+  if (!moves.length) return { ok: false, error: 'No safe CCTI skill backups are available to restore. Existing active skills are never overwritten.' };
+  const reviewId = randomUUID();
+  const plan = {
+    ok: true,
+    reviewId,
+    discoveryId,
+    moves: moves.map(({ name, source, destination, scope, contentHash, files }) => ({ name, source, destination, scope, contentHash, files: moveFilesForPreview({ source, destination, files }) })),
+    description: 'CCTI restores only reviewed skill backups whose original direct skill locations remain empty. It never merges or overwrites active skill folders.',
+  };
+  reviewedBulkRestorePlans.set(reviewId, { ...plan, createdAt: Date.now(), moves });
+  for (const [id, review] of reviewedBulkRestorePlans) {
+    if (Date.now() - review.createdAt > 10 * 60 * 1000) reviewedBulkRestorePlans.delete(id);
+  }
+  return plan;
+}
+
+async function applyAllSkillBackups({ reviewId } = {}) {
+  const plan = reviewedBulkRestorePlans.get(String(reviewId || ''));
+  const report = plan && discoveredSkillCleanup.get(plan.discoveryId);
+  if (!plan || !report || Date.now() - plan.createdAt > 10 * 60 * 1000) {
+    return { ok: false, error: 'This restore review has expired. Run the checkup again before continuing.' };
+  }
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) {
+    return { ok: false, error: 'Another CCTI action is running. Wait for it to finish before restoring skill backups.' };
+  }
+  for (const move of plan.moves) {
+    const backup = report.backups.get(move.backupId);
+    if (!backup || !backup.restorable || backup.path !== move.source || backup.destination !== move.destination || backup.contentHash !== move.contentHash || !backupSourceWithinCheckedRoot(report, move.source)) {
+      return { ok: false, error: 'The discovered backup list changed. Run the checkup again before continuing.' };
+    }
+    if (await pathExists(move.destination)) return { ok: false, error: 'An original skill location is now in use. CCTI will not overwrite it. Run the checkup again.' };
+    try {
+      const currentManifest = await skillContentManifest(move.source);
+      if (currentManifest.identity !== move.contentHash || JSON.stringify(currentManifest.files) !== JSON.stringify(move.files)) {
+        return { ok: false, error: 'A skill backup changed after the preview. Run the checkup again before continuing.' };
+      }
+    } catch (error) {
+      return { ok: false, error: error.code === 'ENOENT' ? 'A skill backup is no longer available. Run the checkup again before continuing.' : 'CCTI could not recheck one of the skill backups. Nothing was restored.' };
+    }
+  }
+  activeSkillCleanup = true;
+  const restored = [];
+  try {
+    for (const move of plan.moves) {
+      await fs.mkdir(path.dirname(move.destination), { recursive: true });
+      await fs.rename(move.source, move.destination);
+      report.backups.delete(move.backupId);
+      restored.push(move);
+    }
+    reviewedBulkRestorePlans.delete(plan.reviewId);
+    return {
+      ok: true,
+      restoredCount: restored.length,
+      message: `Restored ${restored.length} skill backup ${restored.length === 1 ? 'copy' : 'copies'} to their original Claude Code locations. No active skill was overwritten and no other settings changed.`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      restoredCount: restored.length,
+      error: restored.length
+        ? `CCTI restored ${restored.length} reviewed skill backup ${restored.length === 1 ? 'copy' : 'copies'} before stopping. Run the checkup again to review what remains.`
+        : 'CCTI could not restore the reviewed skill backups. Nothing was overwritten.',
+    };
+  } finally {
+    activeSkillCleanup = false;
+  }
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -1793,6 +2130,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('diagnostics:export', async (_event, payload) => exportDiagnosticReport(payload || {}));
   ipcMain.handle('updates:get-status', async () => ({ ...updateStatus }));
   ipcMain.handle('updates:check', checkForUpdates);
+  ipcMain.handle('updates:download', downloadAvailableUpdate);
+  ipcMain.handle('updates:install', restartAndInstallUpdate);
   ipcMain.handle('updates:open-release', openPublishedRelease);
   ipcMain.handle('claude:run', async (_event, payload) => launchClaudeCode(payload || {}));
   ipcMain.handle('claude:review-removal', knownClaudeRemovalPlan);
@@ -1806,6 +2145,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup-manager:apply-cleanup', async (_event, payload) => applyCleanup(payload || {}));
   ipcMain.handle('setup-manager:review-all-duplicates', async (_event, payload) => reviewAllDuplicateSkills(payload || {}));
   ipcMain.handle('setup-manager:apply-all-duplicates', async (_event, payload) => applyAllDuplicateSkills(payload || {}));
+  ipcMain.handle('setup-manager:review-all-skill-backups', async (_event, payload) => reviewAllSkillBackups(payload || {}));
+  ipcMain.handle('setup-manager:apply-all-skill-backups', async (_event, payload) => applyAllSkillBackups(payload || {}));
 
   ipcMain.handle('claude:install-only', async () => {
     if (activeInstall) return { ok: false, error: 'An installation is already running.', installed: false, version: '' };

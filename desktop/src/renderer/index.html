@@ -112,6 +112,12 @@
           <p>These names appear in more than one place. That does not always mean there is a problem. Review the locations first. If you want to remove a skill, this app moves one copy to a backup folder instead of deleting it.</p>
           <div id="duplicate-review-list" class="duplicate-review-list"></div>
         </section>
+        <section id="skill-backup-review" class="duplicate-review is-hidden" aria-labelledby="skill-backup-review-heading">
+          <h3 id="skill-backup-review-heading">Restore backed-up skills</h3>
+          <p id="skill-backup-review-summary">CCTI can restore preserved duplicate skill copies only when their original Claude Code location remains empty. It never overwrites an active skill folder.</p>
+          <div id="skill-backup-review-list" class="duplicate-review-list"></div>
+          <button id="restore-all-skill-backups-button" class="button button-secondary" type="button">Restore safe backup copies</button>
+        </section>
         <section class="custom-addon" aria-labelledby="custom-addon-heading">
           <div>
             <h3 id="custom-addon-heading">Add your own skill or add-on</h3>
@@ -272,13 +278,14 @@
         <div>
           <p class="eyebrow">APP SETTINGS</p>
           <h2 id="desktop-utilities-heading">Diagnostics and updates</h2>
-          <p>Run a local path and runtime check when Claude Code is not found. CCTI also checks GitHub in the background at launch and about every six hours. It never downloads or installs an update automatically.</p>
+          <p>Run a local path and runtime check when Claude Code is not found. CCTI also checks GitHub in the background at launch and about every six hours. It never downloads an update automatically. Check for Updates downloads a signed update and keeps restart-to-apply under your control.</p>
         </div>
         <div class="desktop-utilities-actions">
           <button id="run-diagnostics-button" class="button button-secondary" type="button">Run Diagnostics</button>
           <button id="copy-diagnostics-button" class="button button-ghost" type="button" disabled>Copy to Clipboard</button>
           <button id="export-diagnostics-button" class="button button-ghost" type="button" disabled>Save Diagnostics (.txt)</button>
           <button id="check-updates-button" class="button button-ghost" type="button">Check for Updates</button>
+          <button id="install-update-button" class="button button-primary" type="button" hidden>Restart to Update</button>
           <button id="open-release-button" class="button button-primary" type="button" hidden disabled>View New Version</button>
         </div>
         <div class="update-status-row">
@@ -342,19 +349,20 @@
     </aside>
     <button id="compass-toggle" class="compass-toggle" type="button" aria-label="Open Compass tool advisor">?</button>
 
-    <dialog id="duplicate-skill-dialog" class="duplicate-skill-dialog" aria-labelledby="duplicate-skill-dialog-heading" aria-describedby="duplicate-skill-dialog-copy">
+    <dialog id="duplicate-skill-dialog" class="duplicate-skill-dialog" aria-labelledby="duplicate-skill-dialog-heading" aria-describedby="duplicate-skill-dialog-copy" aria-modal="true">
       <form method="dialog" class="duplicate-skill-dialog-content">
-        <p class="eyebrow">SKILL CHECKUP</p>
-        <h2 id="duplicate-skill-dialog-heading">Review duplicate skills</h2>
+        <p id="duplicate-skill-dialog-eyebrow" class="eyebrow">SKILL CHECKUP</p>
+        <h2 id="duplicate-skill-dialog-heading" tabindex="-1">Review duplicate skills</h2>
         <p id="duplicate-skill-dialog-copy">CCTI did not add another copy. Choose a listed skill only if you want to move the older local copy to a backup. Nothing is deleted automatically.</p>
         <div id="duplicate-skill-dialog-list" class="duplicate-skill-dialog-list"></div>
         <section id="duplicate-backup-preview" class="duplicate-backup-preview" aria-labelledby="duplicate-backup-preview-heading" hidden>
-          <h3 id="duplicate-backup-preview-heading">Files that will be backed up</h3>
-          <p id="duplicate-backup-preview-summary"></p>
+          <h3 id="duplicate-backup-preview-heading" tabindex="-1">Files that will be backed up</h3>
+          <p id="duplicate-backup-preview-summary" role="status" aria-live="polite"></p>
           <div id="duplicate-backup-preview-list" class="duplicate-backup-preview-list"></div>
         </section>
         <div class="duplicate-skill-dialog-actions">
           <button id="deduplicate-all-skills-button" class="button button-danger" type="button" hidden>De-duplicate all skills</button>
+          <button id="restore-listed-skill-backups-button" class="button button-primary" type="button" hidden>Restore listed backup copies</button>
           <button id="cancel-deduplicate-preview-button" class="button button-ghost" type="button" hidden>Back to review</button>
           <button id="close-duplicate-skill-dialog" class="button button-secondary" type="submit">Keep all copies</button>
         </div>

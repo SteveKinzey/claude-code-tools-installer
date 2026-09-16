@@ -53,7 +53,24 @@ const discoveryReport = {
   }],
 };
 
-const deduplicatedReport = {
+const backedUpSkill = {
+  id: 'backup:/fixture-home/.setup-my-claude/disabled-skills/revenue-systems-backup',
+  type: 'skill-backup',
+  name: 'revenue-systems',
+  scope: 'Just you',
+  path: '/fixture-home/.setup-my-claude/disabled-skills/revenue-systems-backup',
+  destination: '/fixture-home/.claude/skills/revenue-systems',
+  restorable: true,
+  description: 'A preserved CCTI skill backup that can be restored to its original Claude Code location.',
+};
+
+const backedUpReport = {
+  ...discoveryReport,
+  findings: [duplicateItems[1], backedUpSkill],
+  duplicates: [],
+};
+
+const restoredReport = {
   ...discoveryReport,
   findings: [duplicateItems[1]],
   duplicates: [],
@@ -65,7 +82,9 @@ function injectedBridge() {
   (() => {
     const duplicateItems = ${JSON.stringify(duplicateItems)};
     const discoveryReport = ${JSON.stringify(discoveryReport)};
-    const deduplicatedReport = ${JSON.stringify(deduplicatedReport)};
+    const backedUpSkill = ${JSON.stringify(backedUpSkill)};
+    const backedUpReport = ${JSON.stringify(backedUpReport)};
+    const restoredReport = ${JSON.stringify(restoredReport)};
     let scanCount = 0;
     window.__duplicateUiCalls = [];
     window.confirm = (message) => {
@@ -80,7 +99,7 @@ function injectedBridge() {
       getCompassStatus: async () => ({ available: false }),
       getUpdateStatus: async () => ({ status: 'idle', message: 'No update check has run yet.' }),
       getClaudeStatus: async () => ({ installed: true, version: 'test', path: '/fixture-home/.local/bin/claude' }),
-      discoverSetup: async (payload) => { record('discoverSetup', payload); scanCount += 1; return scanCount > 1 ? deduplicatedReport : discoveryReport; },
+      discoverSetup: async (payload) => { record('discoverSetup', payload); scanCount += 1; return scanCount === 1 ? discoveryReport : scanCount === 2 ? backedUpReport : restoredReport; },
       reviewCleanup: async (payload) => {
         record('reviewCleanup', payload);
         return {
@@ -112,6 +131,26 @@ function injectedBridge() {
         };
       },
       applyAllDuplicates: async (payload) => { record('applyAllDuplicates', payload); return { ok: true, movedCount: 1, groupCount: 1, message: 'Moved the selected duplicate skill copy to a backup folder.' }; },
+      reviewAllSkillBackups: async (payload) => {
+        record('reviewAllSkillBackups', payload);
+        return {
+          ok: true,
+          reviewId: 'all-skill-backups-restore-review',
+          moves: [{
+            name: 'revenue-systems',
+            scope: backedUpSkill.scope,
+            source: backedUpSkill.path,
+            destination: backedUpSkill.destination,
+            files: [{
+              source: '/fixture-home/.setup-my-claude/disabled-skills/revenue-systems-backup/SKILL.md',
+              destination: '/fixture-home/.claude/skills/revenue-systems/SKILL.md',
+              size: 42,
+              sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            }],
+          }],
+        };
+      },
+      applyAllSkillBackups: async (payload) => { record('applyAllSkillBackups', payload); return { ok: true, restoredCount: 1, message: 'Restored the selected skill backup copy.' }; },
       reviewCustomAddOn: async (payload) => {
         record('reviewCustomAddOn', payload);
         return {
@@ -191,6 +230,7 @@ async function run() {
     })()`);
     assert.equal(scanDialog.labelledBy, 'duplicate-skill-dialog-heading');
     assert.equal(scanDialog.describedBy, 'duplicate-skill-dialog-copy');
+    assert.equal(await pageValue(window, "document.querySelector('#duplicate-skill-dialog').getAttribute('aria-modal')"), 'true');
     assert.match(scanDialog.copy, /single De-duplicate action/i);
     assert.equal(scanDialog.groups, 1, 'The scan should render one grouped duplicate skill.');
     assert.deepEqual(scanDialog.bulkButton, { text: 'De-duplicate all skills', hidden: false, disabled: false });
@@ -199,7 +239,7 @@ async function run() {
     assert.match(scanDialog.locations[1], /^Keep newest discovered copy by date · This project/);
 
     await pageValue(window, "document.querySelector('#deduplicate-all-skills-button').click()");
-    await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === false, 'exact backup file preview');
+    await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === false && document.activeElement?.id === 'duplicate-backup-preview-heading', 'exact backup file preview');
     const backupPreview = await pageValue(window, `(() => ({
       button: document.querySelector('#deduplicate-all-skills-button').textContent,
       summary: document.querySelector('#duplicate-backup-preview-summary').textContent,
@@ -214,6 +254,13 @@ async function run() {
     assert.match(backupPreview.files, /SHA-256 a{64}/);
     assert.equal(backupPreview.backVisible, true);
     assert.equal(backupPreview.confirmCalls, 0, 'the preview should open before the final confirmation is shown');
+    assert.equal(await pageValue(window, "document.activeElement?.id"), 'duplicate-backup-preview-heading', 'the file preview heading should receive focus when the preview phase opens');
+
+    await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === true && document.querySelector('#deduplicate-all-skills-button')?.textContent === 'De-duplicate all skills' && document.activeElement?.id === 'duplicate-skill-dialog-heading', 'return to duplicate review');
+    assert.equal(await pageValue(window, "document.activeElement?.id"), 'duplicate-skill-dialog-heading', 'returning to duplicate review should move focus to its dialog title');
+    await pageValue(window, "document.querySelector('#deduplicate-all-skills-button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === false, 'reopened exact backup file preview');
 
     await pageValue(window, "document.querySelector('#deduplicate-all-skills-button').click()");
     await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'applyAllDuplicates'), 'reviewed bulk backup move');
@@ -228,6 +275,47 @@ async function run() {
     assert.deepEqual(cleanupCalls.find((call) => call.method === 'applyAllDuplicates')?.payload, { reviewId: 'all-duplicates-cleanup-review' });
 
     await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === false, 'bulk cleanup dialog closure');
+    await waitFor(window, () => document.querySelector('#restore-all-skill-backups-button')?.disabled === false, 'safe backup restore control after cleanup');
+    const restoreControl = await pageValue(window, `(() => ({
+      text: document.querySelector('#restore-all-skill-backups-button').textContent,
+      summary: document.querySelector('#skill-backup-review-summary').textContent,
+      listed: document.querySelector('#skill-backup-review-list').textContent,
+    }))()`);
+    assert.match(restoreControl.text, /Restore 1 safe backup copy/);
+    assert.match(restoreControl.summary, /1 of 1 preserved skill backup copy is safe to restore/);
+    assert.match(restoreControl.listed, /Original location: \/fixture-home\/\.claude\/skills\/revenue-systems/);
+
+    await pageValue(window, "document.querySelector('#restore-all-skill-backups-button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === false && document.querySelector('#restore-listed-skill-backups-button')?.hidden === false && document.activeElement?.id === 'duplicate-backup-preview-heading', 'restore file preview');
+    const restorePreview = await pageValue(window, `(() => ({
+      title: document.querySelector('#duplicate-skill-dialog-heading').textContent,
+      previewTitle: document.querySelector('#duplicate-backup-preview-heading').textContent,
+      copy: document.querySelector('#duplicate-skill-dialog-copy').textContent,
+      files: document.querySelector('#duplicate-backup-preview-list').textContent,
+      active: document.activeElement?.id,
+    }))()`);
+    assert.equal(restorePreview.title, 'Review backed-up skills');
+    assert.equal(restorePreview.previewTitle, 'Files that will be restored');
+    assert.match(restorePreview.copy, /never overwrites active skills/i);
+    assert.match(restorePreview.files, /\/fixture-home\/\.setup-my-claude\/disabled-skills\/revenue-systems-backup\/SKILL\.md/);
+    assert.match(restorePreview.files, /→ \/fixture-home\/\.claude\/skills\/revenue-systems\/SKILL\.md/);
+    assert.equal(restorePreview.active, 'duplicate-backup-preview-heading');
+
+    await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === false, 'restore preview dismissal');
+    assert.equal(await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').type"), 'button', 'restore cancellation must remain a native keyboard-operable button');
+
+    await pageValue(window, "document.querySelector('#restore-all-skill-backups-button').click()");
+    await waitFor(window, () => document.querySelector('#restore-listed-skill-backups-button')?.hidden === false, 'restored preview reopen');
+    await pageValue(window, "document.querySelector('#restore-listed-skill-backups-button').click()");
+    await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'applyAllSkillBackups'), 'reviewed backup restore');
+    const restoreCalls = await pageValue(window, 'window.__duplicateUiCalls');
+    const restoreConfirmation = restoreCalls.filter((call) => call.method === 'confirm').at(-1)?.message || '';
+    assert.match(restoreConfirmation, /Restore exactly 1 reviewed file/);
+    assert.match(restoreConfirmation, /will not overwrite active skills/i);
+    assert.deepEqual(restoreCalls.find((call) => call.method === 'applyAllSkillBackups')?.payload, { reviewId: 'all-skill-backups-restore-review' });
+    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === false, 'backup restore dialog closure');
+
     await pageValue(window, `(() => {
       document.querySelector('#custom-addon-source').value = '/incoming/revenue-systems';
       document.querySelector('#review-custom-addon-button').click();
@@ -263,5 +351,5 @@ app.whenReady()
   .catch(async (error) => {
     console.error(error.stack || error.message || error);
     await fs.rm(fixturePath, { force: true }).catch(() => {});
-    app.exit(1);
+    process.exit(1);
   });

@@ -72,6 +72,10 @@ async function run() {
   await writeSkill(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill'), 'Bulk duplicate');
   await fsp.utimes(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'), new Date('2026-01-15T10:00:00.000Z'), new Date('2026-01-15T10:00:00.000Z'));
   await fsp.utimes(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'), new Date('2026-08-15T10:00:00.000Z'), new Date('2026-08-15T10:00:00.000Z'));
+  await writeSkill(path.join(home, '.claude', 'skills', 'project-backup-skill'), 'Project backup');
+  await writeSkill(path.join(project, '.claude', 'skills', 'project-backup-skill'), 'Project backup');
+  await fsp.utimes(path.join(home, '.claude', 'skills', 'project-backup-skill', 'SKILL.md'), new Date('2026-09-15T10:00:00.000Z'), new Date('2026-09-15T10:00:00.000Z'));
+  await fsp.utimes(path.join(project, '.claude', 'skills', 'project-backup-skill', 'SKILL.md'), new Date('2026-01-15T10:00:00.000Z'), new Date('2026-01-15T10:00:00.000Z'));
   const hashCollision = { contents: '# Same instructions\n', files: { 'references/guide.md': 'Identical guide\n' } };
   await writeSkill(path.join(home, '.claude', 'skills', 'global-revenue-playbook'), 'Global revenue playbook', hashCollision);
   await writeSkill(path.join(project, '.claude', 'skills', 'local-gtm-playbook'), 'Local go-to-market playbook', hashCollision);
@@ -106,6 +110,8 @@ async function run() {
   const applyCleanup = handlers.get('setup-manager:apply-cleanup');
   const reviewAllDuplicates = handlers.get('setup-manager:review-all-duplicates');
   const applyAllDuplicates = handlers.get('setup-manager:apply-all-duplicates');
+  const reviewAllSkillBackups = handlers.get('setup-manager:review-all-skill-backups');
+  const applyAllSkillBackups = handlers.get('setup-manager:apply-all-skill-backups');
   const reviewPluginChange = handlers.get('setup-manager:review-plugin-change');
   const applyPluginChange = handlers.get('setup-manager:apply-plugin-change');
   const runInstall = handlers.get('install:run');
@@ -119,7 +125,7 @@ async function run() {
   const compareInstallationManifests = handlers.get('app:compare-installation-manifests');
   const applyAppUninstall = handlers.get('app:apply-uninstall');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewAllDuplicates && applyAllDuplicates && reviewPluginChange && applyPluginChange && runInstall && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && verifyDroppedInstallationManifest && compareInstallationManifests && applyAppUninstall, 'all handlers including bulk duplicate cleanup, app uninstall, and manifest verification should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewAllDuplicates && applyAllDuplicates && reviewAllSkillBackups && applyAllSkillBackups && reviewPluginChange && applyPluginChange && runInstall && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && verifyDroppedInstallationManifest && compareInstallationManifests && applyAppUninstall, 'all handlers including bulk duplicate cleanup and restore, app uninstall, and manifest verification should be registered');
 
   const componentCatalog = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
   const componentPreview = await previewComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id] });
@@ -145,7 +151,7 @@ async function run() {
   const report = await discover(null, { projectPath: project });
   assert.ok(report.discoveryId, 'a discovery session is required for cleanup');
   assert.ok(report.findings.some((item) => item.type === 'attention' && item.name === 'Project package file will be created when needed' && item.scope === 'This project'), 'the inventory should explain automatic package initialization for a selected project');
-  assert.equal(report.duplicates.length, 3);
+  assert.equal(report.duplicates.length, 4);
   const hashCollisionGroup = report.duplicates.find((group) => group.match === 'content-hash' && group.names.includes('global-revenue-playbook'));
   assert.ok(hashCollisionGroup, 'identical skill content with different folder names should be reported as a hash collision');
   assert.deepEqual(hashCollisionGroup.names, ['global-revenue-playbook', 'local-gtm-playbook']);
@@ -207,16 +213,20 @@ async function run() {
 
   const bulkPlan = await reviewAllDuplicates(null, { discoveryId: report.discoveryId });
   assert.equal(bulkPlan.ok, true, 'a bulk duplicate review should be generated from only the discovered global and project skill roots');
-  assert.equal(bulkPlan.groups.length, 2, 'the already moved duplicate skill should not be included in the bulk plan');
+  assert.equal(bulkPlan.groups.length, 3, 'the already moved duplicate skill should not be included in the bulk plan');
   const namedBulkGroup = bulkPlan.groups.find((group) => group.name === 'bulk-duplicate-skill');
   const hashedBulkGroup = bulkPlan.groups.find((group) => group.match === 'content-hash' && group.names.includes('global-revenue-playbook'));
+  const projectBackupGroup = bulkPlan.groups.find((group) => group.name === 'project-backup-skill');
   assert.equal(namedBulkGroup.keep.scope, 'This project', 'the newest local same-name duplicate should remain available');
   assert.equal(hashedBulkGroup.keep.name, 'local-gtm-playbook', 'the newest local hash collision should remain available');
-  assert.equal(bulkPlan.moves.length, 2);
+  assert.equal(projectBackupGroup.keep.scope, 'Just you', 'the newest user-scope copy should remain available when a project copy is backed up');
+  assert.equal(bulkPlan.moves.length, 3);
   const namedBulkMove = bulkPlan.moves.find((move) => move.name === 'bulk-duplicate-skill');
   const hashCollisionMove = bulkPlan.moves.find((move) => move.name === 'global-revenue-playbook');
+  const projectBackupMove = bulkPlan.moves.find((move) => move.name === 'project-backup-skill');
   assert.equal(namedBulkMove.scope, 'Just you');
   assert.equal(hashCollisionMove.scope, 'Just you');
+  assert.equal(projectBackupMove.scope, 'This project');
   assert.deepEqual(hashCollisionMove.files.map((file) => file.source).sort((left, right) => left.localeCompare(right)), [
     path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'),
     path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'references', 'guide.md'),
@@ -224,7 +234,7 @@ async function run() {
   assert.ok(hashCollisionMove.files.every((file) => file.destination.startsWith(hashCollisionMove.destination)), 'each previewed file must show its exact backup destination');
   const bulkResult = await applyAllDuplicates(null, { reviewId: bulkPlan.reviewId });
   assert.equal(bulkResult.ok, true, 'all reviewed duplicate copies should move to backup in one action');
-  assert.equal(bulkResult.movedCount, 2);
+  assert.equal(bulkResult.movedCount, 3);
   await assert.rejects(fsp.access(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill')));
   await fsp.access(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
   await fsp.access(path.join(namedBulkMove.destination, 'SKILL.md'));
@@ -232,6 +242,63 @@ async function run() {
   await fsp.access(path.join(project, '.claude', 'skills', 'local-gtm-playbook', 'references', 'guide.md'));
   await fsp.access(path.join(hashCollisionMove.destination, 'SKILL.md'));
   await fsp.access(path.join(hashCollisionMove.destination, 'references', 'guide.md'));
+  await assert.rejects(fsp.access(path.join(project, '.claude', 'skills', 'project-backup-skill')));
+  await fsp.access(path.join(projectBackupMove.destination, 'SKILL.md'));
+
+  if (process.env.CCTI_KEEP_FIXTURE === '1') {
+    console.log(`Verified generated user backup root: ${path.join(home, '.setup-my-claude', 'disabled-skills')}`);
+    console.log(`Verified generated project backup root: ${path.join(project, '.claude', '.setup-my-claude-disabled')}`);
+    return;
+  }
+
+  const backupReport = await discover(null, { projectPath: project });
+  const safeBackups = backupReport.findings.filter((item) => item.type === 'skill-backup' && item.restorable);
+  assert.equal(safeBackups.length, 4, 'the checkup should find the prior single-skill backup plus global and project backups created by bulk cleanup');
+  assert.ok(safeBackups.some((item) => item.scope === 'Just you'));
+  assert.ok(safeBackups.some((item) => item.scope === 'This project'));
+  const backupRestorePlan = await reviewAllSkillBackups(null, { discoveryId: backupReport.discoveryId });
+  assert.equal(backupRestorePlan.ok, true, 'a safe restoration review should be available for backed up duplicate skills');
+  assert.equal(backupRestorePlan.moves.length, 4);
+  assert.ok(backupRestorePlan.moves.some((move) => move.scope === 'This project'), 'the restore review must include project-scope backups');
+  assert.ok(backupRestorePlan.moves.flatMap((move) => move.files).some((file) => file.destination.endsWith(path.join('global-revenue-playbook', 'references', 'guide.md'))), 'the restore preview must list nested files and original destinations');
+  const backupRestoreResult = await applyAllSkillBackups(null, { reviewId: backupRestorePlan.reviewId });
+  assert.equal(backupRestoreResult.ok, true, 'safe skill backups should restore in one reviewed action');
+  assert.equal(backupRestoreResult.restoredCount, 4);
+  await fsp.access(path.join(home, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'));
+  await fsp.access(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
+  await fsp.access(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'references', 'guide.md'));
+  await fsp.access(path.join(project, '.claude', 'skills', 'project-backup-skill', 'SKILL.md'));
+  await assert.rejects(fsp.access(namedBulkMove.destination));
+  await assert.rejects(fsp.access(hashCollisionMove.destination));
+  await assert.rejects(fsp.access(projectBackupMove.destination));
+
+  const olderHistoryBackup = path.join(home, '.setup-my-claude', 'disabled-skills', 'restore-history-1760000000000-abcdef12');
+  const newerHistoryBackup = path.join(home, '.setup-my-claude', 'disabled-skills', 'restore-history-1760000001000-fedcba98');
+  await writeSkill(olderHistoryBackup, 'Older history', { contents: '# Older backup\n' });
+  await writeSkill(newerHistoryBackup, 'Newer history', { contents: '# Newer backup\n' });
+  const historyBackupReport = await discover(null, { projectPath: project });
+  const historyBackups = historyBackupReport.findings.filter((item) => item.type === 'skill-backup' && item.name === 'restore-history');
+  assert.equal(historyBackups.length, 2, 'all recognized backups targeting one original skill location should remain visible');
+  assert.equal(historyBackups.filter((item) => item.restorable).length, 1, 'only the newest backup targeting one original location may be restored automatically');
+  assert.equal(historyBackups.find((item) => item.restorable).path, newerHistoryBackup);
+  const historyRestorePlan = await reviewAllSkillBackups(null, { discoveryId: historyBackupReport.discoveryId });
+  assert.equal(historyRestorePlan.moves.length, 1, 'the restore review should exclude superseded backups');
+  const historyRestoreResult = await applyAllSkillBackups(null, { reviewId: historyRestorePlan.reviewId });
+  assert.equal(historyRestoreResult.ok, true);
+  assert.equal(await fsp.readFile(path.join(home, '.claude', 'skills', 'restore-history', 'SKILL.md'), 'utf8'), '# Newer backup\n');
+  await fsp.access(path.join(olderHistoryBackup, 'SKILL.md'));
+
+  const occupiedBackupName = 'bulk-duplicate-skill-1760000000000-abcdef12';
+  const occupiedBackupPath = path.join(home, '.setup-my-claude', 'disabled-skills', occupiedBackupName);
+  await writeSkill(occupiedBackupPath, 'Preserved duplicate');
+  const occupiedBackupReport = await discover(null, { projectPath: project });
+  const protectedBackup = occupiedBackupReport.findings.find((item) => item.type === 'skill-backup' && item.path === occupiedBackupPath);
+  assert.ok(protectedBackup, 'recognized CCTI backup folders should be listed after a checkup');
+  assert.equal(protectedBackup.restorable, false, 'a backup must not be restorable when the original direct skill folder is occupied');
+  const protectedRestore = await reviewAllSkillBackups(null, { discoveryId: occupiedBackupReport.discoveryId });
+  assert.equal(protectedRestore.ok, false, 'the restore action must refuse to overwrite an active skill folder');
+  await fsp.access(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
+  await fsp.access(path.join(occupiedBackupPath, 'SKILL.md'));
 
   const copyReview = await reviewCustom(null, { source: sourceSkill, scope: 'project', projectPath: project });
   assert.equal(copyReview.ok, true);
@@ -333,6 +400,10 @@ async function run() {
 
 run().finally(async () => {
   Module._load = originalLoad;
+  if (process.env.CCTI_KEEP_FIXTURE === '1') {
+    console.log(`Retained isolated setup-manager fixture for inspection: ${tempRoot}`);
+    return;
+  }
   await fsp.rm(tempRoot, { recursive: true, force: true });
 }).catch((error) => {
   console.error(error.stack || error.message);

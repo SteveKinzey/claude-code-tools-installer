@@ -36,6 +36,8 @@ for (const channel of [
   'diagnostics:export',
   'updates:get-status',
   'updates:check',
+  'updates:download',
+  'updates:install',
   'updates:open-release',
   'claude:run',
   'claude:review-removal',
@@ -58,6 +60,8 @@ for (const channel of [
   'setup-manager:apply-cleanup',
   'setup-manager:review-all-duplicates',
   'setup-manager:apply-all-duplicates',
+  'setup-manager:review-all-skill-backups',
+  'setup-manager:apply-all-skill-backups',
   'setup-manager:review-plugin-change',
   'setup-manager:apply-plugin-change',
   'app:review-uninstall',
@@ -109,14 +113,14 @@ if (!main.includes('async function launchClaudeCode') || !main.includes('async f
 if (!html.includes('id="run-diagnostics-button"') || !html.includes('id="copy-diagnostics-button"') || !html.includes('id="export-diagnostics-button"') || !renderer.includes('async function runDiagnostics()') || !renderer.includes('async function copyDiagnosticResults()') || !renderer.includes('async function exportDiagnosticResults()')) {
   throw new Error('Desktop settings must provide local diagnostics with copy and text-export controls.');
 }
-if (!html.includes('id="check-updates-button"') || !html.includes('id="update-status-spinner"') || !html.includes('id="release-integrity-alert"') || !renderer.includes('function displayUpdateStatus(status)') || !renderer.includes('updateStatusSpinnerElement.hidden = !checking') || !renderer.includes('digestAlert.message')) {
-  throw new Error('Desktop settings must provide a visible loading indicator and missing-checksum integrity alert while update checks are active.');
+if (!html.includes('id="check-updates-button"') || !html.includes('id="install-update-button"') || !html.includes('id="update-status-spinner"') || !html.includes('id="release-integrity-alert"') || !renderer.includes('function displayUpdateStatus(status)') || !renderer.includes('updateStatusSpinnerElement.hidden = !busy') || !renderer.includes('downloadAvailableUpdate') || !renderer.includes('installDownloadedUpdate') || !renderer.includes('digestAlert.message')) {
+  throw new Error('Desktop settings must provide signed-update download progress, an explicit restart-to-apply action, and missing-checksum integrity alerts.');
 }
-if (!main.includes('async function runDiagnostics()') || !main.includes('async function exportDiagnosticReport(') || !main.includes('function startBackgroundUpdateChecks()') || !main.includes('async function openPublishedRelease()') || !main.includes("emit('updates:status'")) {
-  throw new Error('Diagnostics export and release update status must remain in the main process behind narrow IPC handlers.');
+if (!main.includes('async function runDiagnostics()') || !main.includes('async function exportDiagnosticReport(') || !main.includes('function startBackgroundUpdateChecks()') || !main.includes('async function downloadAvailableUpdate()') || !main.includes('async function restartAndInstallUpdate()') || !main.includes("emit('updates:status'")) {
+  throw new Error('Diagnostics export and signed release updates must remain in the main process behind narrow IPC handlers.');
 }
-if (main.includes('autoUpdater') || main.includes('downloadUpdate(') || main.includes('quitAndInstall(')) {
-  throw new Error('CCTI update checks must be notice-only and must never download or install updates automatically.');
+if (!main.includes("require('electron-updater')") || !main.includes('getNativeUpdater().downloadUpdate()') || !main.includes('getNativeUpdater().quitAndInstall()') || !main.includes('nativeUpdaterSupported()')) {
+  throw new Error('CCTI must use the native signed updater only for supported packaged releases.');
 }
 for (const protectedItem of ['Claude Desktop app and its data', 'Claude in Chrome, browser profiles, and browser extensions', 'Any unrelated Anthropic app or account']) {
   if (!main.includes(`'${protectedItem}'`)) throw new Error(`Claude Code removal must explicitly protect ${protectedItem}.`);
@@ -171,8 +175,8 @@ if (!main.includes('async function installedSkillsMatching') || !main.includes('
 if (!main.includes('async function installedClaudePluginIds') || !main.includes('pluginIsInstalled(installedIds, requestedPlugin)')) {
   throw new Error('Curated plugin installs must skip plugins Claude Code already reports as installed.');
 }
-if (!html.includes('id="duplicate-skill-dialog"') || !html.includes('id="deduplicate-all-skills-button"') || !html.includes('id="duplicate-backup-preview"') || !html.includes('id="duplicate-backup-preview-list"') || !renderer.includes('async function deduplicateAllSkills()') || !renderer.includes('showDuplicateBackupPreview') || !renderer.includes('reviewAllDuplicates') || !renderer.includes('applyAllDuplicates') || !main.includes('duplicateSkillGroups') || !main.includes('content-hash') || !renderer.includes('CCTI did not add another copy')) {
-  throw new Error('Duplicate skills must use hash-aware detection and show an exact reversible backup-file preview before bulk cleanup.');
+if (!html.includes('id="duplicate-skill-dialog"') || !html.includes('aria-modal="true"') || !html.includes('id="deduplicate-all-skills-button"') || !html.includes('id="duplicate-backup-preview"') || !html.includes('id="duplicate-backup-preview-list"') || !html.includes('id="restore-all-skill-backups-button"') || !html.includes('id="restore-listed-skill-backups-button"') || !renderer.includes('async function deduplicateAllSkills()') || !renderer.includes('async function restoreAllSkillBackups()') || !renderer.includes('showDuplicateBackupPreview') || !renderer.includes('focusDuplicateDialog') || !renderer.includes("duplicateSkillDialogElement.addEventListener('close'") || !renderer.includes('reviewAllDuplicates') || !renderer.includes('applyAllDuplicates') || !renderer.includes('reviewAllSkillBackups') || !renderer.includes('applyAllSkillBackups') || !main.includes('duplicateSkillGroups') || !main.includes('listRestorableSkillBackups') || !main.includes('content-hash') || !renderer.includes('CCTI did not add another copy')) {
+  throw new Error('Duplicate skills must use hash-aware detection, accessible exact-file preview, and root-bounded no-overwrite restore actions.');
 }
 if (!fs.existsSync(duplicateUiTestPath) || !fs.existsSync(duplicateUiLauncherPath) || !desktopPackage.scripts?.['duplicate-skill-ui:check']?.includes('run-duplicate-skill-ui-test.js') || !desktopPackage.scripts?.check?.includes('duplicate-skill-ui:check')) {
   throw new Error('The complete desktop suite must exercise the rendered duplicate-skill dialog and backup prompt.');
