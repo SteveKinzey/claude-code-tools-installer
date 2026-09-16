@@ -19,3 +19,9 @@ The app will first gather supported installation evidence, then show an exact re
 ## Run contract
 
 Claude Code is a terminal-based interactive session. **Run Claude Code** opens the selected supported terminal at the selected project folder, or the user home folder if no project is chosen, and starts the verified `claude` command. The **Open Claude Code in** dropdown shows the supported terminal apps detected on that computer: Default Terminal, iTerm2, Ghostty, WezTerm, Alacritty, and Kitty on macOS; PowerShell and Windows Terminal on Windows; and the system terminal, GNOME Terminal, Konsole, XTerm, Kitty, and Alacritty on Linux. A person may select a detected app and use **Test selected terminal** to open only CCTI’s fixed test message before starting Claude Code. The selection is stored only in CCTI app preferences. CCTI does not accept an arbitrary terminal path or custom shell command. If a saved choice later becomes unavailable, the launch falls back visibly to another detected default terminal. On a platform without a supported terminal launcher, it returns a no-change message instead of creating a shell command or pretending the session opened.
+
+## In-app update recovery
+
+CCTI checks public GitHub release metadata without downloading an update. On packaged macOS builds, the person must select **Check for Updates** to request the native signed package and must select **Restart to Update** after it is downloaded and verified. Automatic download and install-on-quit remain disabled.
+
+If the native update file is incomplete, fails verification, or the updater reports an error, CCTI returns to a retryable available state. It does not enable **Restart to Update**, restart the current app, alter the installed version, or treat a partial file as installable. The status message states that the current app was not changed and offers both a retry and the verified public release page.

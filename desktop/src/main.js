@@ -337,6 +337,10 @@ function updateReleaseUrlFor(version) {
   return normalized ? `${releaseUrlPrefix}tag/v${normalized}` : '';
 }
 
+function incompleteUpdateMessage(version) {
+  return `CCTI ${version || 'update'} is available, but its signed in-app update did not complete or verify. Your current CCTI app was not changed. Select Check for Updates to retry, or use View Release to update safely.`;
+}
+
 function currentAppVersion() {
   return typeof app.getVersion === 'function' ? app.getVersion() : 'development';
 }
@@ -533,7 +537,7 @@ function configureNativeUpdaterEvents() {
     updateStatus = {
       ...updateStatus,
       state: 'available',
-      message: `CCTI ${updateStatus.latestVersion || 'update'} is available, but its signed in-app update package is not ready. Use View Release to update safely.`,
+      message: incompleteUpdateMessage(updateStatus.latestVersion),
       canDownload: nativeUpdaterSupported(),
       canInstall: false,
     };
@@ -571,7 +575,7 @@ async function downloadAvailableUpdate() {
       updateStatus = {
         ...updateStatus,
         state: 'available',
-        message: `CCTI ${status.latestVersion} is available, but its signed in-app update package is not ready. Use View Release to update safely.`,
+        message: incompleteUpdateMessage(status.latestVersion),
         canDownload: nativeUpdaterSupported(),
         canInstall: false,
       };

@@ -15,6 +15,7 @@ let fetchCalls = 0;
 let updaterChecks = 0;
 let updaterDownloads = 0;
 let updaterInstalls = 0;
+let incompleteDownloadAttempts = 0;
 
 const autoUpdaterStub = {
   autoDownload: true,
@@ -27,6 +28,12 @@ const autoUpdaterStub = {
   downloadUpdate: async () => {
     updaterDownloads += 1;
     updaterListeners.get('download-progress')?.({ percent: 47.6 });
+    incompleteDownloadAttempts += 1;
+    if (incompleteDownloadAttempts === 1) {
+      const error = new Error('Downloaded update file is incomplete.');
+      updaterListeners.get('error')?.(error);
+      throw error;
+    }
     updaterListeners.get('update-downloaded')?.({ version: '2026.9.11' });
   },
   quitAndInstall: () => { updaterInstalls += 1; },
@@ -107,13 +114,26 @@ async function run() {
     assert.ok(fetchCalls >= 1, 'a public release check must run in the background');
     assert.ok(sentEvents.some((event) => event.channel === 'updates:status' && event.payload.state === 'available'), 'the renderer must receive update availability status');
 
-    const downloaded = await download();
+    const incomplete = await download();
     assert.equal(updaterChecks, 1, 'the native updater must read the signed GitHub update feed once');
     assert.equal(updaterDownloads, 1, 'the native updater must download the signed package after a user action');
-    assert.equal(downloaded.state, 'downloaded');
-    assert.equal(downloaded.canInstall, true);
+    assert.equal(incomplete.state, 'available');
+    assert.equal(incomplete.canDownload, true);
+    assert.equal(incomplete.canInstall, false);
+    assert.match(incomplete.message, /did not complete or verify/i);
+    assert.match(incomplete.message, /current CCTI app was not changed/i);
+    assert.match(incomplete.message, /retry/i);
     assert.equal(autoUpdaterStub.autoDownload, false, 'the updater must never download during background checks');
     assert.equal(autoUpdaterStub.autoInstallOnAppQuit, false, 'a downloaded update must never install merely because the app exits');
+    assert.ok(sentEvents.some((event) => event.channel === 'updates:status' && event.payload.state === 'available' && /current CCTI app was not changed/i.test(event.payload.message)), 'an incomplete update must restore a retryable available state for the renderer');
+    assert.deepEqual(await install(), { ok: false, error: 'No downloaded CCTI update is ready to install.' }, 'an incomplete download must not expose restart-and-install');
+    assert.equal(updaterInstalls, 0, 'an incomplete download must never install or restart the current app');
+
+    const downloaded = await download();
+    assert.equal(updaterChecks, 2, 'retry must ask the native updater for metadata again');
+    assert.equal(updaterDownloads, 2, 'retry must request a fresh signed package');
+    assert.equal(downloaded.state, 'downloaded');
+    assert.equal(downloaded.canInstall, true);
     assert.match(downloaded.message, /downloaded and verified/i);
     assert.ok(sentEvents.some((event) => event.channel === 'updates:status' && event.payload.state === 'downloading'), 'the renderer must receive download progress');
     assert.ok(sentEvents.some((event) => event.channel === 'updates:status' && event.payload.state === 'downloaded'), 'the renderer must receive a verified download state');
@@ -124,7 +144,7 @@ async function run() {
     assert.deepEqual(opened, { ok: true });
     assert.deepEqual(openedUrls, ['https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.11']);
     assert.equal((await getStatus()).state, 'downloaded');
-    console.log('Desktop update behavior passed: source-only releases are skipped, signed macOS packages download only after a user action, and restart-to-install stays explicit.');
+    console.log('Desktop update behavior passed: source-only releases are skipped, an incomplete signed update leaves the current app unchanged and retryable, and restart-to-install stays explicit after a verified retry.');
   } finally {
     Module._load = originalLoad;
     global.fetch = originalFetch;
