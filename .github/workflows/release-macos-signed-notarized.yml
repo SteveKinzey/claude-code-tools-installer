@@ -218,8 +218,10 @@ jobs:
           mkdir -p "$output_dir"
           dmg_checksum="$output_dir/claude-code-tools-installer-macos-${TAG}.dmg.sha256"
           zip_checksum="$output_dir/claude-code-tools-installer-macos-${TAG}.zip.sha256"
-          shasum -a 256 "$DMG" > "$dmg_checksum"
-          shasum -a 256 "$ZIP" > "$zip_checksum"
+          dmg_digest="$(shasum -a 256 "$DMG" | awk '{print $1}')"
+          zip_digest="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
+          printf '%s  %s\n' "$dmg_digest" "$(basename "$DMG")" > "$dmg_checksum"
+          printf '%s  %s\n' "$zip_digest" "$(basename "$ZIP")" > "$zip_checksum"
           echo "dmg_checksum=$dmg_checksum" >> "$GITHUB_OUTPUT"
           echo "zip_checksum=$zip_checksum" >> "$GITHUB_OUTPUT"
 

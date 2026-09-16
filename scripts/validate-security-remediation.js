@@ -90,6 +90,7 @@ assert.match(macReleaseWorkflow, /notary_auth=api_key/, 'macOS release workflow 
 assert.match(macReleaseWorkflow, /notary_auth=apple_id/, 'macOS release workflow must support the managed Apple ID notarization secret set.');
 assert.match(macReleaseWorkflow, /APPLE_NOTARY_APP_PASSWORD/, 'macOS release workflow must scope the Apple ID notarization password to consuming steps.');
 assert.match(macReleaseWorkflow, /steps\.checksums\.outputs\.dmg_checksum/, 'macOS release workflow must publish a detached DMG SHA-256 checksum.');
+assert.match(macReleaseWorkflow, /printf '%s  %s\\n' "\$dmg_digest" "\$\(basename "\$DMG"\)"/, 'macOS release workflow must write portable SHA-256 checksum filenames.');
 assert.match(macReleaseWorkflow, /notarytool submit \"\$ZIP\"/, 'macOS native update ZIP must be notarized before release upload.');
 assert.match(macReleaseWorkflow, /refresh-macos-update-metadata\.js \"\$METADATA\" \"\$DMG\"/, 'macOS release workflow must refresh latest-mac.yml after stapling changes final DMG bytes.');
 assert.match(macReleaseWorkflow, /gh release upload[^\n]*\$ZIP[^\n]*\$METADATA[^\n]*--clobber/, 'macOS release workflow must upload the notarized native update ZIP with latest-mac.yml metadata and permit safe artifact retry replacement.');
