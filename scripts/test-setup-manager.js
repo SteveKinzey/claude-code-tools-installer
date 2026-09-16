@@ -288,6 +288,21 @@ async function run() {
   assert.equal(await fsp.readFile(path.join(home, '.claude', 'skills', 'restore-history', 'SKILL.md'), 'utf8'), '# Newer backup\n');
   await fsp.access(path.join(olderHistoryBackup, 'SKILL.md'));
 
+  const corruptedBackupPath = path.join(home, '.setup-my-claude', 'disabled-skills', 'corrupted-restore-1760000002000-a1b2c3d4');
+  await writeSkill(corruptedBackupPath, 'Corrupted restore', { contents: '# Original backup content\n', files: { 'references/check.md': 'Original nested content\n' } });
+  const corruptedBackupReport = await discover(null, { projectPath: project });
+  const corruptedRestorePlan = await reviewAllSkillBackups(null, { discoveryId: corruptedBackupReport.discoveryId });
+  const corruptedMove = corruptedRestorePlan.moves.find((move) => move.name === 'corrupted-restore');
+  assert.ok(corruptedMove, 'the restore review should include a verified CCTI backup before it is changed');
+  await fsp.writeFile(path.join(corruptedBackupPath, 'references', 'check.md'), 'Corrupted after preview\n', 'utf8');
+  const corruptedRestoreResult = await applyAllSkillBackups(null, { reviewId: corruptedRestorePlan.reviewId });
+  assert.equal(corruptedRestoreResult.ok, false, 'restore must reject a backup whose exact manifest changed after review');
+  assert.match(corruptedRestoreResult.error, /backup changed after the preview/i);
+  await fsp.access(path.join(corruptedBackupPath, 'SKILL.md'));
+  await fsp.access(path.join(corruptedBackupPath, 'references', 'check.md'));
+  await assert.rejects(fsp.access(path.join(home, '.claude', 'skills', 'corrupted-restore')));
+  await fsp.rm(corruptedBackupPath, { recursive: true, force: true });
+
   const occupiedBackupName = 'bulk-duplicate-skill-1760000000000-abcdef12';
   const occupiedBackupPath = path.join(home, '.setup-my-claude', 'disabled-skills', occupiedBackupName);
   await writeSkill(occupiedBackupPath, 'Preserved duplicate');
