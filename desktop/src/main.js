@@ -67,28 +67,55 @@ function terminalPreferencePath() {
   return path.join(app.getPath('userData'), 'terminal-preference.json');
 }
 
-function iTerm2BundlePaths() {
-  if (process.env.CCTI_TERMINAL_PREFERENCE_TEST === '1' && process.env.CCTI_TEST_ITERM2_BUNDLE_PATH) {
-    return [process.env.CCTI_TEST_ITERM2_BUNDLE_PATH];
+function macBundlePaths(bundleName) {
+  if (process.env.CCTI_TERMINAL_PREFERENCE_TEST === '1') {
+    if (bundleName === 'iTerm.app' && process.env.CCTI_TEST_ITERM2_BUNDLE_PATH) return [process.env.CCTI_TEST_ITERM2_BUNDLE_PATH];
+    try {
+      const testPaths = JSON.parse(process.env.CCTI_TEST_TERMINAL_BUNDLE_PATHS || '{}');
+      if (typeof testPaths[bundleName] === 'string' && testPaths[bundleName]) return [testPaths[bundleName]];
+    } catch {}
   }
-  return ['/Applications/iTerm.app', path.join(app.getPath('home'), 'Applications', 'iTerm.app')];
+  return [`/Applications/${bundleName}`, path.join(app.getPath('home'), 'Applications', bundleName)];
 }
 
 function supportedTerminalOptions() {
   if (process.platform === 'darwin') {
     return [
-      { id: 'default', label: 'Default Terminal', applicationId: 'com.apple.Terminal', alwaysAvailable: true },
-      { id: 'iterm2', label: 'iTerm2', applicationId: 'com.googlecode.iterm2', bundlePaths: iTerm2BundlePaths() },
+      { id: 'default', label: 'Default Terminal', launcher: 'mac-terminal', applicationId: 'com.apple.Terminal', alwaysAvailable: true },
+      { id: 'iterm2', label: 'iTerm2', launcher: 'mac-iterm2', applicationId: 'com.googlecode.iterm2', bundlePaths: macBundlePaths('iTerm.app') },
+      { id: 'ghostty', label: 'Ghostty', launcher: 'mac-command', executable: 'ghostty', bundlePaths: macBundlePaths('Ghostty.app') },
+      { id: 'wezterm', label: 'WezTerm', launcher: 'mac-command', executable: 'wezterm', bundlePaths: macBundlePaths('WezTerm.app') },
+      { id: 'alacritty', label: 'Alacritty', launcher: 'mac-command', executable: 'Alacritty', bundlePaths: macBundlePaths('Alacritty.app') },
+      { id: 'kitty', label: 'Kitty', launcher: 'mac-command', executable: 'kitty', bundlePaths: macBundlePaths('kitty.app') },
     ];
   }
-  return [{ id: 'default', label: process.platform === 'win32' ? 'Default terminal (PowerShell)' : 'Default terminal', alwaysAvailable: true }];
+  if (process.platform === 'win32') {
+    return [
+      { id: 'default', label: 'PowerShell', launcher: 'windows-powershell', commands: ['pwsh.exe', 'powershell.exe'] },
+      { id: 'windows-terminal', label: 'Windows Terminal', launcher: 'windows-terminal', commands: ['wt.exe'] },
+    ];
+  }
+  return [
+    { id: 'default', label: 'Default system terminal', launcher: 'linux-default', commands: ['x-terminal-emulator'] },
+    { id: 'gnome-terminal', label: 'GNOME Terminal', launcher: 'linux-gnome', commands: ['gnome-terminal'] },
+    { id: 'konsole', label: 'Konsole', launcher: 'linux-konsole', commands: ['konsole'] },
+    { id: 'xterm', label: 'XTerm', launcher: 'linux-xterm', commands: ['xterm'] },
+    { id: 'kitty', label: 'Kitty', launcher: 'linux-kitty', commands: ['kitty'] },
+    { id: 'alacritty', label: 'Alacritty', launcher: 'linux-alacritty', commands: ['alacritty'] },
+  ];
+}
+
+async function terminalOptionAvailable(option) {
+  if (option.alwaysAvailable) return true;
+  if (Array.isArray(option.bundlePaths)) return Boolean((await Promise.all(option.bundlePaths.map(pathExists))).find(Boolean));
+  return Boolean((await Promise.all((option.commands || []).map(commandLocation))).find(Boolean));
 }
 
 async function terminalOptionsWithAvailability() {
   return Promise.all(supportedTerminalOptions().map(async (option) => ({
     id: option.id,
     label: option.label,
-    available: option.alwaysAvailable || Boolean((await Promise.all((option.bundlePaths || []).map(pathExists))).find(Boolean)),
+    available: await terminalOptionAvailable(option),
   })));
 }
 
@@ -109,12 +136,13 @@ async function getTerminalPreference() {
   const [storedId, options] = await Promise.all([storedTerminalPreference(), terminalOptionsWithAvailability()]);
   const selected = options.find((option) => option.id === storedId);
   const available = selected?.available !== false;
+  const fallback = options.find((option) => option.id === 'default' && option.available) || options.find((option) => option.available) || { id: 'default', label: 'a supported terminal' };
   return {
     ok: true,
-    selectedId: available ? storedId : 'default',
+    selectedId: available ? storedId : fallback.id,
     storedId,
     options,
-    message: available ? `Claude Code will open in ${selected?.label || 'Default Terminal'}.` : `${selected?.label || 'Your selected terminal'} is not installed, so CCTI will use Default Terminal until it is available again.`,
+    message: available ? `Claude Code will open in ${selected?.label || 'Default Terminal'}.` : `${selected?.label || 'Your selected terminal'} is not installed, so CCTI will use ${fallback.label} until it is available again.`,
   };
 }
 
@@ -819,6 +847,73 @@ function startDetached(command, args, options = {}) {
   });
 }
 
+async function firstAvailableTerminalCommand(option) {
+  for (const command of option.commands || []) {
+    const resolved = await commandLocation(command);
+    if (resolved) return resolved;
+  }
+  return '';
+}
+
+async function firstAvailableTerminalBundle(option) {
+  for (const bundlePath of option.bundlePaths || []) {
+    if (await pathExists(bundlePath)) return bundlePath;
+  }
+  return '';
+}
+
+function quotePowerShell(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+async function openSelectedTerminal({ folder, command, preference }) {
+  const terminal = supportedTerminalOption(preference.selectedId) || supportedTerminalOption('default');
+  if (!terminal) throw new Error('CCTI could not identify a supported terminal.');
+  const env = claudeProcessEnv();
+  if (process.platform === 'darwin') {
+    if (terminal.launcher === 'mac-terminal' || terminal.launcher === 'mac-iterm2') {
+      const script = terminal.launcher === 'mac-iterm2'
+        ? ['tell application id "com.googlecode.iterm2"', 'activate', 'create window with default profile', 'tell current session of current window', `write text ${JSON.stringify(command)}`, 'end tell', 'end tell'].join('\n')
+        : `tell application id "com.apple.Terminal" to do script ${JSON.stringify(command)}`;
+      const result = await runProcess('osascript', ['-e', script], { cwd: folder, env });
+      if (result.code !== 0) throw new Error(result.stderr.trim() || `${terminal.label} did not open.`);
+      return terminal;
+    }
+    const bundlePath = await firstAvailableTerminalBundle(terminal);
+    if (!bundlePath) throw new Error(`${terminal.label} is no longer installed.`);
+    const executable = path.join(bundlePath, 'Contents', 'MacOS', terminal.executable);
+    if (terminal.id === 'ghostty') await startDetached(executable, ['-e', 'bash', '-lc', command], { cwd: folder, env });
+    else if (terminal.id === 'wezterm') await startDetached(executable, ['start', '--cwd', folder, '--', 'bash', '-lc', command], { cwd: folder, env });
+    else if (terminal.id === 'alacritty') await startDetached(executable, ['--working-directory', folder, '-e', 'bash', '-lc', command], { cwd: folder, env });
+    else if (terminal.id === 'kitty') await startDetached(executable, ['--directory', folder, 'bash', '-lc', command], { cwd: folder, env });
+    else throw new Error(`${terminal.label} does not have a verified launch adapter.`);
+    return terminal;
+  }
+  const terminalCommand = await firstAvailableTerminalCommand(terminal);
+  if (!terminalCommand) throw new Error(`${terminal.label} is no longer available.`);
+  if (process.platform === 'win32') {
+    const launchScript = `Set-Location -LiteralPath ${quotePowerShell(folder)}; ${command}`;
+    if (terminal.launcher === 'windows-terminal') {
+      await startDetached(terminalCommand, ['-d', folder, 'powershell.exe', '-NoExit', '-Command', launchScript], { cwd: folder, env });
+    } else {
+      await startDetached(terminalCommand, ['-NoExit', '-Command', launchScript], { cwd: folder, env });
+    }
+    return terminal;
+  }
+  if (terminal.launcher === 'linux-gnome') await startDetached(terminalCommand, ['--', 'bash', '-lc', command], { cwd: folder, env });
+  else if (terminal.launcher === 'linux-kitty') await startDetached(terminalCommand, ['--directory', folder, 'bash', '-lc', command], { cwd: folder, env });
+  else if (terminal.launcher === 'linux-alacritty') await startDetached(terminalCommand, ['--working-directory', folder, '-e', 'bash', '-lc', command], { cwd: folder, env });
+  else await startDetached(terminalCommand, ['-e', 'bash', '-lc', command], { cwd: folder, env });
+  return terminal;
+}
+
+async function selectedTerminalForLaunch() {
+  const preference = await getTerminalPreference();
+  const terminal = supportedTerminalOption(preference.selectedId) || supportedTerminalOption('default');
+  if (!terminal) throw new Error('CCTI could not identify a supported terminal.');
+  return { preference, terminal };
+}
+
 async function launchClaudeCode({ projectPath } = {}) {
   const status = await claudeStatus();
   if (!status.installed || !status.path) return { ok: false, error: 'Claude Code is not ready yet. Install it first, then choose Run Claude Code.' };
@@ -827,38 +922,30 @@ async function launchClaudeCode({ projectPath } = {}) {
     try { folder = await resolveProjectFolder(projectPath); } catch (error) { return { ok: false, error: error.message }; }
   }
   try {
-    if (process.platform === 'darwin') {
-      const preference = await getTerminalPreference();
-      const terminal = supportedTerminalOption(preference.selectedId) || supportedTerminalOption('default');
-      const command = `cd ${quotePosix(folder)}; exec ${quotePosix(status.path)}`;
-      const script = terminal.id === 'iterm2'
-        ? ['tell application id "com.googlecode.iterm2"', 'activate', 'create window with default profile', 'tell current session of current window', `write text ${JSON.stringify(command)}`, 'end tell', 'end tell'].join('\n')
-        : `tell application id "com.apple.Terminal" to do script ${JSON.stringify(command)}`;
-      const result = await runProcess('osascript', ['-e', script], { cwd: folder, env: claudeProcessEnv() });
-      if (result.code !== 0) throw new Error(result.stderr.trim() || `${terminal.label} did not open.`);
-      const fallbackNote = preference.selectedId === preference.storedId ? '' : ' Your saved iTerm2 preference is unavailable, so CCTI used Default Terminal.';
-      return { ok: true, message: `Claude Code opened in ${terminal.label} for the selected folder.${fallbackNote}` };
-    }
-    if (process.platform === 'win32') {
-      const folderArg = folder.replace(/'/g, "''");
-      const claudeArg = status.path.replace(/'/g, "''");
-      await startDetached('pwsh.exe', ['-NoExit', '-Command', `Set-Location -LiteralPath '${folderArg}'; & '${claudeArg}'`], { cwd: folder, env: claudeProcessEnv() });
-      return { ok: true, message: 'Claude Code opened in a PowerShell window for the selected folder.' };
-    }
-    const launchCommand = `cd ${quotePosix(folder)}; exec ${quotePosix(status.path)}`;
-    for (const terminal of [
-      ['x-terminal-emulator', ['-e', 'bash', '-lc', launchCommand]],
-      ['gnome-terminal', ['--', 'bash', '-lc', launchCommand]],
-      ['konsole', ['-e', 'bash', '-lc', launchCommand]],
-      ['xterm', ['-e', 'bash', '-lc', launchCommand]],
-    ]) {
-      if (!await commandLocation(terminal[0])) continue;
-      await startDetached(terminal[0], terminal[1], { cwd: folder, env: claudeProcessEnv() });
-      return { ok: true, message: 'Claude Code opened in a terminal window for the selected folder.' };
-    }
-    return { ok: false, error: 'CCTI could not find a supported Linux terminal window to open Claude Code. Nothing was changed.' };
+    const { preference } = await selectedTerminalForLaunch();
+    const command = process.platform === 'win32'
+      ? `& ${quotePowerShell(status.path)}`
+      : `cd ${quotePosix(folder)}; exec ${quotePosix(status.path)}`;
+    const terminal = await openSelectedTerminal({ folder, command, preference });
+    const fallbackNote = preference.selectedId === preference.storedId ? '' : ` Your saved ${supportedTerminalOption(preference.storedId)?.label || 'terminal'} preference is unavailable, so CCTI used ${terminal.label}.`;
+    return { ok: true, message: `Claude Code opened in ${terminal.label} for the selected folder.${fallbackNote}` };
   } catch (error) {
     return { ok: false, error: `CCTI could not open Claude Code: ${error.message}` };
+  }
+}
+
+async function testSelectedTerminal() {
+  const folder = app.getPath('home');
+  try {
+    const { preference } = await selectedTerminalForLaunch();
+    const command = process.platform === 'win32'
+      ? 'Write-Host "CCTI terminal launch test passed"'
+      : 'printf "CCTI terminal launch test passed\\n"; exec "${SHELL:-/bin/zsh}" -l';
+    const terminal = await openSelectedTerminal({ folder, command, preference });
+    const fallbackNote = preference.selectedId === preference.storedId ? '' : ` ${supportedTerminalOption(preference.storedId)?.label || 'Your saved terminal'} is unavailable, so CCTI used ${terminal.label}.`;
+    return { ok: true, message: `Opened ${terminal.label} with the CCTI terminal launch test.${fallbackNote}` };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not run the terminal test: ${error.message}` };
   }
 }
 
@@ -2214,6 +2301,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('updates:open-release', openPublishedRelease);
   ipcMain.handle('terminal:get-preference', getTerminalPreference);
   ipcMain.handle('terminal:set-preference', async (_event, payload) => setTerminalPreference(payload || {}));
+  ipcMain.handle('terminal:test-preference', testSelectedTerminal);
   ipcMain.handle('claude:run', async (_event, payload) => launchClaudeCode(payload || {}));
   ipcMain.handle('claude:review-removal', knownClaudeRemovalPlan);
   ipcMain.handle('claude:apply-removal', async (_event, payload) => applyKnownClaudeRemoval(payload || {}));

@@ -90,7 +90,9 @@ function injectedBridge() {
     let scanCount = 0;
     let terminalId = 'default';
     const terminalOptions = [{ id: 'default', label: 'Default Terminal', available: true }, { id: 'iterm2', label: 'iTerm2', available: true }];
+    let updateStatusListener = () => {};
     window.__duplicateUiCalls = [];
+    window.__emitUpdateStatus = (status) => updateStatusListener(status);
     window.confirm = (message) => {
       window.__duplicateUiCalls.push({ method: 'confirm', message });
       return true;
@@ -104,6 +106,7 @@ function injectedBridge() {
       getUpdateStatus: async () => ({ status: 'idle', message: 'No update check has run yet.' }),
       getTerminalPreference: async () => ({ ok: true, selectedId: terminalId, options: terminalOptions, message: 'Claude Code will open in ' + (terminalId === 'iterm2' ? 'iTerm2' : 'Default Terminal') + '.' }),
       setTerminalPreference: async (payload) => { record('setTerminalPreference', payload); terminalId = payload.terminalId; return { ok: true, selectedId: terminalId, options: terminalOptions, message: 'CCTI will open Claude Code in ' + (terminalId === 'iterm2' ? 'iTerm2' : 'Default Terminal') + '.' }; },
+      testTerminalPreference: async () => { record('testTerminalPreference'); return { ok: true, message: 'Opened iTerm2 with the CCTI terminal launch test.' }; },
       getClaudeStatus: async () => ({ installed: true, version: 'test', path: '/fixture-home/.local/bin/claude' }),
       discoverSetup: async (payload) => { record('discoverSetup', payload); scanCount += 1; return scanCount === 1 ? discoveryReport : scanCount === 2 ? backedUpReport : restoredReport; },
       reviewCleanup: async (payload) => {
@@ -174,7 +177,7 @@ function injectedBridge() {
       onState: () => {},
       onComponentOutput: () => {},
       onComponentState: () => {},
-      onUpdateStatus: () => {},
+      onUpdateStatus: (listener) => { updateStatusListener = listener; },
     };
   })();
 </script>`;
@@ -245,6 +248,73 @@ async function run() {
       call: { method: 'setTerminalPreference', payload: { terminalId: 'iterm2' } },
       value: 'iterm2',
       note: 'CCTI will open Claude Code in iTerm2.',
+    });
+    await pageValue(window, "document.querySelector('#test-terminal-preference-button').click()");
+    await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'testTerminalPreference'), 'terminal test launch');
+    const terminalTest = await pageValue(window, `(() => ({
+      call: window.__duplicateUiCalls.find((item) => item.method === 'testTerminalPreference'),
+      note: document.querySelector('#terminal-preference-note').textContent,
+      busy: document.querySelector('#terminal-preference-note').getAttribute('aria-busy'),
+      buttonDisabled: document.querySelector('#test-terminal-preference-button').disabled,
+    }))()`);
+    assert.deepEqual(terminalTest, {
+      call: { method: 'testTerminalPreference', payload: undefined },
+      note: 'Opened iTerm2 with the CCTI terminal launch test.',
+      busy: 'false',
+      buttonDisabled: false,
+    });
+
+    await pageValue(window, `window.__emitUpdateStatus({
+      state: 'available',
+      latestVersion: '2026.09.17',
+      releaseUrl: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.17',
+      message: 'CCTI 2026.09.17 is available. Select Check for Updates to download the signed update.',
+      canDownload: true,
+      canInstall: false,
+      artifactDigestSummary: { total: 5, verified: 5, missing: [] },
+    })`);
+    const availableUpdate = await pageValue(window, `(() => ({
+      note: document.querySelector('#update-status-note').textContent,
+      stateClass: document.querySelector('#update-status-note').className,
+      busy: document.querySelector('#update-status-note').getAttribute('aria-busy'),
+      spinnerHidden: document.querySelector('#update-status-spinner').hidden,
+      viewReleaseHidden: document.querySelector('#open-release-button').hidden,
+      viewReleaseText: document.querySelector('#open-release-button').textContent,
+      restartHidden: document.querySelector('#install-update-button').hidden,
+      checkText: document.querySelector('#check-updates-button').textContent,
+    }))()`);
+    assert.deepEqual(availableUpdate, {
+      note: 'CCTI 2026.09.17 is available. Select Check for Updates to download the signed update.',
+      stateClass: 'update-status-note update-status-available',
+      busy: 'false',
+      spinnerHidden: true,
+      viewReleaseHidden: false,
+      viewReleaseText: 'View CCTI 2026.09.17',
+      restartHidden: true,
+      checkText: 'Check for Updates',
+    });
+    await pageValue(window, `window.__emitUpdateStatus({ state: 'downloading', latestVersion: '2026.09.17', message: 'Downloading signed update…' })`);
+    const downloadingUpdate = await pageValue(window, `(() => ({
+      busy: document.querySelector('#update-status-note').getAttribute('aria-busy'),
+      spinnerHidden: document.querySelector('#update-status-spinner').hidden,
+      checkText: document.querySelector('#check-updates-button').textContent,
+      checkDisabled: document.querySelector('#check-updates-button').disabled,
+    }))()`);
+    assert.deepEqual(downloadingUpdate, { busy: 'true', spinnerHidden: false, checkText: 'Downloading Update…', checkDisabled: true });
+    await pageValue(window, `window.__emitUpdateStatus({ state: 'downloaded', latestVersion: '2026.09.17', releaseUrl: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.17', message: 'CCTI 2026.09.17 is downloaded and verified. Restart CCTI to apply it now.', canInstall: true })`);
+    const downloadedUpdate = await pageValue(window, `(() => ({
+      restartHidden: document.querySelector('#install-update-button').hidden,
+      restartDisabled: document.querySelector('#install-update-button').disabled,
+      checkText: document.querySelector('#check-updates-button').textContent,
+      checkDisabled: document.querySelector('#check-updates-button').disabled,
+      note: document.querySelector('#update-status-note').textContent,
+    }))()`);
+    assert.deepEqual(downloadedUpdate, {
+      restartHidden: false,
+      restartDisabled: false,
+      checkText: 'Update Downloaded',
+      checkDisabled: true,
+      note: 'CCTI 2026.09.17 is downloaded and verified. Restart CCTI to apply it now.',
     });
 
     await pageValue(window, "document.querySelector('#scan-setup-button').click()");

@@ -90,13 +90,14 @@
           <div>
             <p class="eyebrow">TERMINAL PREFERENCE</p>
             <label id="terminal-preference-label" for="terminal-preference-select">Open Claude Code in</label>
-            <p>Choose where the <strong>Run Claude Code</strong> button opens your selected project. CCTI supports only the listed terminal apps and never accepts a custom shell command.</p>
+            <p>Choose where the <strong>Run Claude Code</strong> button opens your selected project. The menu detects supported terminal apps on this computer. CCTI uses fixed, verified launch adapters and never accepts a custom shell command.</p>
           </div>
           <div class="terminal-preference-control">
             <select id="terminal-preference-select" aria-describedby="terminal-preference-note">
               <option value="default">Default Terminal</option>
               <option value="iterm2">iTerm2</option>
             </select>
+            <button id="test-terminal-preference-button" class="button button-ghost" type="button">Test selected terminal</button>
             <p id="terminal-preference-note" role="status" aria-live="polite" aria-busy="false">Checking which supported terminal apps are available…</p>
           </div>
         </div>

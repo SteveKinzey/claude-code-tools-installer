@@ -43,6 +43,7 @@ const browseButton = document.querySelector('#browse-button');
 const runClaudeButton = document.querySelector('#run-claude-button');
 const removeClaudeButton = document.querySelector('#remove-claude-button');
 const terminalPreferenceSelectElement = document.querySelector('#terminal-preference-select');
+const testTerminalPreferenceButton = document.querySelector('#test-terminal-preference-button');
 const terminalPreferenceNoteElement = document.querySelector('#terminal-preference-note');
 const toggleReferencesButton = document.querySelector('#toggle-references-button');
 const referencesContentElement = document.querySelector('#references-content');
@@ -758,6 +759,31 @@ async function changeTerminalPreference() {
     terminalPreferenceNoteElement.classList.add('is-error');
     await loadTerminalPreference();
   } finally {
+    terminalPreferenceSelectElement.disabled = false;
+    terminalPreferenceNoteElement.setAttribute('aria-busy', 'false');
+  }
+}
+
+async function testTerminalPreference() {
+  if (typeof window.installer.testTerminalPreference !== 'function') return;
+  const originalLabel = testTerminalPreferenceButton.textContent;
+  testTerminalPreferenceButton.disabled = true;
+  terminalPreferenceSelectElement.disabled = true;
+  terminalPreferenceNoteElement.setAttribute('aria-busy', 'true');
+  terminalPreferenceNoteElement.classList.remove('is-error');
+  terminalPreferenceNoteElement.textContent = 'Opening the selected terminal with CCTI’s fixed test message…';
+  try {
+    const result = await window.installer.testTerminalPreference();
+    terminalPreferenceNoteElement.textContent = result.ok
+      ? result.message
+      : result.error || 'CCTI could not run the terminal test. Your preference was unchanged.';
+    terminalPreferenceNoteElement.classList.toggle('is-error', !result.ok);
+  } catch {
+    terminalPreferenceNoteElement.textContent = 'CCTI could not run the terminal test. Your preference was unchanged.';
+    terminalPreferenceNoteElement.classList.add('is-error');
+  } finally {
+    testTerminalPreferenceButton.textContent = originalLabel;
+    testTerminalPreferenceButton.disabled = false;
     terminalPreferenceSelectElement.disabled = false;
     terminalPreferenceNoteElement.setAttribute('aria-busy', 'false');
   }
@@ -1781,6 +1807,7 @@ installClaudeButton.addEventListener('click', installClaudeCode);
 runClaudeButton.addEventListener('click', runClaudeCode);
 removeClaudeButton.addEventListener('click', removeClaudeCode);
 terminalPreferenceSelectElement.addEventListener('change', changeTerminalPreference);
+testTerminalPreferenceButton.addEventListener('click', testTerminalPreference);
 toggleReferencesButton.addEventListener('click', toggleReferences);
 referenceSearchElement.addEventListener('input', renderReferences);
 recheckClaudeButton.addEventListener('click', async () => {

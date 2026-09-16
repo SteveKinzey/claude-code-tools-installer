@@ -41,6 +41,7 @@ for (const channel of [
   'updates:open-release',
   'terminal:get-preference',
   'terminal:set-preference',
+  'terminal:test-preference',
   'claude:run',
   'claude:review-removal',
   'claude:apply-removal',
@@ -109,11 +110,11 @@ if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('c
 if (!html.includes('id="run-claude-button"') || !html.includes('id="remove-claude-button"') || !renderer.includes('async function runClaudeCode()') || !renderer.includes('async function removeClaudeCode()')) {
   throw new Error('The setup screen must provide visible Run Claude Code and preview-first removal actions.');
 }
-if (!html.includes('id="terminal-preference-select"') || !html.includes('id="terminal-preference-note"') || !renderer.includes('async function changeTerminalPreference()') || !preload.includes("getTerminalPreference: () => ipcRenderer.invoke('terminal:get-preference')") || !preload.includes("setTerminalPreference: (payload) => ipcRenderer.invoke('terminal:set-preference', payload)") || !main.includes('async function setTerminalPreference')) {
-  throw new Error('CCTI must offer a persisted, accessible terminal preference through narrow main-process IPC handlers.');
+if (!html.includes('id="terminal-preference-select"') || !html.includes('id="test-terminal-preference-button"') || !html.includes('id="terminal-preference-note"') || !renderer.includes('async function changeTerminalPreference()') || !renderer.includes('async function testTerminalPreference()') || !preload.includes("getTerminalPreference: () => ipcRenderer.invoke('terminal:get-preference')") || !preload.includes("setTerminalPreference: (payload) => ipcRenderer.invoke('terminal:set-preference', payload)") || !preload.includes("testTerminalPreference: () => ipcRenderer.invoke('terminal:test-preference')") || !main.includes('async function setTerminalPreference') || !main.includes('async function testSelectedTerminal()')) {
+  throw new Error('CCTI must offer an accessible terminal preference dropdown and test action through narrow main-process IPC handlers.');
 }
-if (!main.includes("id: 'iterm2'") || !main.includes('Custom terminal commands are not accepted.') || !main.includes('saved iTerm2 preference is unavailable')) {
-  throw new Error('The terminal preference must support iTerm2 without accepting arbitrary terminal commands or silently ignoring an unavailable selected app.');
+if (!main.includes("id: 'iterm2'") || !main.includes("id: 'windows-terminal'") || !main.includes("id: 'gnome-terminal'") || !main.includes('Custom terminal commands are not accepted.') || !main.includes('saved ${supportedTerminalOption(preference.storedId)?.label')) {
+  throw new Error('The terminal preference must support detected macOS, Windows, and Linux terminals without accepting arbitrary terminal commands or silently ignoring an unavailable selection.');
 }
 if (!main.includes('async function launchClaudeCode') || !main.includes('async function knownClaudeRemovalPlan') || !main.includes("confirmation !== 'REMOVE CLAUDE CODE'")) {
   throw new Error('Claude Code lifecycle actions must remain fixed, trusted operations with typed removal confirmation.');

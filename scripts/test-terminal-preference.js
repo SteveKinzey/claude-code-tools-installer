@@ -88,13 +88,21 @@ async function run() {
 
     const getPreference = handlers.get('terminal:get-preference');
     const setPreference = handlers.get('terminal:set-preference');
+    const testTerminal = handlers.get('terminal:test-preference');
     const runClaude = handlers.get('claude:run');
-    assert.ok(getPreference && setPreference && runClaude, 'terminal preference and Claude launch handlers must be registered');
+    assert.ok(getPreference && setPreference && testTerminal && runClaude, 'terminal preference, test, and Claude launch handlers must be registered');
 
     const initial = await getPreference();
     assert.equal(initial.ok, true);
     assert.equal(initial.selectedId, 'default');
-    assert.deepEqual(initial.options.map((option) => [option.id, option.available]), [['default', true], ['iterm2', true]]);
+    assert.deepEqual(initial.options.map((option) => [option.id, option.available]), [
+      ['default', true],
+      ['iterm2', true],
+      ['ghostty', false],
+      ['wezterm', false],
+      ['alacritty', false],
+      ['kitty', false],
+    ]);
 
     const rejected = await setPreference(null, { terminalId: '/Applications/Untrusted.app' });
     assert.equal(rejected.ok, false, 'arbitrary terminal paths must be rejected');
@@ -116,6 +124,14 @@ async function run() {
     assert.match(osascriptCalls[0][1], /write text/);
     assert.match(osascriptCalls[0][1], /\.local/);
 
+    const iTermTest = await testTerminal();
+    assert.equal(iTermTest.ok, true);
+    assert.match(iTermTest.message, /Opened iTerm2 with the CCTI terminal launch test/);
+    assert.equal(osascriptCalls.length, 2);
+    assert.match(osascriptCalls[1][1], /tell application id "com\.googlecode\.iterm2"/);
+    assert.match(osascriptCalls[1][1], /CCTI terminal launch test passed/);
+    assert.match(osascriptCalls[1][1], /\$\{SHELL:-\/bin\/zsh\}/);
+
     await fsp.rm(fakeItermBundle, { recursive: true, force: true });
     const fallback = await getPreference();
     assert.equal(fallback.selectedId, 'default', 'a removed preferred terminal must fall back to Default Terminal');
@@ -126,9 +142,9 @@ async function run() {
     assert.equal(defaultLaunch.ok, true);
     assert.match(defaultLaunch.message, /Default Terminal/);
     assert.match(defaultLaunch.message, /saved iTerm2 preference is unavailable/i);
-    assert.match(osascriptCalls[1][1], /tell application id "com\.apple\.Terminal"/);
+    assert.match(osascriptCalls[2][1], /tell application id "com\.apple\.Terminal"/);
 
-    console.log('Terminal preference behavior passed: iTerm2 selection is persisted safely, arbitrary commands are blocked, and unavailable iTerm2 falls back to Default Terminal.');
+    console.log('Terminal preference behavior passed: iTerm2 selection persists safely, its fixed test command is sent through the tested adapter, arbitrary commands are blocked, and unavailable iTerm2 falls back to Default Terminal.');
   } finally {
     Module._load = originalLoad;
     global.setInterval = originalSetInterval;
