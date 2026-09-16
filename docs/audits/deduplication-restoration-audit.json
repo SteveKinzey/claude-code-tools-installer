@@ -1,16 +1,17 @@
 {
   "schemaVersion": "1.0",
   "reportType": "ccti-deduplication-restoration-audit",
-  "generatedAt": "2026-09-16T01:42:56.068Z",
+  "generatedAt": "2026-09-16T01:52:38.604Z",
   "source": {
     "repository": "SteveKinzey/claude-code-tools-installer",
-    "commit": "be495591b9b50e6281c3e08d60af98823303a1af",
+    "commit": "4163fa1e16be4b4d47ef85318941c536a6cc3c63",
     "pathsReviewed": [
       "desktop/src/main.js",
       "desktop/src/preload.js",
       "desktop/src/renderer/app.js",
       "desktop/src/renderer/index.html",
       "scripts/test-setup-manager.js",
+      "scripts/test-duplicate-skill-portability.js",
       "scripts/test-duplicate-skill-ui.js",
       "scripts/audit-duplicate-skill-accessibility.js"
     ]
@@ -24,8 +25,10 @@
     "contentHashCollisionDetection": "verified by the setup-manager fixture",
     "exactBackupPreview": "verified by the renderer fixture",
     "corruptedBackupManifest": "verified by changing a nested backup file after review; apply rejects the restore and leaves both backup and original destination unchanged",
+    "missingBackupFile": "verified by removing SKILL.md after review; apply fails safely, preserves the remaining backup folder, and leaves the original destination unchanged",
     "noOverwriteRestore": "verified by an occupied original skill destination fixture",
     "newestBackupSelection": "verified when multiple timestamped backups target the same original destination",
+    "independentProjectPortability": "verified with separately named fixture roots and differently named skills with identical complete content",
     "ariaLiveInventory": "verified in a rendered hidden Electron window",
     "backupAndRestoreAnnouncements": "verified as polite status announcements with preview-heading focus transfer"
   },
@@ -78,47 +81,56 @@
     {
       "label": "Static UI and IPC contract",
       "command": "npm run ui:check",
-      "startedAt": "2026-09-16T01:42:41.257Z",
-      "finishedAt": "2026-09-16T01:42:41.410Z",
+      "startedAt": "2026-09-16T01:52:21.496Z",
+      "finishedAt": "2026-09-16T01:52:21.649Z",
       "ok": true,
       "exitCode": 0,
-      "log": "\n> claude-code-tools-installer-desktop@2026.9.11 ui:check\n> node ../scripts/validate-desktop-ui.js\n\nDesktop UI contract passed: 113 renderer IDs and 48 secure bridge methods verified.\n"
+      "log": "\n> claude-code-tools-installer-desktop@2026.9.15 ui:check\n> node ../scripts/validate-desktop-ui.js\n\nDesktop UI contract passed: 113 renderer IDs and 48 secure bridge methods verified.\n"
     },
     {
       "label": "Duplicate preview renderer integration",
       "command": "npm run duplicate-skill-ui:check",
-      "startedAt": "2026-09-16T01:42:41.411Z",
-      "finishedAt": "2026-09-16T01:42:41.905Z",
+      "startedAt": "2026-09-16T01:52:21.649Z",
+      "finishedAt": "2026-09-16T01:52:22.190Z",
       "ok": true,
       "exitCode": 0,
-      "log": "\n> claude-code-tools-installer-desktop@2026.9.11 duplicate-skill-ui:check\n> node ../scripts/run-duplicate-skill-ui-test.js\n\nDuplicate skill UI integration passed: the single bulk cleanup action, reviewed backup prompt, blocked add alert, and dismissal controls behaved as expected.\n"
+      "log": "\n> claude-code-tools-installer-desktop@2026.9.15 duplicate-skill-ui:check\n> node ../scripts/run-duplicate-skill-ui-test.js\n\nDuplicate skill UI integration passed: the single bulk cleanup action, reviewed backup prompt, blocked add alert, and dismissal controls behaved as expected.\n"
     },
     {
       "label": "Deduplication and restoration safety fixture",
       "command": "npm run setup-manager:check",
-      "startedAt": "2026-09-16T01:42:41.905Z",
-      "finishedAt": "2026-09-16T01:42:44.472Z",
+      "startedAt": "2026-09-16T01:52:22.190Z",
+      "finishedAt": "2026-09-16T01:52:24.761Z",
       "ok": true,
       "exitCode": 0,
-      "log": "\n> claude-code-tools-installer-desktop@2026.9.11 setup-manager:check\n> node ../scripts/test-setup-manager.js\n\nSetup-manager and App Uninstall behavior passed: complete removal without affecting Claude Code is verified.\n"
+      "log": "\n> claude-code-tools-installer-desktop@2026.9.15 setup-manager:check\n> node ../scripts/test-setup-manager.js\n\nSetup-manager and App Uninstall behavior passed: complete removal without affecting Claude Code is verified.\n"
+    },
+    {
+      "label": "Independent project portability fixture",
+      "command": "npm run duplicate-skill:portability",
+      "startedAt": "2026-09-16T01:52:24.761Z",
+      "finishedAt": "2026-09-16T01:52:25.798Z",
+      "ok": true,
+      "exitCode": 0,
+      "log": "\n> claude-code-tools-installer-desktop@2026.9.15 duplicate-skill:portability\n> node ../scripts/test-duplicate-skill-portability.js\n\n{\"ok\":true,\"fixture\":\"client-revenue-automation-project\",\"scopes\":[\"Just you\",\"This project\"],\"collision\":\"content-hash\",\"backupRoot\":\"<fixture-app-state>/disabled-skills\",\"restoredTo\":\"<fixture-home>/.claude/skills/portable-revenue-workflow\"}\n"
     },
     {
       "label": "Duplicate preview accessibility and live-announcement audit",
       "command": "npm run duplicate-skill:a11y",
-      "startedAt": "2026-09-16T01:42:44.472Z",
-      "finishedAt": "2026-09-16T01:42:44.913Z",
+      "startedAt": "2026-09-16T01:52:25.798Z",
+      "finishedAt": "2026-09-16T01:52:26.230Z",
       "ok": true,
       "exitCode": 0,
-      "log": "\n> claude-code-tools-installer-desktop@2026.9.11 duplicate-skill:a11y\n> node ../scripts/run-duplicate-skill-accessibility-audit.js\n\n{\"ok\":true,\"liveRegionCount\":16,\"liveRegionIds\":[\"anonymous-success-message\",\"catalog\",\"compass-messages\",\"component-detail\",\"component-results\",\"custom-addon-output\",\"duplicate-backup-preview-summary\",\"manifest-comparison-result\",\"manifest-verification-status\",\"output\",\"project-interview-output\",\"reference-results\",\"release-integrity-alert\",\"run-status\",\"setup-manager-results\",\"update-status-note\"],\"duplicatePreview\":{\"backupAnnouncement\":{\"live\":\"polite\",\"role\":\"status\",\"text\":\"Review 1 exact file across 1 skill folder. The next action moves only these files into the shown backup locations.\",\"focus\":\"duplicate-backup-preview-heading\"},\"restoreAnnouncement\":{\"text\":\"Review 1 exact file across 1 skill folder. The next action moves only these files into the shown original Claude Code locations.\",\"role\":\"status\",\"live\":\"polite\",\"restoreButtonType\":\"button\",\"cancelButtonType\":\"button\",\"focus\":\"duplicate-backup-preview-heading\"},\"dialogSemantics\":{\"modal\":\"true\",\"labelledBy\":\"duplicate-skill-dialog-heading\",\"describedBy\":\"duplicate-skill-dialog-copy\",\"titleTabIndex\":\"-1\",\"previewHidden\":true}}}\n"
+      "log": "\n> claude-code-tools-installer-desktop@2026.9.15 duplicate-skill:a11y\n> node ../scripts/run-duplicate-skill-accessibility-audit.js\n\n{\"ok\":true,\"liveRegionCount\":16,\"liveRegionIds\":[\"anonymous-success-message\",\"catalog\",\"compass-messages\",\"component-detail\",\"component-results\",\"custom-addon-output\",\"duplicate-backup-preview-summary\",\"manifest-comparison-result\",\"manifest-verification-status\",\"output\",\"project-interview-output\",\"reference-results\",\"release-integrity-alert\",\"run-status\",\"setup-manager-results\",\"update-status-note\"],\"duplicatePreview\":{\"backupAnnouncement\":{\"live\":\"polite\",\"role\":\"status\",\"text\":\"Review 1 exact file across 1 skill folder. The next action moves only these files into the shown backup locations.\",\"focus\":\"duplicate-backup-preview-heading\"},\"restoreAnnouncement\":{\"text\":\"Review 1 exact file across 1 skill folder. The next action moves only these files into the shown original Claude Code locations.\",\"role\":\"status\",\"live\":\"polite\",\"restoreButtonType\":\"button\",\"cancelButtonType\":\"button\",\"focus\":\"duplicate-backup-preview-heading\"},\"dialogSemantics\":{\"modal\":\"true\",\"labelledBy\":\"duplicate-skill-dialog-heading\",\"describedBy\":\"duplicate-skill-dialog-copy\",\"titleTabIndex\":\"-1\",\"previewHidden\":true}}}\n"
     },
     {
       "label": "Full desktop quality gate",
       "command": "npm run check",
-      "startedAt": "2026-09-16T01:42:44.913Z",
-      "finishedAt": "2026-09-16T01:42:56.056Z",
+      "startedAt": "2026-09-16T01:52:26.230Z",
+      "finishedAt": "2026-09-16T01:52:38.591Z",
       "ok": true,
       "exitCode": 0,
-      "log": "\n> claude-code-tools-installer-desktop@2026.9.11 check\n> npm run catalog:check && npm run components:check && npm run details:check && npm run ui:check && npm run duplicate-skill-ui:check && npm run duplicate-skill:a11y && npm run setup-manager:check && npm run diagnostics:check && npm run updates:check && npm run project-prerequisites:check && npm run project-interview:check && npm run release:check && npm run release-drift:check && npm run release-alert:check && npm run security:check && node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check src/project-prerequisites.js && node --check src/project-interview.js && node --check build/notarize.js && node --check ../scripts/prepare-msix-config.js\n\n\n> claude-code-tools-installer-desktop@2026.9.11 catalog:check\n> node ../scripts/validate-catalog.js\n\nCatalog parity passed: 35 tools; 8 recommended defaults.\nPopularity provenance passed: 4 official install metrics with source URLs and retrieval dates.\n\n> claude-code-tools-installer-desktop@2026.9.11 components:check\n> node ../scripts/validate-components-catalog.js\n\nConvex component catalog passed: 145 project-level packages with unique IDs and package identities.\n\n> claude-code-tools-installer-desktop@2026.9.11 details:check\n> node ../scripts/validate-catalog-details.js\n\nCatalog details passed: 180 plain-language records cover 35 computer tools and 145 project components.\n\n> claude-code-tools-installer-desktop@2026.9.11 ui:check\n> node ../scripts/validate-desktop-ui.js\n\nDesktop UI contract passed: 113 renderer IDs and 48 secure bridge methods verified.\n\n> claude-code-tools-installer-desktop@2026.9.11 duplicate-skill-ui:check\n> node ../scripts/run-duplicate-skill-ui-test.js\n\nDuplicate skill UI integration passed: the single bulk cleanup action, reviewed backup prompt, blocked add alert, and dismissal controls behaved as expected.\n\n> claude-code-tools-installer-desktop@2026.9.11 duplicate-skill:a11y\n> node ../scripts/run-duplicate-skill-accessibility-audit.js\n\n{\"ok\":true,\"liveRegionCount\":16,\"liveRegionIds\":[\"anonymous-success-message\",\"catalog\",\"compass-messages\",\"component-detail\",\"component-results\",\"custom-addon-output\",\"duplicate-backup-preview-summary\",\"manifest-comparison-result\",\"manifest-verification-status\",\"output\",\"project-interview-output\",\"reference-results\",\"release-integrity-alert\",\"run-status\",\"setup-manager-results\",\"update-status-note\"],\"duplicatePreview\":{\"backupAnnouncement\":{\"live\":\"polite\",\"role\":\"status\",\"text\":\"Review 1 exact file across 1 skill folder. The next action moves only these files into the shown backup locations.\",\"focus\":\"duplicate-backup-preview-heading\"},\"restoreAnnouncement\":{\"text\":\"Review 1 exact file across 1 skill folder. The next action moves only these files into the shown original Claude Code locations.\",\"role\":\"status\",\"live\":\"polite\",\"restoreButtonType\":\"button\",\"cancelButtonType\":\"button\",\"focus\":\"duplicate-backup-preview-heading\"},\"dialogSemantics\":{\"modal\":\"true\",\"labelledBy\":\"duplicate-skill-dialog-heading\",\"describedBy\":\"duplicate-skill-dialog-copy\",\"titleTabIndex\":\"-1\",\"previewHidden\":true}}}\n\n> claude-code-tools-installer-desktop@2026.9.11 setup-manager:check\n> node ../scripts/test-setup-manager.js\n\nSetup-manager and App Uninstall behavior passed: complete removal without affecting Claude Code is verified.\n\n> claude-code-tools-installer-desktop@2026.9.11 diagnostics:check\n> node ../scripts/test-desktop-diagnostics-services.js\n\nDesktop diagnostics behavior passed: local reports can be copied by the renderer and exported as user-selected text files.\n\n> claude-code-tools-installer-desktop@2026.9.11 updates:check\n> node ../scripts/test-desktop-update-services.js\n\nDesktop update behavior passed: source-only releases are skipped, signed macOS packages download only after a user action, and restart-to-install stays explicit.\n\n> claude-code-tools-installer-desktop@2026.9.11 project-prerequisites:check\n> node ../scripts/test-project-prerequisites.js\n\nProject prerequisite behavior passed: CCTI previews or creates a minimal package.json, never overwrites existing content, and leaves malformed files untouched.\n\n> claude-code-tools-installer-desktop@2026.9.11 project-interview:check\n> node ../scripts/test-project-interview.js\n\nProject Interview behavior passed: a private PRD draft and unselected, scope-labeled suggestions are produced from the user’s answers.\n\n> claude-code-tools-installer-desktop@2026.9.11 release:check\n> node ../scripts/validate-macos-release-config.js\n\nmacOS release configuration passed: custom icon, signing gate, hardened runtime, entitlements, and notarization hook are present.\n\n> claude-code-tools-installer-desktop@2026.9.11 release-drift:check\n> node ../scripts/test-release-artifact-drift.js\n\nRelease artifact drift tests passed.\n\n> claude-code-tools-installer-desktop@2026.9.11 release-alert:check\n> bash ../scripts/test-notify-release-drift.sh\n\nRelease-drift alert helper tests passed.\n\n> claude-code-tools-installer-desktop@2026.9.11 security:check\n> node ../scripts/validate-security-remediation.js && npm audit --audit-level=high\n\nDependency security contract passed: Electron 44.3.0, no vulnerable extract-zip, 8 desktop CI workflows pinned to Node 22.12.0, Dependabot policy, pull-request dependency review, CodeQL scanning, and Microsoft Store MSIX clean-install verification.\nfound 0 vulnerabilities\n"
+      "log": "\n> claude-code-tools-installer-desktop@2026.9.15 check\n> npm run catalog:check && npm run components:check && npm run details:check && npm run ui:check && npm run duplicate-skill-ui:check && npm run duplicate-skill:a11y && npm run duplicate-skill:portability && npm run setup-manager:check && npm run diagnostics:check && npm run updates:check && npm run project-prerequisites:check && npm run project-interview:check && npm run release:check && npm run release-drift:check && npm run release-alert:check && npm run security:check && node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check src/project-prerequisites.js && node --check src/project-interview.js && node --check build/notarize.js && node --check ../scripts/prepare-msix-config.js\n\n\n> claude-code-tools-installer-desktop@2026.9.15 catalog:check\n> node ../scripts/validate-catalog.js\n\nCatalog parity passed: 35 tools; 8 recommended defaults.\nPopularity provenance passed: 4 official install metrics with source URLs and retrieval dates.\n\n> claude-code-tools-installer-desktop@2026.9.15 components:check\n> node ../scripts/validate-components-catalog.js\n\nConvex component catalog passed: 145 project-level packages with unique IDs and package identities.\n\n> claude-code-tools-installer-desktop@2026.9.15 details:check\n> node ../scripts/validate-catalog-details.js\n\nCatalog details passed: 180 plain-language records cover 35 computer tools and 145 project components.\n\n> claude-code-tools-installer-desktop@2026.9.15 ui:check\n> node ../scripts/validate-desktop-ui.js\n\nDesktop UI contract passed: 113 renderer IDs and 48 secure bridge methods verified.\n\n> claude-code-tools-installer-desktop@2026.9.15 duplicate-skill-ui:check\n> node ../scripts/run-duplicate-skill-ui-test.js\n\nDuplicate skill UI integration passed: the single bulk cleanup action, reviewed backup prompt, blocked add alert, and dismissal controls behaved as expected.\n\n> claude-code-tools-installer-desktop@2026.9.15 duplicate-skill:a11y\n> node ../scripts/run-duplicate-skill-accessibility-audit.js\n\n{\"ok\":true,\"liveRegionCount\":16,\"liveRegionIds\":[\"anonymous-success-message\",\"catalog\",\"compass-messages\",\"component-detail\",\"component-results\",\"custom-addon-output\",\"duplicate-backup-preview-summary\",\"manifest-comparison-result\",\"manifest-verification-status\",\"output\",\"project-interview-output\",\"reference-results\",\"release-integrity-alert\",\"run-status\",\"setup-manager-results\",\"update-status-note\"],\"duplicatePreview\":{\"backupAnnouncement\":{\"live\":\"polite\",\"role\":\"status\",\"text\":\"Review 1 exact file across 1 skill folder. The next action moves only these files into the shown backup locations.\",\"focus\":\"duplicate-backup-preview-heading\"},\"restoreAnnouncement\":{\"text\":\"Review 1 exact file across 1 skill folder. The next action moves only these files into the shown original Claude Code locations.\",\"role\":\"status\",\"live\":\"polite\",\"restoreButtonType\":\"button\",\"cancelButtonType\":\"button\",\"focus\":\"duplicate-backup-preview-heading\"},\"dialogSemantics\":{\"modal\":\"true\",\"labelledBy\":\"duplicate-skill-dialog-heading\",\"describedBy\":\"duplicate-skill-dialog-copy\",\"titleTabIndex\":\"-1\",\"previewHidden\":true}}}\n\n> claude-code-tools-installer-desktop@2026.9.15 duplicate-skill:portability\n> node ../scripts/test-duplicate-skill-portability.js\n\n{\"ok\":true,\"fixture\":\"client-revenue-automation-project\",\"scopes\":[\"Just you\",\"This project\"],\"collision\":\"content-hash\",\"backupRoot\":\"<fixture-app-state>/disabled-skills\",\"restoredTo\":\"<fixture-home>/.claude/skills/portable-revenue-workflow\"}\n\n> claude-code-tools-installer-desktop@2026.9.15 setup-manager:check\n> node ../scripts/test-setup-manager.js\n\nSetup-manager and App Uninstall behavior passed: complete removal without affecting Claude Code is verified.\n\n> claude-code-tools-installer-desktop@2026.9.15 diagnostics:check\n> node ../scripts/test-desktop-diagnostics-services.js\n\nDesktop diagnostics behavior passed: local reports can be copied by the renderer and exported as user-selected text files.\n\n> claude-code-tools-installer-desktop@2026.9.15 updates:check\n> node ../scripts/test-desktop-update-services.js\n\nDesktop update behavior passed: source-only releases are skipped, signed macOS packages download only after a user action, and restart-to-install stays explicit.\n\n> claude-code-tools-installer-desktop@2026.9.15 project-prerequisites:check\n> node ../scripts/test-project-prerequisites.js\n\nProject prerequisite behavior passed: CCTI previews or creates a minimal package.json, never overwrites existing content, and leaves malformed files untouched.\n\n> claude-code-tools-installer-desktop@2026.9.15 project-interview:check\n> node ../scripts/test-project-interview.js\n\nProject Interview behavior passed: a private PRD draft and unselected, scope-labeled suggestions are produced from the user’s answers.\n\n> claude-code-tools-installer-desktop@2026.9.15 release:check\n> node ../scripts/validate-macos-release-config.js\n\nmacOS release configuration passed: custom icon, signing gate, hardened runtime, entitlements, and notarization hook are present.\n\n> claude-code-tools-installer-desktop@2026.9.15 release-drift:check\n> node ../scripts/test-release-artifact-drift.js\n\nRelease artifact drift tests passed.\n\n> claude-code-tools-installer-desktop@2026.9.15 release-alert:check\n> bash ../scripts/test-notify-release-drift.sh\n\nRelease-drift alert helper tests passed.\n\n> claude-code-tools-installer-desktop@2026.9.15 security:check\n> node ../scripts/validate-security-remediation.js && npm audit --audit-level=high\n\nDependency security contract passed: Electron 44.3.0, no vulnerable extract-zip, 8 desktop CI workflows pinned to Node 22.12.0, Dependabot policy, pull-request dependency review, CodeQL scanning, and Microsoft Store MSIX clean-install verification.\nfound 0 vulnerabilities\n"
     }
   ],
   "status": "passed"
