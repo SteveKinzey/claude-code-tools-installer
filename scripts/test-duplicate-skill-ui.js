@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const assert = require('node:assert/strict');
+const fsSync = require('node:fs');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -346,6 +347,7 @@ async function run() {
     await pageValue(window, "document.querySelector('#close-duplicate-skill-dialog').click()");
     await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === false, 'Keep all copies dialog dismissal');
     console.log('Duplicate skill UI integration passed: the single bulk cleanup action, reviewed backup prompt, blocked add alert, and dismissal controls behaved as expected.');
+    if (resultPath) fsSync.writeFileSync(resultPath, JSON.stringify({ ok: true }), 'utf8');
   } finally {
     if (!window.isDestroyed()) window.destroy();
     await fs.rm(fixturePath, { force: true });
@@ -354,10 +356,7 @@ async function run() {
 
 app.whenReady()
   .then(run)
-  .then(async () => {
-    if (resultPath) await fs.writeFile(resultPath, JSON.stringify({ ok: true }), 'utf8');
-    app.quit();
-  })
+  .then(() => app.quit())
   .catch(async (error) => {
     console.error(error.stack || error.message || error);
     if (resultPath) await fs.writeFile(resultPath, JSON.stringify({ ok: false, error: String(error.message || error) }), 'utf8').catch(() => {});
