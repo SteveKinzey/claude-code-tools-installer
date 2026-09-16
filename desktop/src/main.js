@@ -421,7 +421,7 @@ function configureNativeUpdaterEvents() {
       latestVersion,
       releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(latestVersion),
       checkedAt: new Date().toISOString(),
-      message: `CCTI ${latestVersion} is downloaded and verified. Select Restart to Update to apply it.`,
+      message: `CCTI ${latestVersion} is downloaded and verified. Restart CCTI to apply it now.`,
       canDownload: false,
       canInstall: true,
     };

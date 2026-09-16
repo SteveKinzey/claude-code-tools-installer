@@ -230,7 +230,7 @@ jobs:
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --target "$SOURCE_COMMIT" --title "$TAG" --generate-notes
-          gh release upload "$TAG" "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"
+          gh release upload "$TAG" "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM" --clobber
 
       - name: Upload release evidence
         if: always()
