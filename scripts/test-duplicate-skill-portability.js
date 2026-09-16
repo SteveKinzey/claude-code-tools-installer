@@ -9,9 +9,13 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ccti-dedup-portability-'));
 const home = path.join(fixtureRoot, 'portable-home');
-const project = path.join(fixtureRoot, 'client-revenue-automation-project');
+const externalProject = process.env.CCTI_PORTABILITY_PROJECT ? path.resolve(process.env.CCTI_PORTABILITY_PROJECT) : '';
+const project = externalProject || path.join(fixtureRoot, 'client-revenue-automation-project');
+const projectClaudeRoot = path.join(project, '.claude');
+const projectSkillRoot = path.join(projectClaudeRoot, 'skills');
 const handlers = new Map();
 let readyCallback;
+let temporaryProjectOverlayCreated = false;
 
 class NotificationStub {
   static isSupported() { return true; }
@@ -56,15 +60,22 @@ async function writeSkill(folder, files) {
 
 async function run() {
   await fsp.mkdir(home, { recursive: true });
-  await fsp.mkdir(project, { recursive: true });
+  if (externalProject) {
+    const stats = await fsp.stat(project);
+    assert.ok(stats.isDirectory(), 'the external portability project must be a directory');
+    await assert.rejects(fsp.access(projectClaudeRoot), 'the external portability project must not already contain .claude because this test creates a temporary overlay');
+  } else {
+    await fsp.mkdir(project, { recursive: true });
+  }
   const portableContents = {
     'SKILL.md': '# Portable revenue workflow\n',
     'references/offer.md': 'Build an offer before an automation.\n',
   };
   const globalSkill = path.join(home, '.claude', 'skills', 'portable-revenue-workflow');
-  const projectSkill = path.join(project, '.claude', 'skills', 'client-automation-playbook');
+  const projectSkill = path.join(projectSkillRoot, 'client-automation-playbook');
   await writeSkill(globalSkill, portableContents);
   await writeSkill(projectSkill, portableContents);
+  temporaryProjectOverlayCreated = true;
   await fsp.utimes(path.join(globalSkill, 'SKILL.md'), new Date('2026-03-01T00:00:00.000Z'), new Date('2026-03-01T00:00:00.000Z'));
   await fsp.utimes(path.join(projectSkill, 'SKILL.md'), new Date('2026-09-01T00:00:00.000Z'), new Date('2026-09-01T00:00:00.000Z'));
 
@@ -109,7 +120,7 @@ async function run() {
 
   console.log(JSON.stringify({
     ok: true,
-    fixture: 'client-revenue-automation-project',
+    fixture: externalProject ? `external:${path.basename(project)}` : 'client-revenue-automation-project',
     scopes: ['Just you', 'This project'],
     collision: 'content-hash',
     backupRoot: '<fixture-app-state>/disabled-skills',
@@ -119,6 +130,11 @@ async function run() {
 
 run().finally(async () => {
   Module._load = originalLoad;
+  if (externalProject && temporaryProjectOverlayCreated) {
+    await fsp.rm(path.join(projectSkillRoot, 'client-automation-playbook'), { recursive: true, force: true });
+    await fsp.rmdir(projectSkillRoot).catch(() => {});
+    await fsp.rmdir(projectClaudeRoot).catch(() => {});
+  }
   await fsp.rm(fixtureRoot, { recursive: true, force: true });
 }).catch((error) => {
   console.error(error.stack || error.message || error);
