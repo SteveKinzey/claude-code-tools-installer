@@ -1769,9 +1769,12 @@ cancelDeduplicatePreviewButton.addEventListener('click', () => {
     openDuplicateSkillDialog(state.managerReport?.duplicates || [], { preserveInvoker: true });
     return;
   }
+  clearDuplicateBackupPreview();
+  restoreAllSkillBackupsButton.disabled = false;
   duplicateSkillDialogElement.close();
 });
 duplicateSkillDialogElement.addEventListener('close', () => {
+  if (duplicateSkillDialogElement.open) return;
   clearDuplicateBackupPreview();
   const invoker = state.duplicateDialogInvoker;
   state.duplicateDialogInvoker = null;

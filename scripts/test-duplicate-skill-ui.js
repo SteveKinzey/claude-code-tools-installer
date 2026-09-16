@@ -18,6 +18,7 @@ const root = path.resolve(__dirname, '..');
 const rendererDir = path.join(root, 'desktop', 'src', 'renderer');
 const indexPath = path.join(rendererDir, 'index.html');
 const fixturePath = path.join(os.tmpdir(), `ccti-duplicate-skill-ui-${process.pid}.html`);
+const resultPath = process.env.CCTI_DUPLICATE_UI_REPORT_PATH ? path.resolve(process.env.CCTI_DUPLICATE_UI_REPORT_PATH) : '';
 
 const duplicateItems = [
   {
@@ -301,9 +302,15 @@ async function run() {
     assert.match(restorePreview.files, /→ \/fixture-home\/\.claude\/skills\/revenue-systems\/SKILL\.md/);
     assert.equal(restorePreview.active, 'duplicate-backup-preview-heading');
 
-    await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').click()");
-    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === false, 'restore preview dismissal');
+    await pageValue(window, `(() => {
+      const dialog = document.querySelector('#duplicate-skill-dialog');
+      dialog.dataset.fixtureCloseComplete = '';
+      dialog.addEventListener('close', () => { dialog.dataset.fixtureCloseComplete = 'true'; }, { once: true });
+      document.querySelector('#cancel-deduplicate-preview-button').click();
+    })()`);
+    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === false && document.querySelector('#duplicate-skill-dialog')?.dataset.fixtureCloseComplete === 'true', 'restore preview dismissal');
     assert.equal(await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').type"), 'button', 'restore cancellation must remain a native keyboard-operable button');
+    assert.equal(await pageValue(window, "document.querySelector('#restore-all-skill-backups-button').disabled"), false, 'cancelling restore must leave the restore review control available');
 
     await pageValue(window, "document.querySelector('#restore-all-skill-backups-button').click()");
     await waitFor(window, () => document.querySelector('#restore-listed-skill-backups-button')?.hidden === false, 'restored preview reopen');
@@ -347,9 +354,13 @@ async function run() {
 
 app.whenReady()
   .then(run)
-  .then(() => app.quit())
+  .then(async () => {
+    if (resultPath) await fs.writeFile(resultPath, JSON.stringify({ ok: true }), 'utf8');
+    app.quit();
+  })
   .catch(async (error) => {
     console.error(error.stack || error.message || error);
+    if (resultPath) await fs.writeFile(resultPath, JSON.stringify({ ok: false, error: String(error.message || error) }), 'utf8').catch(() => {});
     await fs.rm(fixturePath, { force: true }).catch(() => {});
     process.exit(1);
   });

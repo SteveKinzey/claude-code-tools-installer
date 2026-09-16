@@ -303,6 +303,20 @@ async function run() {
   await assert.rejects(fsp.access(path.join(home, '.claude', 'skills', 'corrupted-restore')));
   await fsp.rm(corruptedBackupPath, { recursive: true, force: true });
 
+  const missingFileBackupPath = path.join(home, '.setup-my-claude', 'disabled-skills', 'missing-file-restore-1760000003000-e5f6a7b8');
+  await writeSkill(missingFileBackupPath, 'Missing file restore', { contents: '# Required manifest file\n', files: { 'references/recovery.md': 'Preserved recovery note\n' } });
+  const missingFileBackupReport = await discover(null, { projectPath: project });
+  const missingFileRestorePlan = await reviewAllSkillBackups(null, { discoveryId: missingFileBackupReport.discoveryId });
+  const missingFileMove = missingFileRestorePlan.moves.find((move) => move.name === 'missing-file-restore');
+  assert.ok(missingFileMove, 'the restore review should include a complete backup before its required file is removed');
+  await fsp.rm(path.join(missingFileBackupPath, 'SKILL.md'));
+  const missingFileRestoreResult = await applyAllSkillBackups(null, { reviewId: missingFileRestorePlan.reviewId });
+  assert.equal(missingFileRestoreResult.ok, false, 'restore must fail safely when a reviewed backup file is entirely missing');
+  assert.match(missingFileRestoreResult.error, /could not recheck one of the skill backups/i);
+  await fsp.access(path.join(missingFileBackupPath, 'references', 'recovery.md'));
+  await assert.rejects(fsp.access(path.join(home, '.claude', 'skills', 'missing-file-restore')));
+  await fsp.rm(missingFileBackupPath, { recursive: true, force: true });
+
   const occupiedBackupName = 'bulk-duplicate-skill-1760000000000-abcdef12';
   const occupiedBackupPath = path.join(home, '.setup-my-claude', 'disabled-skills', occupiedBackupName);
   await writeSkill(occupiedBackupPath, 'Preserved duplicate');
