@@ -5,6 +5,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'index.html'), 'utf8');
 const renderer = fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'app.js'), 'utf8');
+const styles = fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'styles.css'), 'utf8');
 const preload = fs.readFileSync(path.join(root, 'desktop', 'src', 'preload.js'), 'utf8');
 const main = fs.readFileSync(path.join(root, 'desktop', 'src', 'main.js'), 'utf8');
 const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'));
@@ -124,8 +125,8 @@ if (!main.includes('async function launchClaudeCode') || !main.includes('async f
 if (!html.includes('id="run-diagnostics-button"') || !html.includes('id="copy-diagnostics-button"') || !html.includes('id="export-diagnostics-button"') || !renderer.includes('async function runDiagnostics()') || !renderer.includes('async function copyDiagnosticResults()') || !renderer.includes('async function exportDiagnosticResults()')) {
   throw new Error('Desktop settings must provide local diagnostics with copy and text-export controls.');
 }
-if (!html.includes('id="check-updates-button"') || !html.includes('id="install-update-button"') || !html.includes('id="update-status-spinner"') || !html.includes('id="release-integrity-alert"') || !renderer.includes('function displayUpdateStatus(status)') || !renderer.includes('updateStatusSpinnerElement.hidden = !busy') || !renderer.includes('downloadAvailableUpdate') || !renderer.includes('installDownloadedUpdate') || !renderer.includes('digestAlert.message')) {
-  throw new Error('Desktop settings must provide signed-update download progress, an explicit restart-to-apply action, and missing-checksum integrity alerts.');
+if (!html.includes('id="check-updates-button"') || !html.includes('id="install-update-button"') || !html.includes('id="update-status-spinner"') || !html.includes('id="release-integrity-alert"') || !html.includes('id="release-integrity-alert-message"') || !styles.includes('[hidden] { display: none !important; }') || !renderer.includes('function displayUpdateStatus(status)') || !renderer.includes('updateStatusSpinnerElement.hidden = !busy') || !renderer.includes('releaseReviewAvailable') || !renderer.includes('downloadAvailableUpdate') || !renderer.includes('installDownloadedUpdate') || !renderer.includes('digestAlert.message')) {
+  throw new Error('Desktop settings must hide inactive status affordances, provide signed-update progress and explicit restart-to-apply actions, and pair checksum notices with a release-review action.');
 }
 if (!main.includes('async function runDiagnostics()') || !main.includes('async function exportDiagnosticReport(') || !main.includes('function startBackgroundUpdateChecks()') || !main.includes('async function downloadAvailableUpdate()') || !main.includes('async function restartAndInstallUpdate()') || !main.includes("emit('updates:status'")) {
   throw new Error('Diagnostics export and signed release updates must remain in the main process behind narrow IPC handlers.');

@@ -278,6 +278,9 @@ async function run() {
       stateClass: document.querySelector('#update-status-note').className,
       busy: document.querySelector('#update-status-note').getAttribute('aria-busy'),
       spinnerHidden: document.querySelector('#update-status-spinner').hidden,
+      spinnerDisplay: getComputedStyle(document.querySelector('#update-status-spinner')).display,
+      integrityHidden: document.querySelector('#release-integrity-alert').hidden,
+      integrityDisplay: getComputedStyle(document.querySelector('#release-integrity-alert')).display,
       viewReleaseHidden: document.querySelector('#open-release-button').hidden,
       viewReleaseText: document.querySelector('#open-release-button').textContent,
       restartHidden: document.querySelector('#install-update-button').hidden,
@@ -288,10 +291,32 @@ async function run() {
       stateClass: 'update-status-note update-status-available',
       busy: 'false',
       spinnerHidden: true,
+      spinnerDisplay: 'none',
+      integrityHidden: true,
+      integrityDisplay: 'none',
       viewReleaseHidden: false,
       viewReleaseText: 'View CCTI 2026.09.17',
       restartHidden: true,
       checkText: 'Check for Updates',
+    });
+    await pageValue(window, `window.__emitUpdateStatus({
+      state: 'current',
+      latestVersion: '2026.09.17',
+      releaseUrl: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.17',
+      message: 'CCTI 2026.09.17 is the newest published release.',
+      digestAlert: { count: 1, names: ['ccti-windows.zip'], message: '1 published release artifact is missing a SHA-256 digest.' },
+    })`);
+    const integrityNotice = await pageValue(window, `(() => ({
+      hidden: document.querySelector('#release-integrity-alert').hidden,
+      text: document.querySelector('#release-integrity-alert').textContent.replace(/\\s+/g, ' ').trim(),
+      buttonHidden: document.querySelector('#open-release-button').hidden,
+      buttonText: document.querySelector('#open-release-button').textContent,
+    }))()`);
+    assert.deepEqual(integrityNotice, {
+      hidden: false,
+      text: 'Release integrity notice: 1 published release artifact is missing a SHA-256 digest. Missing: ccti-windows.zip. Review the release before downloading.',
+      buttonHidden: false,
+      buttonText: 'Review CCTI 2026.09.17 Release',
     });
     await pageValue(window, `window.__emitUpdateStatus({ state: 'downloading', latestVersion: '2026.09.17', message: 'Downloading signed update…' })`);
     const downloadingUpdate = await pageValue(window, `(() => ({

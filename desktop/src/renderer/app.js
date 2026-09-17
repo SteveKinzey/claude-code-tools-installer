@@ -131,6 +131,7 @@ const openReleaseButton = document.querySelector('#open-release-button');
 const updateStatusNoteElement = document.querySelector('#update-status-note');
 const updateStatusSpinnerElement = document.querySelector('#update-status-spinner');
 const releaseIntegrityAlertElement = document.querySelector('#release-integrity-alert');
+const releaseIntegrityAlertMessageElement = document.querySelector('#release-integrity-alert-message');
 
 function selectedItems() {
   return state.catalog.filter((tool) => state.selected.has(tool.id));
@@ -404,26 +405,29 @@ function displayUpdateStatus(status) {
   const latestVersion = status?.latestVersion || '';
   const message = status?.message || 'Update status has not been checked yet.';
   const updateAvailable = Boolean(status?.releaseUrl) && (stateName === 'available' || stateName === 'downloaded');
+  const digestAlert = status?.digestAlert;
+  const releaseReviewAvailable = Boolean(digestAlert?.count) && Boolean(status?.releaseUrl);
   const updateReady = stateName === 'downloaded' && Boolean(status?.canInstall);
   updateStatusNoteElement.textContent = message;
   updateStatusNoteElement.className = `update-status-note update-status-${stateName}`;
   updateStatusNoteElement.setAttribute('aria-busy', String(busy));
   updateStatusSpinnerElement.hidden = !busy;
-  openReleaseButton.hidden = !updateAvailable;
-  openReleaseButton.disabled = !updateAvailable;
-  openReleaseButton.textContent = latestVersion ? `View CCTI ${latestVersion}` : 'View New Version';
+  openReleaseButton.hidden = !(updateAvailable || releaseReviewAvailable);
+  openReleaseButton.disabled = !(updateAvailable || releaseReviewAvailable);
+  openReleaseButton.textContent = releaseReviewAvailable
+    ? (latestVersion ? `Review CCTI ${latestVersion} Release` : 'Review Release Details')
+    : (latestVersion ? `View CCTI ${latestVersion}` : 'View New Version');
   installUpdateButton.hidden = !updateReady;
   installUpdateButton.disabled = !updateReady;
   checkUpdatesButton.disabled = busy || updateReady;
   checkUpdatesButton.textContent = downloading ? 'Downloading Update…' : checking ? 'Checking for Updates…' : updateReady ? 'Update Downloaded' : 'Check for Updates';
-  const digestAlert = status?.digestAlert;
   if (digestAlert?.count) {
     const names = Array.isArray(digestAlert.names) ? digestAlert.names.slice(0, 3).join(', ') : 'a published artifact';
     releaseIntegrityAlertElement.hidden = false;
-    releaseIntegrityAlertElement.textContent = `Integrity attention: ${digestAlert.message} Missing: ${names}. Review the release before downloading.`;
+    releaseIntegrityAlertMessageElement.textContent = `${digestAlert.message} Missing: ${names}. Review the release before downloading.`;
   } else {
     releaseIntegrityAlertElement.hidden = true;
-    releaseIntegrityAlertElement.textContent = '';
+    releaseIntegrityAlertMessageElement.textContent = '';
   }
 }
 
