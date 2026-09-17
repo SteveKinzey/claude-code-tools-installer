@@ -247,9 +247,32 @@ jobs:
             gh release create "$TAG" --target "$SOURCE_COMMIT" --title "$TAG" --generate-notes
           # Upload one asset per request. GitHub can finish a large DMG upload
           # after a concurrent batch has tried to replace it, producing a false
-          # duplicate-name failure and leaving the updater ZIP absent.
+          # duplicate-name failure. Even single-asset --clobber can still race
+          # with an existing asset, so remove any matching asset name first and
+          # retry the upload a few times before failing the release job.
+          upload_release_asset() {
+            local artifact="$1"
+            local artifact_name asset_id attempt
+            artifact_name="$(basename "$artifact")"
+            for attempt in 1 2 3; do
+              asset_id="$(gh release view "$TAG" --json assets --jq ".assets[] | select(.name == \"$artifact_name\") | .id" | head -n 1)"
+              if [[ -n "$asset_id" ]]; then
+                gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+                sleep 5
+              fi
+              if gh release upload "$TAG" "$artifact"; then
+                return 0
+              fi
+              if [[ "$attempt" -lt 3 ]]; then
+                printf 'Retrying GitHub Release asset upload for %s (attempt %s/3).\n' "$artifact_name" "$((attempt + 1))" >&2
+                sleep 10
+              fi
+            done
+            echo "GitHub Release asset upload failed after 3 attempts: $artifact_name" >&2
+            return 1
+          }
           for artifact in "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"; do
-            gh release upload "$TAG" "$artifact" --clobber
+            upload_release_asset "$artifact"
           done
 
       - name: Upload release evidence
