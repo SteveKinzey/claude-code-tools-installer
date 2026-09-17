@@ -76,6 +76,8 @@ async function run() {
   await writeSkill(path.join(project, '.claude', 'skills', 'project-backup-skill'), 'Project backup');
   await fsp.utimes(path.join(home, '.claude', 'skills', 'project-backup-skill', 'SKILL.md'), new Date('2026-09-15T10:00:00.000Z'), new Date('2026-09-15T10:00:00.000Z'));
   await fsp.utimes(path.join(project, '.claude', 'skills', 'project-backup-skill', 'SKILL.md'), new Date('2026-01-15T10:00:00.000Z'), new Date('2026-01-15T10:00:00.000Z'));
+  await writeSkill(path.join(home, '.claude', 'skills', 'same-name-different-content'), 'Same name global', { contents: '# Global instructions\n' });
+  await writeSkill(path.join(project, '.claude', 'skills', 'same-name-different-content'), 'Same name project', { contents: '# Project instructions\n' });
   const hashCollision = { contents: '# Same instructions\n', files: { 'references/guide.md': 'Identical guide\n' } };
   await writeSkill(path.join(home, '.claude', 'skills', 'global-revenue-playbook'), 'Global revenue playbook', hashCollision);
   await writeSkill(path.join(project, '.claude', 'skills', 'local-gtm-playbook'), 'Local go-to-market playbook', hashCollision);
@@ -92,7 +94,7 @@ async function run() {
       `printf '%s\\n' "$*" >> ${JSON.stringify(fakeClaudeLog)}`,
       'if [ "$1" = "--version" ]; then echo "claude test"; exit 0; fi',
       'if [ "$1" = "plugin" ] && [ "$2" = "list" ]; then echo "frontend-design@claude-plugins-official enabled"; exit 0; fi',
-      'if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then exit 0; fi',
+      'if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then echo "shared-connection"; echo "shared-connection"; exit 0; fi',
       'exit 0',
       '',
     ].join('\n');
@@ -153,12 +155,16 @@ async function run() {
   const report = await discover(null, { projectPath: project });
   assert.ok(report.discoveryId, 'a discovery session is required for cleanup');
   assert.ok(report.findings.some((item) => item.type === 'attention' && item.name === 'Project package file will be created when needed' && item.scope === 'This project'), 'the inventory should explain automatic package initialization for a selected project');
-  assert.equal(report.duplicates.length, 4);
+  assert.equal(report.duplicates.length, 5);
   const hashCollisionGroup = report.duplicates.find((group) => group.match === 'content-hash' && group.names.includes('global-revenue-playbook'));
   assert.ok(hashCollisionGroup, 'identical skill content with different folder names should be reported as a hash collision');
   assert.deepEqual(hashCollisionGroup.names, ['global-revenue-playbook', 'local-gtm-playbook']);
   assert.equal(hashCollisionGroup.items[0].contentHash, hashCollisionGroup.items[1].contentHash);
   assert.ok(hashCollisionGroup.items[0].files.some((file) => file.path === 'references/guide.md'), 'discovery should retain every verified file for the cleanup preview');
+  const nameOverlapGroup = report.duplicates.find((group) => group.match === 'name' && group.name === 'same-name-different-content');
+  assert.ok(nameOverlapGroup, 'same-name skill folders with different verified content should remain visible as an informational overlap');
+  assert.notEqual(nameOverlapGroup.items[0].contentHash, nameOverlapGroup.items[1].contentHash, 'a name overlap must not be treated as matching content');
+  assert.equal(report.findings.filter((item) => item.type === 'connection' && item.name === 'shared-connection' && item.scope === 'Claude Code').length, 1, 'repeated CLI output for the same location should produce one inventory item');
   const userSkill = report.findings.find((item) => item.type === 'skill' && item.scope === 'Just you' && item.name === 'duplicate-skill');
   assert.ok(userSkill, 'the user skill should be found');
   assert.match(userSkill.updatedAt, /^\d{4}-\d{2}-\d{2}T/, 'discovered skills should expose their SKILL.md last-edited time for a user-reviewed cleanup choice');
@@ -216,6 +222,7 @@ async function run() {
   const bulkPlan = await reviewAllDuplicates(null, { discoveryId: report.discoveryId });
   assert.equal(bulkPlan.ok, true, 'a bulk duplicate review should be generated from only the discovered global and project skill roots');
   assert.equal(bulkPlan.groups.length, 3, 'the already moved duplicate skill should not be included in the bulk plan');
+  assert.equal(bulkPlan.groups.some((group) => group.name === 'same-name-different-content'), false, 'a same-name overlap with different verified content must never enter a bulk backup plan');
   const namedBulkGroup = bulkPlan.groups.find((group) => group.name === 'bulk-duplicate-skill');
   const hashedBulkGroup = bulkPlan.groups.find((group) => group.match === 'content-hash' && group.names.includes('global-revenue-playbook'));
   const projectBackupGroup = bulkPlan.groups.find((group) => group.name === 'project-backup-skill');

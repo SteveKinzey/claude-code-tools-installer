@@ -1746,7 +1746,18 @@ function duplicateSkillGroups(skills) {
 }
 
 function duplicateSkillCleanupGroups(report) {
-  return duplicateSkillGroups([...(report?.skills?.values?.() || [])]);
+  return duplicateSkillGroups([...(report?.skills?.values?.() || [])])
+    .filter((group) => group.match === 'content-hash');
+}
+
+function uniqueDiscoveryFindings(findings) {
+  const seen = new Set();
+  return (Array.isArray(findings) ? findings : []).filter((finding) => {
+    const key = [finding.type, finding.name, finding.scope, finding.path].map((value) => String(value || '')).join('\u0000');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function listSkillsAt(rootPath, scope) {
@@ -1848,12 +1859,13 @@ async function discoverClaudeSetup(projectPath = '') {
     if (connections.code === 0) connections.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/)[0]).filter(Boolean).forEach((name) => findings.push({ id: `connection-cli:${name}`, type: 'connection', name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
   }
 
+  const uniqueFindings = uniqueDiscoveryFindings(findings);
   const nonSkillGroups = new Map();
-  findings.filter((item) => ['plugin', 'connection'].includes(item.type)).forEach((item) => {
+  uniqueFindings.filter((item) => ['plugin', 'connection'].includes(item.type)).forEach((item) => {
     const key = `${item.type}:${normalizedFindingName(item.name)}`;
     nonSkillGroups.set(key, [...(nonSkillGroups.get(key) || []), item]);
   });
-  const skills = findings.filter((item) => item.type === 'skill');
+  const skills = uniqueFindings.filter((item) => item.type === 'skill');
   const skillDuplicates = duplicateSkillGroups(skills).map((group) => {
     const sameName = group.names.length === 1;
     return {
@@ -1865,11 +1877,11 @@ async function discoverClaudeSetup(projectPath = '') {
       items: group.items,
       explanation: group.match === 'content-hash'
         ? sameName
-          ? 'These skill folders have the same name and identical verified file content. Review the scopes before keeping more than one copy.'
-          : 'These skill folders have different names but identical verified file content. Review the scopes before keeping more than one copy.'
+          ? 'These skill folders have the same name and identical verified file content. A reversible backup review is available if you no longer need both copies.'
+          : 'These skill folders have different names but identical verified file content. A reversible backup review is available if you no longer need both copies.'
         : group.match === 'name'
-          ? 'These skill folders have the same name in more than one Claude Code location. Review the scopes and content before keeping more than one copy.'
-          : 'These skill folders overlap by name or identical verified file content. Review the scopes and content before keeping more than one copy.',
+          ? 'These skill folders have the same name in more than one Claude Code location, but their content was not verified as identical. This is informational only.'
+          : 'These skill folders overlap by name or verified content. This is informational unless CCTI explicitly labels the content as identical.',
     };
   });
   const duplicates = [
@@ -1879,12 +1891,12 @@ async function discoverClaudeSetup(projectPath = '') {
       type: items[0].type,
       match: 'name',
       items,
-      explanation: 'This name appears in more than one Claude Code location. That can be useful, but review the scopes before keeping more than one copy.',
+      explanation: 'This name appears in more than one Claude Code location. It is an informational name overlap; CCTI does not clean up add-ons or connections here.',
     })),
   ];
   const discoveryId = randomUUID();
-  const manageablePlugins = findings.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
-  const skillBackups = findings.filter((item) => item.type === 'skill-backup');
+  const manageablePlugins = uniqueFindings.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
+  const skillBackups = uniqueFindings.filter((item) => item.type === 'skill-backup');
   discoveredSkillCleanup.set(discoveryId, {
     createdAt: Date.now(),
     skills: new Map(skills.map((item) => [item.id, {
@@ -1917,7 +1929,7 @@ async function discoverClaudeSetup(projectPath = '') {
   while (discoveredSkillCleanup.size > 10) {
     discoveredSkillCleanup.delete(discoveredSkillCleanup.keys().next().value);
   }
-  return { discoveryId, checkedAt: new Date().toISOString(), projectPath: resolvedProjectPath, findings, duplicates };
+  return { discoveryId, checkedAt: new Date().toISOString(), projectPath: resolvedProjectPath, findings: uniqueFindings, duplicates };
 }
 
 async function reviewPluginChange({ discoveryId, findingId, action }) {

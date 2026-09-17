@@ -232,6 +232,10 @@ if (!main.includes('reportAnonymousSetupSuccess') || !main.includes("JSON.string
   throw new Error('Anonymous success telemetry must remain explicit and payload-minimal.');
 }
 
+if (!renderer.includes("duplicate.match === 'content-hash'") || !renderer.includes('This is a name overlap only.') || !html.includes('verified duplicates and name overlaps') || !html.includes('Optional private completion count')) {
+  throw new Error('The checkup UI must distinguish a verified identical-content duplicate from an informational same-name overlap, and explain optional completion counting in plain language.');
+}
+
 
 if (!html.includes('id="uninstall-app-button"') || !html.includes('id="export-installation-manifest-button"') || !html.includes('id="open-manifest-folder-button"') || !html.includes('id="verify-installation-manifest-button"') || !html.includes('id="copy-manifest-verification-command-button"') || !html.includes('id="manifest-drop-zone"') || !html.includes('id="compare-installation-manifests-button"') || !html.includes('id="uninstall-panel"') || !renderer.includes('async function uninstallApplication()') || !renderer.includes('async function exportInstallationManifest()') || !renderer.includes('async function verifySavedInstallationManifest()') || !renderer.includes('async function verifyDroppedInstallationManifest(file)') || !renderer.includes('async function compareSavedInstallationManifests()') || !renderer.includes('async function copyManifestVerificationCommand()') || !renderer.includes('async function openManifestFolder()')) {
   throw new Error('The desktop app must include a bottom-placed complete app uninstall action with manifest export, drop verification, and verified comparison.');

@@ -42,17 +42,48 @@ const duplicateItems = [
   },
 ];
 
+const nameOverlapItems = [
+  {
+    id: 'skill:/fixture-home/.claude/skills/claude.ai',
+    type: 'skill',
+    name: 'claude.ai',
+    scope: 'Just you',
+    path: '/fixture-home/.claude/skills/claude.ai',
+    updatedAt: '2026-02-15T10:00:00.000Z',
+    description: 'A saved set of instructions for Claude Code.',
+  },
+  {
+    id: 'skill:/fixture-project/.claude/skills/claude.ai',
+    type: 'skill',
+    name: 'claude.ai',
+    scope: 'This project',
+    path: '/fixture-project/.claude/skills/claude.ai',
+    updatedAt: '2026-07-15T10:00:00.000Z',
+    description: 'A saved set of instructions for Claude Code.',
+  },
+];
+
 const discoveryReport = {
   discoveryId: 'duplicate-ui-fixture',
   checkedAt: '2026-09-12T12:00:00.000Z',
   projectPath: '/fixture-project',
-  findings: duplicateItems,
-  duplicates: [{
-    name: 'revenue-systems',
-    type: 'skill',
-    items: duplicateItems,
-    explanation: 'This name appears in more than one Claude Code location. That can be useful, but review the scopes before keeping more than one copy.',
-  }],
+  findings: [...duplicateItems, ...nameOverlapItems],
+  duplicates: [
+    {
+      name: 'revenue-systems',
+      type: 'skill',
+      match: 'content-hash',
+      items: duplicateItems,
+      explanation: 'These skill folders have the same name and identical verified file content.',
+    },
+    {
+      name: 'claude.ai',
+      type: 'skill',
+      match: 'name',
+      items: nameOverlapItems,
+      explanation: 'These skill folders have the same name in more than one Claude Code location, but their content was not verified as identical.',
+    },
+  ],
 };
 
 const backedUpSkill = {
@@ -104,6 +135,7 @@ function injectedBridge() {
       getComponentCatalog: async () => ({ components: [], count: 0 }),
       getCompassStatus: async () => ({ available: false }),
       getUpdateStatus: async () => ({ status: 'idle', message: 'No update check has run yet.' }),
+      reportAnonymousSetupSuccess: async (payload) => { record('reportAnonymousSetupSuccess', payload); return { ok: true }; },
       getTerminalPreference: async () => ({ ok: true, selectedId: terminalId, options: terminalOptions, message: 'Claude Code will open in ' + (terminalId === 'iterm2' ? 'iTerm2' : 'Default Terminal') + '.' }),
       setTerminalPreference: async (payload) => { record('setTerminalPreference', payload); terminalId = payload.terminalId; return { ok: true, selectedId: terminalId, options: terminalOptions, message: 'CCTI will open Claude Code in ' + (terminalId === 'iterm2' ? 'iTerm2' : 'Default Terminal') + '.' }; },
       testTerminalPreference: async () => { record('testTerminalPreference'); return { ok: true, message: 'Opened iTerm2 with the CCTI terminal launch test.' }; },
@@ -219,6 +251,32 @@ async function run() {
     await window.loadFile(fixturePath);
     await waitFor(window, () => document.querySelector('#claude-status-text')?.textContent.includes('Yes, Claude Code is installed'), 'renderer startup');
 
+    const anonymousPrompt = await pageValue(window, `(() => ({
+      heading: document.querySelector('#anonymous-success-heading').textContent,
+      detail: document.querySelector('#anonymous-success-detail').textContent,
+      reportText: document.querySelector('#report-anonymous-success-button').textContent,
+      skipHidden: document.querySelector('#skip-anonymous-success-button').hidden,
+    }))()`);
+    assert.equal(anonymousPrompt.heading, 'Optional private completion count');
+    assert.equal(anonymousPrompt.detail, 'Nothing is counted unless you choose it.');
+    assert.equal(anonymousPrompt.reportText, 'Count this completion (optional)');
+    assert.equal(anonymousPrompt.skipHidden, false);
+    await pageValue(window, "document.querySelector('#skip-anonymous-success-button').click()");
+    const anonymousOptOut = await pageValue(window, `(() => ({
+      detail: document.querySelector('#anonymous-success-detail').textContent,
+      message: document.querySelector('#anonymous-success-message').textContent,
+      reportDisabled: document.querySelector('#report-anonymous-success-button').disabled,
+      skipHidden: document.querySelector('#skip-anonymous-success-button').hidden,
+      reported: window.__duplicateUiCalls.filter((call) => call.method === 'reportAnonymousSetupSuccess').length,
+    }))()`);
+    assert.deepEqual(anonymousOptOut, {
+      detail: 'No completion count was sent.',
+      message: 'Your setup is still complete.',
+      reportDisabled: true,
+      skipHidden: true,
+      reported: 0,
+    });
+
     const terminalControl = await pageValue(window, `(() => ({
       value: document.querySelector('#terminal-preference-select').value,
       note: document.querySelector('#terminal-preference-note').textContent,
@@ -333,17 +391,26 @@ async function run() {
           disabled: document.querySelector('#deduplicate-all-skills-button').disabled,
         },
         locations: [...dialog.querySelectorAll('.duplicate-skill-dialog-location > span')].map((item) => item.textContent),
+        nameOverlap: {
+          summary: document.querySelector('#duplicate-review-summary').textContent,
+          text: [...document.querySelectorAll('.duplicate-group.is-information')].map((item) => item.textContent).join('\\n'),
+          actionCount: document.querySelectorAll('.duplicate-group.is-information button').length,
+        },
       };
     })()`);
     assert.equal(scanDialog.labelledBy, 'duplicate-skill-dialog-heading');
     assert.equal(scanDialog.describedBy, 'duplicate-skill-dialog-copy');
     assert.equal(await pageValue(window, "document.querySelector('#duplicate-skill-dialog').getAttribute('aria-modal')"), 'true');
-    assert.match(scanDialog.copy, /single De-duplicate action/i);
+    assert.match(scanDialog.copy, /identical verified file content/i);
     assert.equal(scanDialog.groups, 1, 'The scan should render one grouped duplicate skill.');
-    assert.deepEqual(scanDialog.bulkButton, { text: 'De-duplicate all skills', hidden: false, disabled: false });
-    assert.match(scanDialog.locations[0], /^Move to backup · Just you/);
+    assert.deepEqual(scanDialog.bulkButton, { text: 'Back up verified duplicates', hidden: false, disabled: false });
+    assert.match(scanDialog.locations[0], /^Available for backup review · Just you/);
     assert.match(scanDialog.locations[0], /\/fixture-home\/\.claude\/skills\/revenue-systems/);
     assert.match(scanDialog.locations[1], /^Keep newest discovered copy by date · This project/);
+    assert.match(scanDialog.nameOverlap.summary, /1 same-name overlap is informational only/i);
+    assert.match(scanDialog.nameOverlap.text, /claude\.ai/i);
+    assert.match(scanDialog.nameOverlap.text, /will not offer a backup move or deletion/i);
+    assert.equal(scanDialog.nameOverlap.actionCount, 0, 'A name overlap must never expose a removal or backup action.');
 
     await pageValue(window, "document.querySelector('#deduplicate-all-skills-button').click()");
     await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === false && document.activeElement?.id === 'duplicate-backup-preview-heading', 'exact backup file preview');
@@ -354,7 +421,7 @@ async function run() {
       backVisible: document.querySelector('#cancel-deduplicate-preview-button').hidden === false,
       confirmCalls: window.__duplicateUiCalls.filter((call) => call.method === 'confirm').length,
     }))()`);
-    assert.equal(backupPreview.button, 'Back up listed duplicates');
+    assert.equal(backupPreview.button, 'Back up listed verified duplicates');
     assert.match(backupPreview.summary, /1 exact file/i);
     assert.match(backupPreview.files, /\/fixture-home\/\.claude\/skills\/revenue-systems\/SKILL\.md/);
     assert.match(backupPreview.files, /\/fixture-home\/\.setup-my-claude\/disabled-skills\/revenue-systems-backup\/SKILL\.md/);
@@ -364,7 +431,7 @@ async function run() {
     assert.equal(await pageValue(window, "document.activeElement?.id"), 'duplicate-backup-preview-heading', 'the file preview heading should receive focus when the preview phase opens');
 
     await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').click()");
-    await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === true && document.querySelector('#deduplicate-all-skills-button')?.textContent === 'De-duplicate all skills' && document.activeElement?.id === 'duplicate-skill-dialog-heading', 'return to duplicate review');
+    await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === true && document.querySelector('#deduplicate-all-skills-button')?.textContent === 'Back up verified duplicates' && document.activeElement?.id === 'duplicate-skill-dialog-heading', 'return to duplicate review');
     assert.equal(await pageValue(window, "document.activeElement?.id"), 'duplicate-skill-dialog-heading', 'returning to duplicate review should move focus to its dialog title');
     await pageValue(window, "document.querySelector('#deduplicate-all-skills-button').click()");
     await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === false, 'reopened exact backup file preview');

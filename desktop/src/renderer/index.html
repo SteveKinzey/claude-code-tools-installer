@@ -50,40 +50,49 @@
           <div>
             <h2 id="setup-heading">Set up Claude Code</h2>
             <p id="claude-status-text">Checking whether Claude Code is installed…</p>
+            <p class="setup-choice-hint"><strong>Choose one next step.</strong> Each card below is a button. A selected card shows what will happen next; browsing does not change anything.</p>
           </div>
         </div>
         <div class="setup-options">
           <button id="install-claude-button" class="setup-option setup-option-primary" type="button" disabled>
             <span id="install-claude-title" class="setup-option-title">Yes, install Claude Code</span>
             <span id="install-claude-copy" class="setup-option-copy">Runs Anthropic’s official installer inside this app, waits until Claude Code is ready, and does not add extra tools.</span>
+            <span class="setup-option-action">Install Claude Code</span>
           </button>
           <button id="recheck-claude-button" class="setup-option" type="button" disabled>
-            <span class="setup-option-title">Check again</span>
+            <span class="setup-option-title">Check installation again</span>
             <span class="setup-option-copy">Checks that Claude Code can run before this app says it is installed.</span>
+            <span class="setup-option-action">Run check</span>
           </button>
-          <button id="use-existing-button" class="setup-option" type="button" disabled>
-            <span class="setup-option-title">Yes, Claude Code is installed</span>
+          <button id="use-existing-button" class="setup-option" type="button" aria-pressed="false" disabled>
+            <span class="setup-option-title">I already have Claude Code</span>
             <span class="setup-option-copy">Use the Claude Code already on this computer, then choose exactly which tools to add.</span>
+            <span class="setup-option-action">Use existing installation</span>
           </button>
-          <button id="complete-setup-button" class="setup-option" type="button">
-            <span class="setup-option-title">Set up Claude Code and recommended tools</span>
+          <button id="complete-setup-button" class="setup-option" type="button" aria-pressed="false">
+            <span class="setup-option-title">Install Claude Code + recommended tools</span>
             <span class="setup-option-copy">Installs Claude Code plus the recommended tool set. Review this option before choosing it.</span>
+            <span class="setup-option-action">Review and run setup</span>
           </button>
-          <button id="browse-button" class="setup-option" type="button">
-            <span class="setup-option-title">Browse tools first</span>
+          <button id="browse-button" class="setup-option" type="button" aria-pressed="false">
+            <span class="setup-option-title">Browse tools — no changes</span>
             <span class="setup-option-copy">Look through every option without installing or changing anything.</span>
+            <span class="setup-option-action">Browse only</span>
           </button>
           <button id="run-claude-button" class="setup-option setup-option-run" type="button" hidden disabled>
-            <span class="setup-option-title">Run Claude Code</span>
+            <span class="setup-option-title">Open Claude Code</span>
             <span class="setup-option-copy">Opens Claude Code for the folder you selected. Claude Code uses a terminal window, but you do not need to type a command to start it.</span>
+            <span class="setup-option-action">Open Claude Code</span>
           </button>
           <button id="remove-claude-button" class="setup-option setup-option-danger" type="button" hidden disabled>
             <span class="setup-option-title">Remove Claude Code from this computer</span>
             <span class="setup-option-copy">First shows a careful removal list. It does not touch Claude Desktop, Claude in Chrome, browser data, or other Anthropic apps.</span>
+            <span class="setup-option-action">Review removal</span>
           </button>
           <button id="start-fresh-button" class="setup-option setup-option-danger" type="button" disabled>
             <span class="setup-option-title">Start fresh</span>
             <span class="setup-option-copy">Deletes local Claude Code versions, settings, session history, MCP configuration, and this app’s tool stack before Complete setup runs again.</span>
+            <span class="setup-option-action">Review permanent deletion</span>
           </button>
         </div>
         <div class="terminal-preference" aria-labelledby="terminal-preference-label">
@@ -123,14 +132,14 @@
         <p id="setup-manager-summary" class="manager-summary">Nothing has been checked yet.</p>
         <div id="setup-manager-results" class="manager-results" aria-live="polite"></div>
         <section id="duplicate-review" class="duplicate-review is-hidden" aria-labelledby="duplicate-review-heading">
-          <h3 id="duplicate-review-heading">Possible duplicate skills</h3>
-          <p id="duplicate-review-summary">These names appear in more than one place. That does not always mean there is a problem. Review the locations first. If you want to remove a skill, this app moves one copy to a backup folder instead of deleting it.</p>
+          <h3 id="duplicate-review-heading">Skill checkup: verified duplicates and name overlaps</h3>
+          <p id="duplicate-review-summary">A verified duplicate has identical file content and can be moved only to a backup after review. A name overlap means two items share a name but may be different; it is informational and has no cleanup action.</p>
           <div id="duplicate-review-list" class="duplicate-review-list"></div>
-          <button id="review-duplicate-skills-button" class="button button-secondary" type="button" hidden>Review duplicate skills</button>
+          <button id="review-duplicate-skills-button" class="button button-secondary" type="button" hidden>Review verified duplicates</button>
         </section>
         <section id="skill-backup-review" class="duplicate-review is-hidden" aria-labelledby="skill-backup-review-heading">
-          <h3 id="skill-backup-review-heading">Restore backed-up skills</h3>
-          <p id="skill-backup-review-summary">CCTI can restore preserved duplicate skill copies only when their original Claude Code location remains empty. It never overwrites an active skill folder.</p>
+          <h3 id="skill-backup-review-heading">Backed-up skills</h3>
+          <p id="skill-backup-review-summary">CCTI restores a preserved skill only when its original location is empty. It never overwrites an active skill folder; use a replacement review only after inspecting the exact files.</p>
           <div id="skill-backup-review-list" class="duplicate-review-list"></div>
           <button id="restore-all-skill-backups-button" class="button button-secondary" type="button">Restore safe backup copies</button>
         </section>
@@ -275,9 +284,13 @@
         <h2 id="completion-heading">Setup complete</h2>
         <p>CCTI has finished the supported steps in this plan. Supported plugins and prerequisites run inside the app. If an item needs your sign-in, key, license, or a platform that does not support it yet, CCTI explains that clearly before it makes any change.</p>
         <section class="anonymous-success" aria-labelledby="anonymous-success-heading">
-          <h3 id="anonymous-success-heading">Optional anonymous success count</h3>
-          <p>You can choose to count one setup action that ended without an error. It sends only that action type—no name, email, device ID, folder path, tool list, log, or event ID. It is not an install count or proof that Claude Code will keep working.</p>
-          <button id="report-anonymous-success-button" class="button button-secondary" type="button">Count this anonymous success</button>
+          <h3 id="anonymous-success-heading">Optional private completion count</h3>
+          <p>You may choose to add one anonymous count after a setup action ends without an error. The only data sent is the action category—no name, email, device ID, folder path, tool list, log, or event ID. It is not an install count or proof that Claude Code will keep working.</p>
+          <p id="anonymous-success-detail" class="anonymous-success-detail">Nothing is counted unless you choose it.</p>
+          <div class="anonymous-success-actions">
+            <button id="report-anonymous-success-button" class="button button-secondary" type="button">Count this completion (optional)</button>
+            <button id="skip-anonymous-success-button" class="button button-ghost" type="button">No thanks</button>
+          </div>
           <p id="anonymous-success-message" class="anonymous-success-message" aria-live="polite"></p>
         </section>
       </section>

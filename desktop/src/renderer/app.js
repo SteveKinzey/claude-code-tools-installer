@@ -20,7 +20,7 @@ const state = {
   customAddOnReview: null,
   compass: { online: false, history: [], opened: false },
   projectInterview: { active: false, step: 0, answers: {}, result: null },
-  anonymousSuccess: { kind: '', reported: false },
+  anonymousSuccess: { kind: '', reported: false, dismissed: false },
   diagnostics: { id: '', report: '', expiresAt: 0 },
 };
 let diagnosticExpiryTimer = null;
@@ -101,6 +101,8 @@ const customAddOnScopeElement = document.querySelector('#custom-addon-scope');
 const customAddOnOutputElement = document.querySelector('#custom-addon-output');
 const applyCustomAddOnButton = document.querySelector('#apply-custom-addon-button');
 const reportAnonymousSuccessButton = document.querySelector('#report-anonymous-success-button');
+const skipAnonymousSuccessButton = document.querySelector('#skip-anonymous-success-button');
+const anonymousSuccessDetailElement = document.querySelector('#anonymous-success-detail');
 const anonymousSuccessMessageElement = document.querySelector('#anonymous-success-message');
 const startProjectInterviewButton = document.querySelector('#start-project-interview-button');
 const projectInterviewPanelElement = document.querySelector('#project-interview-panel');
@@ -243,9 +245,17 @@ function clearOutput() {
 }
 
 function offerAnonymousSuccessCount(kind) {
-  state.anonymousSuccess = { kind, reported: false };
+  const label = kind === 'complete_setup'
+    ? 'a completed recommended setup'
+    : kind === 'selected_tools'
+      ? 'a completed selected-tool setup'
+      : 'a completed project-component setup';
+  state.anonymousSuccess = { kind, reported: false, dismissed: false };
   reportAnonymousSuccessButton.disabled = false;
-  reportAnonymousSuccessButton.textContent = 'Count this anonymous success';
+  reportAnonymousSuccessButton.textContent = 'Count this completion (optional)';
+  skipAnonymousSuccessButton.disabled = false;
+  skipAnonymousSuccessButton.hidden = false;
+  anonymousSuccessDetailElement.textContent = `This would add 1 to the anonymous daily total for ${label}.`;
   anonymousSuccessMessageElement.textContent = '';
   anonymousSuccessMessageElement.className = 'anonymous-success-message';
 }
@@ -342,19 +352,31 @@ function exportProjectPrd() {
 async function reportAnonymousSuccess() {
   if (!state.anonymousSuccess.kind || state.anonymousSuccess.reported) return;
   reportAnonymousSuccessButton.disabled = true;
-  anonymousSuccessMessageElement.textContent = 'Sending one anonymous count…';
+  skipAnonymousSuccessButton.disabled = true;
+  anonymousSuccessMessageElement.textContent = 'Sending one optional private completion count…';
   anonymousSuccessMessageElement.className = 'anonymous-success-message';
   const result = await window.installer.reportAnonymousSetupSuccess({ kind: state.anonymousSuccess.kind, consent: true });
   if (result.ok) {
     state.anonymousSuccess.reported = true;
-    reportAnonymousSuccessButton.textContent = 'Anonymous success counted';
-    anonymousSuccessMessageElement.textContent = 'Thank you. Only today’s total for this action type was updated.';
+    reportAnonymousSuccessButton.textContent = 'Completion counted';
+    skipAnonymousSuccessButton.hidden = true;
+    anonymousSuccessMessageElement.textContent = 'Thank you. One anonymous daily completion count for this setup type was added. No identifying details or setup contents were sent.';
     anonymousSuccessMessageElement.className = 'anonymous-success-message is-success';
   } else {
     reportAnonymousSuccessButton.disabled = false;
-    anonymousSuccessMessageElement.textContent = result.error || 'The anonymous count was not sent. Your setup result is unchanged.';
+    skipAnonymousSuccessButton.disabled = false;
+    anonymousSuccessMessageElement.textContent = result.error || 'The optional completion count was not sent. Your setup result is unchanged.';
     anonymousSuccessMessageElement.className = 'anonymous-success-message is-error';
   }
+}
+
+function skipAnonymousSuccess() {
+  state.anonymousSuccess = { kind: '', reported: false, dismissed: true };
+  reportAnonymousSuccessButton.disabled = true;
+  skipAnonymousSuccessButton.hidden = true;
+  anonymousSuccessDetailElement.textContent = 'No completion count was sent.';
+  anonymousSuccessMessageElement.textContent = 'Your setup is still complete.';
+  anonymousSuccessMessageElement.className = 'anonymous-success-message';
 }
 
 function revealCatalog() {
@@ -368,6 +390,9 @@ function setSetupSelection(mode, note) {
   completeSetupButton.classList.toggle('is-selected', mode === 'complete');
   useExistingButton.classList.toggle('is-selected', mode === 'existing');
   browseButton.classList.toggle('is-selected', mode === 'browse');
+  completeSetupButton.setAttribute('aria-pressed', String(mode === 'complete'));
+  useExistingButton.setAttribute('aria-pressed', String(mode === 'existing'));
+  browseButton.setAttribute('aria-pressed', String(mode === 'browse'));
   revealCatalog();
   updateSummary();
 }
@@ -1324,7 +1349,7 @@ function clearDuplicateBackupPreview() {
   duplicateBackupPreviewListElement.replaceChildren();
   cancelDeduplicatePreviewButton.hidden = true;
   cancelDeduplicatePreviewButton.textContent = 'Back to review';
-  deduplicateAllSkillsButton.textContent = 'De-duplicate all skills';
+  deduplicateAllSkillsButton.textContent = 'Back up verified duplicates';
   deduplicateAllSkillsButton.hidden = false;
   restoreListedSkillBackupsButton.hidden = true;
 }
@@ -1355,7 +1380,7 @@ function showDuplicateBackupPreview(review, { mode = 'backup' } = {}) {
   const fileCount = review.moves.reduce((count, move) => count + (move.files || []).length, 0);
   duplicateBackupPreviewElement.hidden = false;
   duplicateSkillDialogEyebrowElement.textContent = replacing ? 'REPLACEMENT REVIEW' : restoring ? 'RESTORE REVIEW' : 'BACKUP REVIEW';
-  duplicateSkillDialogHeadingElement.textContent = replacing ? 'Replace an active skill with a backup' : restoring ? 'Review backed-up skills' : 'Review duplicate skills';
+  duplicateSkillDialogHeadingElement.textContent = replacing ? 'Replace an active skill with a backup' : restoring ? 'Review backed-up skills' : 'Review verified duplicate skills';
   duplicateBackupPreviewHeadingElement.textContent = replacing ? 'Files that will be safely swapped' : restoring ? 'Files that will be restored' : 'Files that will be backed up';
   duplicateBackupPreviewSummaryElement.textContent = replacing
     ? `Review ${fileCount} exact file${fileCount === 1 ? '' : 's'} across two skill folders. CCTI first backs up the active copy, then restores the selected saved copy. No files are deleted, merged, or overwritten.`
@@ -1379,7 +1404,7 @@ function showDuplicateBackupPreview(review, { mode = 'backup' } = {}) {
       ? 'CCTI restores only empty original locations and never overwrites active skills. Choose Restore only when this preview is correct.'
       : 'Review the exact files and backup destinations. CCTI does not delete skills.';
   deduplicateAllSkillsButton.hidden = restoring;
-  deduplicateAllSkillsButton.textContent = 'Back up listed duplicates';
+  deduplicateAllSkillsButton.textContent = 'Back up listed verified duplicates';
   deduplicateAllSkillsButton.disabled = review.moves.length === 0 || fileCount === 0;
   restoreListedSkillBackupsButton.hidden = !restoring;
   restoreListedSkillBackupsButton.textContent = replacing ? 'Back up active copy and restore selected backup' : 'Restore listed backup copies';
@@ -1389,18 +1414,22 @@ function showDuplicateBackupPreview(review, { mode = 'backup' } = {}) {
   focusDuplicateDialog(duplicateBackupPreviewHeadingElement);
 }
 function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanupAvailable = !additionBlocked, preserveInvoker = false } = {}) {
-  const skillGroups = (Array.isArray(duplicates) ? duplicates : []).filter((duplicate) => duplicate.type === 'skill' && duplicate.items?.length > 1);
+  const allSkillGroups = (Array.isArray(duplicates) ? duplicates : []).filter((duplicate) => duplicate.type === 'skill' && duplicate.items?.length > 1);
+  const verifiedSkillGroups = allSkillGroups.filter((duplicate) => duplicate.match === 'content-hash');
+  const skillGroups = additionBlocked ? allSkillGroups : verifiedSkillGroups;
+  const canBackUp = cleanupAvailable && verifiedSkillGroups.length > 0;
   if (!skillGroups.length || typeof duplicateSkillDialogElement?.showModal !== 'function') return;
 
   if (!preserveInvoker && document.activeElement instanceof HTMLElement) state.duplicateDialogInvoker = document.activeElement;
   clearDuplicateBackupPreview();
   duplicateSkillDialogEyebrowElement.textContent = 'SKILL CHECKUP';
-  duplicateSkillDialogHeadingElement.textContent = 'Review duplicate skills';
+  duplicateSkillDialogHeadingElement.textContent = canBackUp ? 'Review verified duplicate skills' : 'Review existing skill locations';
   duplicateSkillDialogCopyElement.textContent = additionBlocked
-    ? 'CCTI did not add another copy because this skill is already available in Claude Code. Choose an older local copy only if you want to move it to a backup. Nothing is deleted automatically.'
-    : 'CCTI found skills that overlap by name or identical verified content in more than one Claude Code location. The single De-duplicate action keeps the newest discovered copy of each group and moves every other local copy to a backup folder. Nothing is deleted automatically.';
-  deduplicateAllSkillsButton.hidden = !cleanupAvailable;
-  deduplicateAllSkillsButton.disabled = !cleanupAvailable;
+    ? 'CCTI did not add another copy because this skill is already available in Claude Code. A matching name does not prove matching content, so no removal action is offered here. Nothing was changed.'
+    : 'CCTI found skill folders with identical verified file content. The backup review keeps the newest discovered copy by date and moves every other identical copy to a CCTI backup folder. Nothing is deleted automatically.';
+  deduplicateAllSkillsButton.hidden = !canBackUp;
+  deduplicateAllSkillsButton.disabled = !canBackUp;
+  deduplicateAllSkillsButton.textContent = 'Back up verified duplicates';
   duplicateSkillDialogListElement.replaceChildren();
 
   for (const duplicate of skillGroups) {
@@ -1416,9 +1445,9 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
       : duplicate.match === 'name'
         ? 'These folders share a normalized skill name.'
         : 'These folders overlap by name or identical verified content.';
-    copy.textContent = cleanupAvailable
-      ? `${match} CCTI will keep the newest discovered copy by date and move every other copy to backup. Review the locations before continuing.`
-      : `${match} Review the locations before deciding whether to keep all copies.`;
+    copy.textContent = duplicate.match === 'content-hash'
+      ? `${match} CCTI can back up the older discovered copy only after you inspect the exact file-level preview.`
+      : `${match} The contents may be different, so this is information only. No backup or removal action is available.`;
     group.append(heading, copy);
 
     const orderedItems = [...duplicate.items].sort((left, right) => new Date(left.updatedAt || 0) - new Date(right.updatedAt || 0));
@@ -1427,7 +1456,7 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
       location.className = 'duplicate-skill-dialog-location';
       const label = document.createElement('span');
       const isNewest = index === orderedItems.length - 1;
-      label.textContent = `${cleanupAvailable ? (isNewest ? 'Keep newest discovered copy by date' : 'Move to backup') : (index === 0 ? 'Older local copy by date' : 'Another local copy')} · ${item.scope} · ${localSkillDate(item)}\n${item.path}`;
+      label.textContent = `${canBackUp && duplicate.match === 'content-hash' ? (isNewest ? 'Keep newest discovered copy by date' : 'Available for backup review') : (index === 0 ? 'Older local copy by date' : 'Another local copy')} · ${item.scope} · ${localSkillDate(item)}\n${item.path}`;
       location.append(label);
       group.append(location);
     });
@@ -1503,21 +1532,29 @@ function renderSetupManager(report) {
     setupManagerResultsElement.append(more);
   }
   duplicateReviewListElement.replaceChildren();
-  const skillDuplicateGroups = duplicates.filter((duplicate) => duplicate.type === 'skill' && duplicate.items?.length > 1);
-  reviewDuplicateSkillsButton.hidden = skillDuplicateGroups.length === 0;
-  reviewDuplicateSkillsButton.disabled = skillDuplicateGroups.length === 0;
-  reviewDuplicateSkillsButton.textContent = skillDuplicateGroups.length === 1 ? 'Review 1 duplicate skill' : `Review ${skillDuplicateGroups.length} duplicate skills`;
-  duplicateReviewSummaryElement.textContent = skillDuplicateGroups.length
-    ? `${skillDuplicateGroups.length} duplicate skill group${skillDuplicateGroups.length === 1 ? '' : 's'} found. Review the precise locations, then decide whether to keep all copies or move the older discovered copies to CCTI backup.`
-    : 'No duplicate skills were found in the locations checked.';
+  const verifiedSkillDuplicateGroups = duplicates.filter((duplicate) => duplicate.type === 'skill' && duplicate.match === 'content-hash' && duplicate.items?.length > 1);
+  const nameOverlapGroups = duplicates.filter((duplicate) => duplicate.match !== 'content-hash' && duplicate.items?.length > 1);
+  reviewDuplicateSkillsButton.hidden = verifiedSkillDuplicateGroups.length === 0;
+  reviewDuplicateSkillsButton.disabled = verifiedSkillDuplicateGroups.length === 0;
+  reviewDuplicateSkillsButton.textContent = verifiedSkillDuplicateGroups.length === 1 ? 'Review 1 verified duplicate' : `Review ${verifiedSkillDuplicateGroups.length} verified duplicates`;
+  duplicateReviewSummaryElement.textContent = verifiedSkillDuplicateGroups.length && nameOverlapGroups.length
+    ? `${verifiedSkillDuplicateGroups.length} verified identical-content skill group${verifiedSkillDuplicateGroups.length === 1 ? '' : 's'} can be backed up after review. ${nameOverlapGroups.length} same-name overlap${nameOverlapGroups.length === 1 ? ' is' : 's are'} informational only; no cleanup action is available for those.`
+    : verifiedSkillDuplicateGroups.length
+      ? `${verifiedSkillDuplicateGroups.length} verified identical-content skill group${verifiedSkillDuplicateGroups.length === 1 ? '' : 's'} can be backed up after you review the exact locations and files. Nothing is deleted.`
+      : nameOverlapGroups.length
+        ? `${nameOverlapGroups.length} same-name overlap${nameOverlapGroups.length === 1 ? ' is' : 's are'} listed for awareness only. Matching names can contain different content, so no cleanup action is available.`
+        : 'No duplicate skills or same-name overlaps were found in the locations checked.';
   duplicateReviewElement.classList.toggle('is-hidden', duplicates.length === 0);
   for (const duplicate of duplicates) {
     const group = document.createElement('article');
-    group.className = 'duplicate-group';
+    const isVerifiedDuplicate = duplicate.type === 'skill' && duplicate.match === 'content-hash';
+    group.className = `duplicate-group ${isVerifiedDuplicate ? 'is-actionable' : 'is-information'}`;
     const heading = document.createElement('h4');
     heading.textContent = duplicate.name;
     const copy = document.createElement('p');
-    copy.textContent = duplicate.explanation;
+    copy.textContent = isVerifiedDuplicate
+      ? `${duplicate.explanation} You can review a reversible backup move; CCTI shows every affected file before anything changes.`
+      : `${duplicate.explanation} This is a name overlap only. The contents may differ, so CCTI will not offer a backup move or deletion.`;
     group.append(heading, copy);
     for (const item of duplicate.items) {
       const row = document.createElement('div');
@@ -1525,14 +1562,6 @@ function renderSetupManager(report) {
       const label = document.createElement('span');
       label.textContent = `${item.scope}: ${item.path}`;
       row.append(label);
-      if (item.type === 'skill') {
-        const action = document.createElement('button');
-        action.type = 'button';
-        action.className = 'button button-ghost';
-        action.textContent = 'Review backup move';
-        action.addEventListener('click', () => reviewAndApplyCleanup(item));
-        row.append(action);
-      }
       group.append(row);
     }
     duplicateReviewListElement.append(group);
@@ -1542,12 +1571,15 @@ function renderSetupManager(report) {
   const safeSkillBackups = skillBackups.filter((item) => item.restorable);
   skillBackupReviewElement.classList.toggle('is-hidden', skillBackups.length === 0);
   skillBackupReviewListElement.replaceChildren();
+  restoreAllSkillBackupsButton.hidden = safeSkillBackups.length === 0;
   restoreAllSkillBackupsButton.disabled = safeSkillBackups.length === 0;
   restoreAllSkillBackupsButton.textContent = safeSkillBackups.length
     ? `Restore ${safeSkillBackups.length} safe backup ${safeSkillBackups.length === 1 ? 'copy' : 'copies'}`
     : 'No safe backup copies to restore';
   skillBackupReviewSummaryElement.textContent = skillBackups.length
-    ? `${safeSkillBackups.length} of ${skillBackups.length} preserved skill backup ${skillBackups.length === 1 ? 'copy is' : 'copies are'} safe to restore. Active locations are protected; use the replacement review for a saved copy you want to put back.`
+    ? safeSkillBackups.length
+      ? `${safeSkillBackups.length} of ${skillBackups.length} preserved skill backup ${skillBackups.length === 1 ? 'copy is' : 'copies are'} safe to restore because the original location is empty. CCTI never overwrites an active skill.`
+      : `${skillBackups.length} preserved skill backup ${skillBackups.length === 1 ? 'is' : 'are'} listed, but none can be restored automatically because the original location is in use. Review a specific replacement only if you want to safely swap copies after seeing the exact files.`
     : 'No CCTI skill backups were found.';
   for (const backup of skillBackups) {
     const row = document.createElement('article');
@@ -1852,6 +1884,7 @@ function minimizeCompass() {
 
 completeSetupButton.addEventListener('click', () => runCompleteSetup(false));
 reportAnonymousSuccessButton.addEventListener('click', reportAnonymousSuccess);
+skipAnonymousSuccessButton.addEventListener('click', skipAnonymousSuccess);
 startFreshButton.addEventListener('click', () => runCompleteSetup(true));
 useExistingButton.addEventListener('click', () => {
   state.claudeInstalled = true;
