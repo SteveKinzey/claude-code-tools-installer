@@ -245,7 +245,12 @@ jobs:
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --target "$SOURCE_COMMIT" --title "$TAG" --generate-notes
-          gh release upload "$TAG" "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM" --clobber
+          # Upload one asset per request. GitHub can finish a large DMG upload
+          # after a concurrent batch has tried to replace it, producing a false
+          # duplicate-name failure and leaving the updater ZIP absent.
+          for artifact in "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"; do
+            gh release upload "$TAG" "$artifact" --clobber
+          done
 
       - name: Upload release evidence
         if: always()
