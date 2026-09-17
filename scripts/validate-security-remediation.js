@@ -93,6 +93,11 @@ assert.match(macReleaseWorkflow, /steps\.checksums\.outputs\.dmg_checksum/, 'mac
 assert.match(macReleaseWorkflow, /printf '%s  %s\\n' "\$dmg_digest" "\$\(basename "\$DMG"\)"/, 'macOS release workflow must write portable SHA-256 checksum filenames.');
 assert.match(macReleaseWorkflow, /notarytool submit \"\$ZIP\"/, 'macOS native update ZIP must be notarized before release upload.');
 assert.match(macReleaseWorkflow, /refresh-macos-update-metadata\.js \"\$METADATA\" \"\$DMG\"/, 'macOS release workflow must refresh latest-mac.yml after stapling changes final DMG bytes.');
+assert.match(macReleaseWorkflow, /verify-macos-update-metadata\.js \"\$METADATA\" \"\$DMG\" \"\$ZIP\"/, 'macOS release workflow must verify every final latest-mac.yml descriptor before release upload.');
+const refreshMetadataIndex = macReleaseWorkflow.indexOf('refresh-macos-update-metadata.js "$METADATA" "$DMG"');
+const verifyMetadataIndex = macReleaseWorkflow.indexOf('verify-macos-update-metadata.js "$METADATA" "$DMG" "$ZIP"');
+const checksumCreationIndex = macReleaseWorkflow.indexOf('name: Create SHA-256 checksums');
+assert.ok(refreshMetadataIndex >= 0 && verifyMetadataIndex > refreshMetadataIndex && checksumCreationIndex > verifyMetadataIndex, 'Final latest-mac.yml verification must run after metadata refresh and before checksums or release upload.');
 assert.match(macReleaseWorkflow, /gh release upload[^\n]*\$ZIP[^\n]*\$METADATA[^\n]*--clobber/, 'macOS release workflow must upload the notarized native update ZIP with latest-mac.yml metadata and permit safe artifact retry replacement.');
 assert.match(macCandidateWorkflow, /source_tag:/, 'macOS candidate workflow must support building an existing immutable source tag.');
 assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must copy runtime files from the requested source tag at repository root.');

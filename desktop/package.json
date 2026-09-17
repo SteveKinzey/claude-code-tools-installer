@@ -1,6 +1,6 @@
 {
   "name": "claude-code-tools-installer-desktop",
-  "version": "2026.9.19",
+  "version": "2026.9.20",
   "private": true,
   "license": "Apache-2.0",
   "description": "A safe desktop installer for a curated Claude Code tool stack.",
@@ -31,7 +31,7 @@
     "release-drift:check": "node ../scripts/test-release-artifact-drift.js",
     "release-alert:check": "bash ../scripts/test-notify-release-drift.sh",
     "security:check": "node ../scripts/validate-security-remediation.js && npm audit --audit-level=high",
-    "check": "npm run catalog:check && npm run components:check && npm run details:check && npm run ui:check && npm run duplicate-skill-ui:check && npm run duplicate-skill:a11y && npm run duplicate-skill:portability && npm run setup-manager:check && npm run diagnostics:check && npm run terminal-preference:check && npm run terminal-adapters:check && npm run updates:check && npm run update-metadata:check && npm run project-prerequisites:check && npm run project-interview:check && npm run release:check && npm run release-drift:check && npm run release-alert:check && npm run security:check && node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check src/project-prerequisites.js && node --check src/project-interview.js && node --check build/notarize.js && node --check ../scripts/prepare-msix-config.js",
+    "check": "npm run catalog:check && npm run components:check && npm run details:check && npm run ui:check && npm run duplicate-skill-ui:check && npm run duplicate-skill:a11y && npm run duplicate-skill:portability && npm run setup-manager:check && npm run diagnostics:check && npm run terminal-preference:check && npm run terminal-adapters:check && npm run updates:check && npm run update-metadata:check && npm run update-metadata:verify && npm run project-prerequisites:check && npm run project-interview:check && npm run release:check && npm run release-drift:check && npm run release-alert:check && npm run security:check && node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check src/project-prerequisites.js && node --check src/project-interview.js && node --check build/notarize.js && node --check ../scripts/prepare-msix-config.js",
     "dist": "electron-builder --publish never",
     "dist:mac": "electron-builder --mac dmg zip --publish never",
     "dist:mac:signed": "electron-builder --mac dmg zip --publish never --config.forceCodeSigning=true",
@@ -43,7 +43,8 @@
     "dist:win:store:x64": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json && electron-builder --win appx --x64 --config build/appx-store.resolved.json --publish never",
     "dist:win:store:arm64": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json && electron-builder --win appx --arm64 --config build/appx-store.resolved.json --publish never",
     "dist:linux": "electron-builder --linux tar.gz --publish never",
-    "update-metadata:check": "node ../scripts/test-refresh-macos-update-metadata.js"
+    "update-metadata:check": "node ../scripts/test-refresh-macos-update-metadata.js",
+    "update-metadata:verify": "node ../scripts/test-verify-macos-update-metadata.js"
   },
   "devDependencies": {
     "@electron/notarize": "^3.1.0",

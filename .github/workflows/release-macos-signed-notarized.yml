@@ -202,6 +202,13 @@ jobs:
           METADATA: ${{ steps.artifact.outputs.metadata }}
         run: node ../scripts/refresh-macos-update-metadata.js "$METADATA" "$DMG"
 
+      - name: Verify final native update metadata before release upload
+        env:
+          DMG: ${{ steps.artifact.outputs.dmg }}
+          ZIP: ${{ steps.artifact.outputs.zip }}
+          METADATA: ${{ steps.artifact.outputs.metadata }}
+        run: node ../scripts/verify-macos-update-metadata.js "$METADATA" "$DMG" "$ZIP"
+
       - name: Verify signature, Gatekeeper, and stapled ticket
         env:
           DMG: ${{ steps.artifact.outputs.dmg }}
