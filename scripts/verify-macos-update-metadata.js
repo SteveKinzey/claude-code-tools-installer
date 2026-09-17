@@ -28,7 +28,8 @@ function sha512Base64(filePath) {
 function validSha512(value) {
   if (typeof value !== 'string') return false;
   try {
-    return Buffer.from(value, 'base64').length === 64;
+    const decoded = Buffer.from(value, 'base64');
+    return decoded.length === 64 && decoded.toString('base64') === value;
   } catch {
     return false;
   }
