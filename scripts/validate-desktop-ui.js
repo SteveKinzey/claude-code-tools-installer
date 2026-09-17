@@ -65,6 +65,8 @@ for (const channel of [
   'setup-manager:apply-all-duplicates',
   'setup-manager:review-all-skill-backups',
   'setup-manager:apply-all-skill-backups',
+  'setup-manager:review-skill-backup-replacement',
+  'setup-manager:apply-skill-backup-replacement',
   'setup-manager:review-plugin-change',
   'setup-manager:apply-plugin-change',
   'app:review-uninstall',
@@ -184,7 +186,7 @@ if (!main.includes('async function installedSkillsMatching') || !main.includes('
 if (!main.includes('async function installedClaudePluginIds') || !main.includes('pluginIsInstalled(installedIds, requestedPlugin)')) {
   throw new Error('Curated plugin installs must skip plugins Claude Code already reports as installed.');
 }
-if (!html.includes('id="duplicate-skill-dialog"') || !html.includes('aria-modal="true"') || !html.includes('id="deduplicate-all-skills-button"') || !html.includes('id="duplicate-backup-preview"') || !html.includes('id="duplicate-backup-preview-list"') || !html.includes('id="restore-all-skill-backups-button"') || !html.includes('id="restore-listed-skill-backups-button"') || !renderer.includes('async function deduplicateAllSkills()') || !renderer.includes('async function restoreAllSkillBackups()') || !renderer.includes('showDuplicateBackupPreview') || !renderer.includes('focusDuplicateDialog') || !renderer.includes("duplicateSkillDialogElement.addEventListener('close'") || !renderer.includes('reviewAllDuplicates') || !renderer.includes('applyAllDuplicates') || !renderer.includes('reviewAllSkillBackups') || !renderer.includes('applyAllSkillBackups') || !main.includes('duplicateSkillGroups') || !main.includes('listRestorableSkillBackups') || !main.includes('content-hash') || !renderer.includes('CCTI did not add another copy')) {
+if (!html.includes('id="duplicate-skill-dialog"') || !html.includes('aria-modal="true"') || !html.includes('id="deduplicate-all-skills-button"') || !html.includes('id="duplicate-backup-preview"') || !html.includes('id="duplicate-backup-preview-list"') || !html.includes('id="restore-all-skill-backups-button"') || !html.includes('id="restore-listed-skill-backups-button"') || !html.includes('id="review-duplicate-skills-button"') || !renderer.includes('async function deduplicateAllSkills()') || !renderer.includes('async function restoreAllSkillBackups()') || !renderer.includes('showDuplicateBackupPreview') || !renderer.includes('focusDuplicateDialog') || !renderer.includes("duplicateSkillDialogElement.addEventListener('close'") || !renderer.includes('reviewAllDuplicates') || !renderer.includes('applyAllDuplicates') || !renderer.includes('reviewAllSkillBackups') || !renderer.includes('applyAllSkillBackups') || !renderer.includes('reviewSkillBackupReplacement') || !renderer.includes('applySkillBackupReplacement') || !renderer.includes('Review replacement from this backup') || !main.includes('duplicateSkillGroups') || !main.includes('listRestorableSkillBackups') || !main.includes('reviewSkillBackupReplacement') || !main.includes('applySkillBackupReplacement') || !main.includes('content-hash') || !renderer.includes('CCTI did not add another copy')) {
   throw new Error('Duplicate skills must use hash-aware detection, accessible exact-file preview, and root-bounded no-overwrite restore actions.');
 }
 if (!fs.existsSync(duplicateUiTestPath) || !fs.existsSync(duplicateUiLauncherPath) || !desktopPackage.scripts?.['duplicate-skill-ui:check']?.includes('run-duplicate-skill-ui-test.js') || !desktopPackage.scripts?.check?.includes('duplicate-skill-ui:check')) {

@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('installer', {
   applyAllDuplicates: (payload) => ipcRenderer.invoke('setup-manager:apply-all-duplicates', payload),
   reviewAllSkillBackups: (payload) => ipcRenderer.invoke('setup-manager:review-all-skill-backups', payload),
   applyAllSkillBackups: (payload) => ipcRenderer.invoke('setup-manager:apply-all-skill-backups', payload),
+  reviewSkillBackupReplacement: (payload) => ipcRenderer.invoke('setup-manager:review-skill-backup-replacement', payload),
+  applySkillBackupReplacement: (payload) => ipcRenderer.invoke('setup-manager:apply-skill-backup-replacement', payload),
   reviewPluginChange: (payload) => ipcRenderer.invoke('setup-manager:review-plugin-change', payload),
   applyPluginChange: (payload) => ipcRenderer.invoke('setup-manager:apply-plugin-change', payload),
   reviewAppUninstall: () => ipcRenderer.invoke('app:review-uninstall'),

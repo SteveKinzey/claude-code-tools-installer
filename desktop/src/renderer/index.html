@@ -54,8 +54,8 @@
         </div>
         <div class="setup-options">
           <button id="install-claude-button" class="setup-option setup-option-primary" type="button" disabled>
-            <span class="setup-option-title">Yes, install Claude Code</span>
-            <span class="setup-option-copy">Runs Anthropic’s official installer inside this app, waits until Claude Code is ready, and does not add extra tools.</span>
+            <span id="install-claude-title" class="setup-option-title">Yes, install Claude Code</span>
+            <span id="install-claude-copy" class="setup-option-copy">Runs Anthropic’s official installer inside this app, waits until Claude Code is ready, and does not add extra tools.</span>
           </button>
           <button id="recheck-claude-button" class="setup-option" type="button" disabled>
             <span class="setup-option-title">Check again</span>
@@ -124,8 +124,9 @@
         <div id="setup-manager-results" class="manager-results" aria-live="polite"></div>
         <section id="duplicate-review" class="duplicate-review is-hidden" aria-labelledby="duplicate-review-heading">
           <h3 id="duplicate-review-heading">Possible duplicate skills</h3>
-          <p>These names appear in more than one place. That does not always mean there is a problem. Review the locations first. If you want to remove a skill, this app moves one copy to a backup folder instead of deleting it.</p>
+          <p id="duplicate-review-summary">These names appear in more than one place. That does not always mean there is a problem. Review the locations first. If you want to remove a skill, this app moves one copy to a backup folder instead of deleting it.</p>
           <div id="duplicate-review-list" class="duplicate-review-list"></div>
+          <button id="review-duplicate-skills-button" class="button button-secondary" type="button" hidden>Review duplicate skills</button>
         </section>
         <section id="skill-backup-review" class="duplicate-review is-hidden" aria-labelledby="skill-backup-review-heading">
           <h3 id="skill-backup-review-heading">Restore backed-up skills</h3>

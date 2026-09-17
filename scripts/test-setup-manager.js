@@ -112,6 +112,8 @@ async function run() {
   const applyAllDuplicates = handlers.get('setup-manager:apply-all-duplicates');
   const reviewAllSkillBackups = handlers.get('setup-manager:review-all-skill-backups');
   const applyAllSkillBackups = handlers.get('setup-manager:apply-all-skill-backups');
+  const reviewSkillBackupReplacement = handlers.get('setup-manager:review-skill-backup-replacement');
+  const applySkillBackupReplacement = handlers.get('setup-manager:apply-skill-backup-replacement');
   const reviewPluginChange = handlers.get('setup-manager:review-plugin-change');
   const applyPluginChange = handlers.get('setup-manager:apply-plugin-change');
   const runInstall = handlers.get('install:run');
@@ -328,6 +330,18 @@ async function run() {
   assert.equal(protectedRestore.ok, false, 'the restore action must refuse to overwrite an active skill folder');
   await fsp.access(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
   await fsp.access(path.join(occupiedBackupPath, 'SKILL.md'));
+  const forgedReplacement = await reviewSkillBackupReplacement(null, { discoveryId: occupiedBackupReport.discoveryId, backupId: 'forged-backup-id' });
+  assert.equal(forgedReplacement.ok, false, 'replacement must accept only a backup that the current bounded checkup discovered');
+  const replacementReview = await reviewSkillBackupReplacement(null, { discoveryId: occupiedBackupReport.discoveryId, backupId: protectedBackup.id });
+  assert.equal(replacementReview.ok, true, 'an occupied original location can be replaced only through a reviewed backup swap');
+  assert.equal(replacementReview.moves.length, 2, 'replacement must show both the active-copy backup and preserved-copy restore moves');
+  assert.equal(replacementReview.moves[0].kind, 'archive-active');
+  assert.equal(replacementReview.moves[1].kind, 'restore-preserved');
+  const replacementResult = await applySkillBackupReplacement(null, { reviewId: replacementReview.reviewId });
+  assert.equal(replacementResult.ok, true, 'a reviewed replacement must retain the active copy before restoring the selected backup');
+  assert.match(await fsp.readFile(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'), 'utf8'), /Preserved duplicate/);
+  assert.match(await fsp.readFile(path.join(replacementReview.moves[0].destination, 'SKILL.md'), 'utf8'), /Bulk duplicate/);
+  await assert.rejects(fsp.access(occupiedBackupPath), 'the selected backup folder must be consumed only after it is restored');
 
   const copyReview = await reviewCustom(null, { source: sourceSkill, scope: 'project', projectPath: project });
   assert.equal(copyReview.ok, true);

@@ -15,6 +15,7 @@ const state = {
   managerReport: null,
   duplicateCleanupReview: null,
   skillBackupRestoreReview: null,
+  skillBackupReplacementReview: null,
   duplicateDialogInvoker: null,
   customAddOnReview: null,
   compass: { online: false, history: [], opened: false },
@@ -38,6 +39,8 @@ const completeSetupButton = document.querySelector('#complete-setup-button');
 const startFreshButton = document.querySelector('#start-fresh-button');
 const useExistingButton = document.querySelector('#use-existing-button');
 const installClaudeButton = document.querySelector('#install-claude-button');
+const installClaudeTitleElement = document.querySelector('#install-claude-title');
+const installClaudeCopyElement = document.querySelector('#install-claude-copy');
 const recheckClaudeButton = document.querySelector('#recheck-claude-button');
 const browseButton = document.querySelector('#browse-button');
 const runClaudeButton = document.querySelector('#run-claude-button');
@@ -75,6 +78,8 @@ const setupManagerResultsElement = document.querySelector('#setup-manager-result
 const managerProjectNoteElement = document.querySelector('#manager-project-note');
 const duplicateReviewElement = document.querySelector('#duplicate-review');
 const duplicateReviewListElement = document.querySelector('#duplicate-review-list');
+const duplicateReviewSummaryElement = document.querySelector('#duplicate-review-summary');
+const reviewDuplicateSkillsButton = document.querySelector('#review-duplicate-skills-button');
 const duplicateSkillDialogElement = document.querySelector('#duplicate-skill-dialog');
 const duplicateSkillDialogEyebrowElement = document.querySelector('#duplicate-skill-dialog-eyebrow');
 const duplicateSkillDialogHeadingElement = document.querySelector('#duplicate-skill-dialog-heading');
@@ -642,8 +647,12 @@ async function refreshClaudeStatus() {
   runClaudeButton.disabled = !result.installed || state.running;
   removeClaudeButton.hidden = !result.installed;
   removeClaudeButton.disabled = !result.installed || state.running;
-  installClaudeButton.hidden = result.installed;
+  installClaudeButton.hidden = false;
   installClaudeButton.disabled = result.installed || state.running;
+  installClaudeTitleElement.textContent = result.installed ? 'Claude Code is already installed' : 'Yes, install Claude Code';
+  installClaudeCopyElement.textContent = result.installed
+    ? 'No installation is needed. Use Run Claude Code to open it, or choose a tool setup action below.'
+    : 'Runs Anthropic’s official installer inside this app, waits until Claude Code is ready, and does not add extra tools.';
   recheckClaudeButton.disabled = state.running;
 
   if (result.installed) {
@@ -673,26 +682,30 @@ async function installClaudeCode() {
   setupNoteElement.textContent = 'Installing Claude Code now. This app will wait and check that Claude Code is installed before it says the step is finished.';
   runStatusElement.textContent = 'Installing Claude Code';
   installClaudeButton.disabled = true;
-
-  const result = await window.installer.installClaudeOnly();
-  installClaudeButton.disabled = false;
-  if (result.ok) {
-    state.claudeInstalled = true;
-    claudeStatusTextElement.textContent = `Yes, Claude Code is installed${result.version ? ` (${result.version})` : ''}.`;
-    bootstrapStatusElement.textContent = 'Claude Code installed';
-    bootstrapStatusElement.className = 'status-chip status-ready';
-    setSetupSelection('existing', 'Claude Code is installed. You can now choose tools in Step 2, or stop here.');
-    runStatusElement.textContent = 'Claude Code installed';
-  } else {
+  try {
+    const result = await window.installer.installClaudeOnly();
+    if (result.ok) {
+      state.claudeInstalled = true;
+      claudeStatusTextElement.textContent = `Yes, Claude Code is installed${result.version ? ` (${result.version})` : ''}.`;
+      bootstrapStatusElement.textContent = 'Claude Code installed';
+      bootstrapStatusElement.className = 'status-chip status-ready';
+      setSetupSelection('existing', 'Claude Code is installed. You can now choose tools in Step 2, or stop here.');
+      runStatusElement.textContent = 'Claude Code installed';
+    } else {
+      throw new Error(result.error || 'Claude Code installation could not be completed.');
+    }
+  } catch (error) {
     state.claudeApproved = false;
     state.setupMode = '';
     bootstrapStatusElement.textContent = 'Claude Code needs attention';
     bootstrapStatusElement.className = 'status-chip status-error';
-    setupNoteElement.textContent = 'Claude Code was not installed. Read the activity details, then try “Yes, install Claude Code” again.';
-    appendOutput(`${result.error || 'Claude Code installation could not be completed.'}\n`, 'stderr');
+    setupNoteElement.textContent = `Claude Code was not installed: ${error.message || 'the installer could not complete'}. Read the activity details, then try again.`;
+    appendOutput(`${error.message || 'Claude Code installation could not be completed.'}\n`, 'stderr');
     runStatusElement.textContent = 'Needs attention';
+  } finally {
+    installClaudeButton.disabled = state.claudeInstalled || state.running;
+    updateSummary();
   }
-  updateSummary();
 }
 
 async function runClaudeCode() {
@@ -1305,6 +1318,7 @@ function localSkillDate(item) {
 function clearDuplicateBackupPreview() {
   state.duplicateCleanupReview = null;
   state.skillBackupRestoreReview = null;
+  state.skillBackupReplacementReview = null;
   duplicateBackupPreviewElement.hidden = true;
   duplicateBackupPreviewSummaryElement.textContent = '';
   duplicateBackupPreviewListElement.replaceChildren();
@@ -1330,15 +1344,22 @@ function focusDuplicateDialog(element) {
 }
 
 function showDuplicateBackupPreview(review, { mode = 'backup' } = {}) {
-  const restoring = mode === 'restore';
+  const restoring = mode === 'restore' || mode === 'replace';
+  const replacing = mode === 'replace';
   if (restoring) state.skillBackupRestoreReview = review;
   else state.duplicateCleanupReview = review;
+  if (replacing) {
+    state.skillBackupRestoreReview = null;
+    state.skillBackupReplacementReview = review;
+  }
   const fileCount = review.moves.reduce((count, move) => count + (move.files || []).length, 0);
   duplicateBackupPreviewElement.hidden = false;
-  duplicateSkillDialogEyebrowElement.textContent = restoring ? 'RESTORE REVIEW' : 'BACKUP REVIEW';
-  duplicateSkillDialogHeadingElement.textContent = restoring ? 'Review backed-up skills' : 'Review duplicate skills';
-  duplicateBackupPreviewHeadingElement.textContent = restoring ? 'Files that will be restored' : 'Files that will be backed up';
-  duplicateBackupPreviewSummaryElement.textContent = `Review ${fileCount} exact file${fileCount === 1 ? '' : 's'} across ${review.moves.length} skill ${review.moves.length === 1 ? 'folder' : 'folders'}. The next action moves only these files into the shown ${restoring ? 'original Claude Code' : 'backup'} locations.`;
+  duplicateSkillDialogEyebrowElement.textContent = replacing ? 'REPLACEMENT REVIEW' : restoring ? 'RESTORE REVIEW' : 'BACKUP REVIEW';
+  duplicateSkillDialogHeadingElement.textContent = replacing ? 'Replace an active skill with a backup' : restoring ? 'Review backed-up skills' : 'Review duplicate skills';
+  duplicateBackupPreviewHeadingElement.textContent = replacing ? 'Files that will be safely swapped' : restoring ? 'Files that will be restored' : 'Files that will be backed up';
+  duplicateBackupPreviewSummaryElement.textContent = replacing
+    ? `Review ${fileCount} exact file${fileCount === 1 ? '' : 's'} across two skill folders. CCTI first backs up the active copy, then restores the selected saved copy. No files are deleted, merged, or overwritten.`
+    : `Review ${fileCount} exact file${fileCount === 1 ? '' : 's'} across ${review.moves.length} skill ${review.moves.length === 1 ? 'folder' : 'folders'}. The next action moves only these files into the shown ${restoring ? 'original Claude Code' : 'backup'} locations.`;
   duplicateBackupPreviewListElement.replaceChildren();
   for (const move of review.moves) {
     const entry = document.createElement('article');
@@ -1347,23 +1368,26 @@ function showDuplicateBackupPreview(review, { mode = 'backup' } = {}) {
     heading.textContent = `${move.name} · ${move.scope}`;
     const files = (move.files || []).map((file) => `• ${file.source}\n  → ${file.destination}\n  ${formatByteCount(file.size)} · SHA-256 ${file.sha256}`).join('\n');
     const details = document.createElement('span');
-    details.textContent = `Skill folder:\n${move.source}\n\nFiles to ${restoring ? 'restore' : 'back up'}:\n${files || 'No verified files were returned. This action is unavailable.'}`;
+    const action = move.kind === 'archive-active' ? 'save as a new backup' : move.kind === 'restore-preserved' ? 'restore from the selected backup' : restoring ? 'restore' : 'back up';
+    details.textContent = `Skill folder:\n${move.source}\n\nFiles to ${action}:\n${files || 'No verified files were returned. This action is unavailable.'}`;
     entry.append(heading, details);
     duplicateBackupPreviewListElement.append(entry);
   }
-  duplicateSkillDialogCopyElement.textContent = restoring
-    ? 'Review the exact files and original destinations below. CCTI restores only empty original locations and never overwrites active skills. Choose “Restore listed backup copies” only when this preview is correct.'
-    : 'Review the exact files and backup destinations below. CCTI does not delete skills. Choose “Back up listed duplicates” only when this preview is correct.';
+  duplicateSkillDialogCopyElement.textContent = replacing
+    ? 'CCTI will back up the active skill before restoring the selected saved copy. It does not delete, merge, or overwrite files.'
+    : restoring
+      ? 'CCTI restores only empty original locations and never overwrites active skills. Choose Restore only when this preview is correct.'
+      : 'Review the exact files and backup destinations. CCTI does not delete skills.';
   deduplicateAllSkillsButton.hidden = restoring;
   deduplicateAllSkillsButton.textContent = 'Back up listed duplicates';
   deduplicateAllSkillsButton.disabled = review.moves.length === 0 || fileCount === 0;
   restoreListedSkillBackupsButton.hidden = !restoring;
+  restoreListedSkillBackupsButton.textContent = replacing ? 'Back up active copy and restore selected backup' : 'Restore listed backup copies';
   restoreListedSkillBackupsButton.disabled = review.moves.length === 0 || fileCount === 0;
   cancelDeduplicatePreviewButton.hidden = false;
-  cancelDeduplicatePreviewButton.textContent = restoring ? 'Cancel restore' : 'Back to review';
+  cancelDeduplicatePreviewButton.textContent = replacing ? 'Cancel replacement' : restoring ? 'Cancel restore' : 'Back to review';
   focusDuplicateDialog(duplicateBackupPreviewHeadingElement);
 }
-
 function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanupAvailable = !additionBlocked, preserveInvoker = false } = {}) {
   const skillGroups = (Array.isArray(duplicates) ? duplicates : []).filter((duplicate) => duplicate.type === 'skill' && duplicate.items?.length > 1);
   if (!skillGroups.length || typeof duplicateSkillDialogElement?.showModal !== 'function') return;
@@ -1479,6 +1503,13 @@ function renderSetupManager(report) {
     setupManagerResultsElement.append(more);
   }
   duplicateReviewListElement.replaceChildren();
+  const skillDuplicateGroups = duplicates.filter((duplicate) => duplicate.type === 'skill' && duplicate.items?.length > 1);
+  reviewDuplicateSkillsButton.hidden = skillDuplicateGroups.length === 0;
+  reviewDuplicateSkillsButton.disabled = skillDuplicateGroups.length === 0;
+  reviewDuplicateSkillsButton.textContent = skillDuplicateGroups.length === 1 ? 'Review 1 duplicate skill' : `Review ${skillDuplicateGroups.length} duplicate skills`;
+  duplicateReviewSummaryElement.textContent = skillDuplicateGroups.length
+    ? `${skillDuplicateGroups.length} duplicate skill group${skillDuplicateGroups.length === 1 ? '' : 's'} found. Review the precise locations, then decide whether to keep all copies or move the older discovered copies to CCTI backup.`
+    : 'No duplicate skills were found in the locations checked.';
   duplicateReviewElement.classList.toggle('is-hidden', duplicates.length === 0);
   for (const duplicate of duplicates) {
     const group = document.createElement('article');
@@ -1494,6 +1525,14 @@ function renderSetupManager(report) {
       const label = document.createElement('span');
       label.textContent = `${item.scope}: ${item.path}`;
       row.append(label);
+      if (item.type === 'skill') {
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'button button-ghost';
+        action.textContent = 'Review backup move';
+        action.addEventListener('click', () => reviewAndApplyCleanup(item));
+        row.append(action);
+      }
       group.append(row);
     }
     duplicateReviewListElement.append(group);
@@ -1508,7 +1547,7 @@ function renderSetupManager(report) {
     ? `Restore ${safeSkillBackups.length} safe backup ${safeSkillBackups.length === 1 ? 'copy' : 'copies'}`
     : 'No safe backup copies to restore';
   skillBackupReviewSummaryElement.textContent = skillBackups.length
-    ? `${safeSkillBackups.length} of ${skillBackups.length} preserved skill backup ${skillBackups.length === 1 ? 'copy is' : 'copies are'} safe to restore. CCTI never overwrites an active skill folder.`
+    ? `${safeSkillBackups.length} of ${skillBackups.length} preserved skill backup ${skillBackups.length === 1 ? 'copy is' : 'copies are'} safe to restore. Active locations are protected; use the replacement review for a saved copy you want to put back.`
     : 'No CCTI skill backups were found.';
   for (const backup of skillBackups) {
     const row = document.createElement('article');
@@ -1522,6 +1561,14 @@ function renderSetupManager(report) {
     const paths = document.createElement('p');
     paths.className = 'manager-path';
     paths.textContent = `Backup: ${backup.path}\nOriginal location: ${backup.destination}`;
+    if (!backup.restorable) {
+      const replaceButton = document.createElement('button');
+      replaceButton.type = 'button';
+      replaceButton.className = 'button button-secondary';
+      replaceButton.textContent = 'Review replacement from this backup';
+      replaceButton.addEventListener('click', () => reviewSkillBackupReplacement(backup));
+      row.append(replaceButton);
+    }
     row.append(heading, copy, paths);
     skillBackupReviewListElement.append(row);
   }
@@ -1586,9 +1633,31 @@ async function deduplicateAllSkills() {
   showDuplicateBackupPreview(review);
 }
 
+async function reviewSkillBackupReplacement(backup) {
+  const review = await window.installer.reviewSkillBackupReplacement({ discoveryId: state.managerReport?.discoveryId, backupId: backup.id });
+  if (!review.ok) {
+    appendOutput(`[Checkup] ${review.error}\n`, 'stderr');
+    return;
+  }
+  if (document.activeElement instanceof HTMLElement) state.duplicateDialogInvoker = document.activeElement;
+  duplicateSkillDialogListElement.replaceChildren();
+  if (!duplicateSkillDialogElement.open) duplicateSkillDialogElement.showModal();
+  showDuplicateBackupPreview(review, { mode: 'replace' });
+}
 async function restoreAllSkillBackups() {
   const discoveryId = state.managerReport?.discoveryId;
   if (!discoveryId) return;
+  if (state.skillBackupReplacementReview) {
+    const review = state.skillBackupReplacementReview;
+    const fileCount = movePreviewFileCount(review);
+    if (!window.confirm(`Back up the active copy and restore ${fileCount} reviewed file${fileCount === 1 ? '' : 's'} from the selected saved copy?\n\nThe exact files and destinations are shown in the CCTI dialog. No files will be deleted, merged, or overwritten.`)) return;
+    duplicateSkillDialogElement.close();
+    const result = await window.installer.applySkillBackupReplacement({ reviewId: review.reviewId });
+    clearDuplicateBackupPreview();
+    appendOutput(`[Checkup] ${result.ok ? result.message : result.error}\n`, result.ok ? 'stdout' : 'stderr');
+    if (result.ok) await scanSetup();
+    return;
+  }
   if (state.skillBackupRestoreReview) {
     const review = state.skillBackupRestoreReview;
     const fileCount = movePreviewFileCount(review);
@@ -1610,12 +1679,9 @@ async function restoreAllSkillBackups() {
   }
   if (document.activeElement instanceof HTMLElement) state.duplicateDialogInvoker = document.activeElement;
   duplicateSkillDialogListElement.replaceChildren();
-  duplicateSkillDialogEyebrowElement.textContent = 'RESTORE REVIEW';
-  duplicateSkillDialogHeadingElement.textContent = 'Review backed-up skills';
   if (!duplicateSkillDialogElement.open) duplicateSkillDialogElement.showModal();
   showDuplicateBackupPreview(review, { mode: 'restore' });
 }
-
 async function chooseCustomSource() {
   const result = await window.installer.chooseCustomSource();
   if (!result.canceled) customAddOnSourceElement.value = result.source;
@@ -1804,6 +1870,7 @@ useExistingButton.addEventListener('click', () => {
   updateSummary();
 });
 installClaudeButton.addEventListener('click', installClaudeCode);
+reviewDuplicateSkillsButton.addEventListener('click', () => openDuplicateSkillDialog(state.managerReport?.duplicates || []));
 runClaudeButton.addEventListener('click', runClaudeCode);
 removeClaudeButton.addEventListener('click', removeClaudeCode);
 terminalPreferenceSelectElement.addEventListener('change', changeTerminalPreference);

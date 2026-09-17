@@ -12,6 +12,7 @@ const discoveredSkillCleanup = new Map();
 const reviewedCleanupPlans = new Map();
 const reviewedBulkCleanupPlans = new Map();
 const reviewedBulkRestorePlans = new Map();
+const reviewedSkillBackupReplacementPlans = new Map();
 const reviewedPluginChanges = new Map();
 const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
@@ -2272,6 +2273,110 @@ async function applyAllSkillBackups({ reviewId } = {}) {
   }
 }
 
+async function reviewSkillBackupReplacement({ discoveryId, backupId } = {}) {
+  const report = discoveredSkillCleanup.get(String(discoveryId || ''));
+  const backup = report?.backups.get(String(backupId || ''));
+  if (!backup || !path.isAbsolute(backup.path) || !path.isAbsolute(backup.destination) || !backupSourceWithinCheckedRoot(report, backup.path) || !skillSourceWithinCheckedRoot(report, backup.destination)) {
+    return { ok: false, error: 'Run the checkup again and choose a preserved skill backup from its listed location.' };
+  }
+  if (backup.restorable) {
+    return { ok: false, error: 'This backup already has an empty original location. Use Restore safe backup copies instead.' };
+  }
+  try {
+    const [backupManifest, activeManifest] = await Promise.all([
+      skillContentManifest(backup.path),
+      skillContentManifest(backup.destination),
+    ]);
+    const activeDestination = skillBackupDestination(report, backup.destination);
+    const reviewId = randomUUID();
+    const moves = [
+      {
+        kind: 'archive-active',
+        name: backup.name,
+        source: backup.destination,
+        destination: activeDestination,
+        scope: backup.scope,
+        contentHash: activeManifest.identity,
+        files: activeManifest.files,
+      },
+      {
+        kind: 'restore-preserved',
+        name: backup.name,
+        source: backup.path,
+        destination: backup.destination,
+        scope: backup.scope,
+        contentHash: backupManifest.identity,
+        files: backupManifest.files,
+      },
+    ];
+    const plan = {
+      ok: true,
+      reviewId,
+      discoveryId,
+      backupId: backup.id,
+      moves: moves.map((move) => ({ ...move, files: moveFilesForPreview(move) })),
+      description: 'CCTI first moves the active skill folder to a new CCTI backup, then restores the selected preserved skill copy to the now-empty original location. It does not merge or delete files.',
+    };
+    reviewedSkillBackupReplacementPlans.set(reviewId, { ...plan, createdAt: Date.now(), moves });
+    for (const [id, review] of reviewedSkillBackupReplacementPlans) {
+      if (Date.now() - review.createdAt > 10 * 60 * 1000) reviewedSkillBackupReplacementPlans.delete(id);
+    }
+    return plan;
+  } catch {
+    return { ok: false, error: 'CCTI could not verify both the active skill and the saved backup. Nothing was changed.' };
+  }
+}
+async function applySkillBackupReplacement({ reviewId } = {}) {
+  const plan = reviewedSkillBackupReplacementPlans.get(String(reviewId || ''));
+  const report = plan && discoveredSkillCleanup.get(plan.discoveryId);
+  if (!plan || !report || Date.now() - plan.createdAt > 10 * 60 * 1000) {
+    return { ok: false, error: 'This replacement review has expired. Run the checkup again before replacing the active skill.' };
+  }
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) {
+    return { ok: false, error: 'Another CCTI action is running. Wait for it to finish before replacing a skill from backup.' };
+  }
+  const [activeMove, restoreMove] = plan.moves;
+  const backup = report.backups.get(plan.backupId);
+  if (!backup || backup.restorable || activeMove?.kind !== 'archive-active' || restoreMove?.kind !== 'restore-preserved' || backup.path !== restoreMove.source || backup.destination !== restoreMove.destination || !backupSourceWithinCheckedRoot(report, restoreMove.source) || !skillSourceWithinCheckedRoot(report, activeMove.source) || activeMove.source !== restoreMove.destination || await pathExists(activeMove.destination)) {
+    return { ok: false, error: 'The active skill or backup list changed. Run the checkup again before replacing a skill.' };
+  }
+  try {
+    const [activeManifest, backupManifest] = await Promise.all([
+      skillContentManifest(activeMove.source),
+      skillContentManifest(restoreMove.source),
+    ]);
+    if (activeManifest.identity !== activeMove.contentHash || JSON.stringify(activeManifest.files) !== JSON.stringify(activeMove.files) || backupManifest.identity !== restoreMove.contentHash || JSON.stringify(backupManifest.files) !== JSON.stringify(restoreMove.files)) {
+      return { ok: false, error: 'The active skill or saved backup changed after the preview. Run the checkup again before replacing it.' };
+    }
+  } catch {
+    return { ok: false, error: 'CCTI could not recheck the active skill and saved backup. Nothing was changed.' };
+  }
+  activeSkillCleanup = true;
+  let activeMoved = false;
+  try {
+    await fs.mkdir(path.dirname(activeMove.destination), { recursive: true });
+    await fs.rename(activeMove.source, activeMove.destination);
+    activeMoved = true;
+    await fs.rename(restoreMove.source, restoreMove.destination);
+    report.backups.delete(plan.backupId);
+    reviewedSkillBackupReplacementPlans.delete(plan.reviewId);
+    return {
+      ok: true,
+      message: 'CCTI saved the active skill as a new backup and restored the selected saved copy to its original Claude Code location. No files were deleted or merged.',
+    };
+  } catch {
+    if (activeMoved && await pathExists(activeMove.destination) && !await pathExists(activeMove.source)) {
+      try {
+        await fs.rename(activeMove.destination, activeMove.source);
+      } catch {
+        return { ok: false, error: 'CCTI stopped after moving the active skill to its new backup and could not safely return it. Review the activity log, then run the checkup again. The saved backup was not merged or deleted.' };
+      }
+    }
+    return { ok: false, error: 'CCTI could not complete the reviewed replacement. The active skill was returned to its original location when possible; no files were merged or deleted.' };
+  } finally {
+    activeSkillCleanup = false;
+  }
+}
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -2320,6 +2425,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup-manager:apply-all-duplicates', async (_event, payload) => applyAllDuplicateSkills(payload || {}));
   ipcMain.handle('setup-manager:review-all-skill-backups', async (_event, payload) => reviewAllSkillBackups(payload || {}));
   ipcMain.handle('setup-manager:apply-all-skill-backups', async (_event, payload) => applyAllSkillBackups(payload || {}));
+  ipcMain.handle('setup-manager:review-skill-backup-replacement', async (_event, payload) => reviewSkillBackupReplacement(payload || {}));
+  ipcMain.handle('setup-manager:apply-skill-backup-replacement', async (_event, payload) => applySkillBackupReplacement(payload || {}));
 
   ipcMain.handle('claude:install-only', async () => {
     if (activeInstall) return { ok: false, error: 'An installation is already running.', installed: false, version: '' };
