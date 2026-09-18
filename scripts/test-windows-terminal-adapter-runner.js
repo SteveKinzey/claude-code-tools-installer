@@ -219,7 +219,7 @@ async function run() {
     restoreEnv('APPDATA', originalAppData);
     restoreEnv('LOCALAPPDATA', originalLocalAppData);
     restoreEnv('CCTI_TERMINAL_MARKER', originalMarker);
-    await fsp.rm(fixtureRoot, { recursive: true, force: true });
+    await fsp.rm(fixtureRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 }
 
