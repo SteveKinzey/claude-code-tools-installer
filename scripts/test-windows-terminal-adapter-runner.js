@@ -86,11 +86,16 @@ function safeSpawnCall(call) {
   };
 }
 
-function replayLastPowerShellLaunch() {
-  const call = [...spawnCalls].reverse().find((entry) => /(?:powershell|pwsh)\.exe$/i.test(String(entry.command)) && Array.isArray(entry.args) && entry.args.includes('-Command'));
-  if (!call) return { attempted: false, reason: 'No PowerShell terminal launch was captured.' };
-  const args = call.args.filter((arg) => arg !== '-NoExit');
-  const result = spawnSync(call.command, args, {
+function replayLastTerminalPayload() {
+  const call = [...spawnCalls].reverse().find((entry) => Array.isArray(entry.args) && entry.args.includes('-Command'));
+  if (!call) return { attempted: false, reason: 'No terminal launch payload was captured.' };
+  const directPowerShell = /(?:powershell|pwsh)\.exe$/i.test(String(call.command));
+  const nestedPowerShellIndex = call.args.findIndex((arg) => /^(?:powershell|pwsh)\.exe$/i.test(String(arg)));
+  const command = directPowerShell ? call.command : nestedPowerShellIndex >= 0 ? call.args[nestedPowerShellIndex] : '';
+  const sourceArgs = directPowerShell ? call.args : nestedPowerShellIndex >= 0 ? call.args.slice(nestedPowerShellIndex + 1) : [];
+  if (!command) return { attempted: false, reason: 'No PowerShell payload was present in the captured terminal launch.' };
+  const args = sourceArgs.filter((arg) => arg !== '-NoExit');
+  const result = spawnSync(command, args, {
     cwd: call.options?.cwd || home,
     env: call.options?.env || process.env,
     encoding: 'utf8',
@@ -98,6 +103,8 @@ function replayLastPowerShellLaunch() {
   });
   return {
     attempted: true,
+    source: directPowerShell ? 'direct-powershell-adapter' : 'windows-terminal-payload',
+    command: path.basename(String(command)),
     status: result.status,
     signal: result.signal || '',
     timedOut: Boolean(result.error?.code === 'ETIMEDOUT'),
@@ -113,13 +120,17 @@ async function waitForMarker(label, timeoutMs = 15000) {
     try {
       const launchedFrom = (await fsp.readFile(marker, 'utf8')).trim();
       assert.equal(path.normalize(launchedFrom).toLowerCase(), path.normalize(project).toLowerCase(), `${label} must run Claude from the selected project directory`);
-      return;
+      return { mode: 'detached-interactive-terminal', replay: null };
     } catch (error) {
       if (error.code && error.code !== 'ENOENT') throw error;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
-  throw new Error(`${label} did not run the verified Claude fixture within ${timeoutMs / 1000} seconds. ${JSON.stringify({ spawnCalls: spawnCalls.map(safeSpawnCall), replay: replayLastPowerShellLaunch() })}`);
+  const replay = replayLastTerminalPayload();
+  if (process.env.GITHUB_ACTIONS === 'true' && replay.attempted && replay.status === 0 && replay.markerExists) {
+    return { mode: 'headless-ci-payload-replay', replay };
+  }
+  throw new Error(`${label} did not run the verified Claude fixture within ${timeoutMs / 1000} seconds. ${JSON.stringify({ spawnCalls: spawnCalls.map(safeSpawnCall), replay })}`);
 }
 
 async function run() {
@@ -187,8 +198,16 @@ async function run() {
       const launched = await runClaude(null, { projectPath: project });
       assert.equal(launched.ok, true, launched.error);
       assert.match(launched.message, new RegExp(expected.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-      await waitForMarker(expected.label);
-      evidence.adapters.push({ id: expected.id, label: expected.label, selected: true, verifiedFixtureExecuted: true, selectedProjectDirectoryUsed: true });
+      const execution = await waitForMarker(expected.label);
+      evidence.adapters.push({
+        id: expected.id,
+        label: expected.label,
+        selected: true,
+        verifiedFixtureExecuted: true,
+        selectedProjectDirectoryUsed: true,
+        executionMode: execution.mode,
+        replay: execution.replay ? { source: execution.replay.source, command: execution.replay.command } : null,
+      });
     }
 
     if (evidencePath) await fsp.writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
