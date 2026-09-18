@@ -27,6 +27,7 @@ const originalLocalAppData = process.env.LOCALAPPDATA;
 const originalMarker = process.env.CCTI_TERMINAL_MARKER;
 const originalFetch = global.fetch;
 const originalSetInterval = global.setInterval;
+const spawnCalls = [];
 
 const electronStub = {
   app: {
@@ -75,6 +76,37 @@ function executableProbe(command) {
   };
 }
 
+function safeSpawnCall(call) {
+  return {
+    command: path.basename(String(call.command || '')),
+    args: Array.isArray(call.args) ? call.args.map(String) : [],
+    cwd: call.options?.cwd ? path.basename(String(call.options.cwd)) : '',
+    hasMarker: Boolean(call.options?.env?.CCTI_TERMINAL_MARKER),
+    hasComSpec: Boolean(call.options?.env?.ComSpec || call.options?.env?.COMSPEC),
+  };
+}
+
+function replayLastPowerShellLaunch() {
+  const call = [...spawnCalls].reverse().find((entry) => /powershell\.exe$/i.test(String(entry.command)) && Array.isArray(entry.args) && entry.args.includes('-Command'));
+  if (!call) return { attempted: false, reason: 'No PowerShell terminal launch was captured.' };
+  const args = call.args.filter((arg) => arg !== '-NoExit');
+  const result = spawnSync(call.command, args, {
+    cwd: call.options?.cwd || home,
+    env: call.options?.env || process.env,
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+  return {
+    attempted: true,
+    status: result.status,
+    signal: result.signal || '',
+    timedOut: Boolean(result.error?.code === 'ETIMEDOUT'),
+    stdout: String(result.stdout || '').slice(-1000),
+    stderr: String(result.stderr || '').slice(-1000),
+    markerExists: fs.existsSync(marker),
+  };
+}
+
 async function waitForMarker(label, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -87,7 +119,7 @@ async function waitForMarker(label, timeoutMs = 15000) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
-  throw new Error(`${label} did not run the verified Claude fixture within ${timeoutMs / 1000} seconds.`);
+  throw new Error(`${label} did not run the verified Claude fixture within ${timeoutMs / 1000} seconds. ${JSON.stringify({ spawnCalls: spawnCalls.map(safeSpawnCall), replay: replayLastPowerShellLaunch() })}`);
 }
 
 async function run() {
@@ -109,6 +141,16 @@ async function run() {
 
     Module._load = function patchedLoad(request, parent, isMain) {
       if (request === 'electron') return electronStub;
+      if (request === 'node:child_process') {
+        const childProcess = originalLoad.call(this, request, parent, isMain);
+        return {
+          ...childProcess,
+          spawn(command, args, options) {
+            spawnCalls.push({ command, args, options });
+            return childProcess.spawn(command, args, options);
+          },
+        };
+      }
       return originalLoad.call(this, request, parent, isMain);
     };
     global.fetch = async () => ({ ok: false, status: 503, json: async () => [] });
