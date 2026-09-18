@@ -61,6 +61,8 @@ const electronStub = {
 const originalLoad = Module._load;
 const originalFetch = global.fetch;
 const originalSetInterval = global.setInterval;
+const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+Object.defineProperty(process, 'platform', { ...originalPlatformDescriptor, value: 'darwin' });
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'electron') return electronStub;
   if (request === 'electron-updater') return { autoUpdater: autoUpdaterStub };
@@ -149,6 +151,7 @@ async function run() {
     Module._load = originalLoad;
     global.fetch = originalFetch;
     global.setInterval = originalSetInterval;
+    Object.defineProperty(process, 'platform', originalPlatformDescriptor);
   }
 }
 run().catch((error) => {
