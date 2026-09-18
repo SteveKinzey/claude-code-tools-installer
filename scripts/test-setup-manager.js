@@ -19,6 +19,8 @@ let readyCallback;
 let saveDialogResult = { canceled: true, filePath: '' };
 let openDialogResult = { canceled: true, filePaths: [] };
 const notifications = [];
+const originalAppData = process.env.APPDATA;
+const originalLocalAppData = process.env.LOCALAPPDATA;
 
 class NotificationStub {
   static isSupported() { return true; }
@@ -87,9 +89,20 @@ async function run() {
   await writeSkill(duplicateSourceSkill, 'Duplicate source');
   await fsp.mkdir(path.join(home, '.claude'), { recursive: true });
   await fsp.writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: { 'review-tool@marketplace': true } }), 'utf8');
-  if (process.platform !== 'win32') {
-    const fakeClaudePath = path.join(home, '.local', 'bin', 'claude');
-    const fakeClaudeContents = [
+  const fakeClaudePath = process.platform === 'win32'
+    ? path.join(tempRoot, 'appdata', 'npm', 'claude.cmd')
+    : path.join(home, '.local', 'bin', 'claude');
+  const fakeClaudeContents = process.platform === 'win32'
+    ? [
+      '@echo off',
+      `echo %*>>${JSON.stringify(fakeClaudeLog)}`,
+      'if "%1"=="--version" (echo claude test& exit /b 0)',
+      'if "%1"=="plugin" if "%2"=="list" (echo frontend-design@claude-plugins-official enabled& exit /b 0)',
+      'if "%1"=="mcp" if "%2"=="list" (echo shared-connection& echo shared-connection& exit /b 0)',
+      'exit /b 0',
+      '',
+    ].join('\r\n')
+    : [
       '#!/bin/sh',
       `printf '%s\\n' "$*" >> ${JSON.stringify(fakeClaudeLog)}`,
       'if [ "$1" = "--version" ]; then echo "claude test"; exit 0; fi',
@@ -98,9 +111,12 @@ async function run() {
       'exit 0',
       '',
     ].join('\n');
-    await fsp.mkdir(path.dirname(fakeClaudePath), { recursive: true });
-    await fsp.writeFile(fakeClaudePath, fakeClaudeContents, { mode: 0o755 });
+  if (process.platform === 'win32') {
+    process.env.APPDATA = path.join(tempRoot, 'appdata');
+    process.env.LOCALAPPDATA = path.join(tempRoot, 'local-appdata');
   }
+  await fsp.mkdir(path.dirname(fakeClaudePath), { recursive: true });
+  await fsp.writeFile(fakeClaudePath, fakeClaudeContents, process.platform === 'win32' ? 'utf8' : { mode: 0o755 });
 
   require(path.join(root, 'desktop', 'src', 'main.js'));
   await readyCallback();
@@ -185,14 +201,12 @@ async function run() {
   await fsp.access(path.join(home, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'));
   await fsp.access(path.join(project, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'));
 
-  if (process.platform !== 'win32') {
-    await fsp.writeFile(fakeClaudeLog, '', 'utf8');
-    const duplicatePluginResult = await runInstall(null, { selectedIds: ['frontend-design'], dryRun: false });
-    assert.equal(duplicatePluginResult.ok, true, 'the catalog action should complete after safely skipping an installed plugin');
-    const fakeClaudeCalls = await fsp.readFile(fakeClaudeLog, 'utf8');
-    assert.match(fakeClaudeCalls, /plugin list/, 'CCTI should check the installed Claude Code plugins first');
-    assert.doesNotMatch(fakeClaudeCalls, /plugin install|plugin marketplace add/, 'CCTI must not reinstall an already available curated plugin or repeat its marketplace add command');
-  }
+  await fsp.writeFile(fakeClaudeLog, '', 'utf8');
+  const duplicatePluginResult = await runInstall(null, { selectedIds: ['frontend-design'], dryRun: false });
+  assert.equal(duplicatePluginResult.ok, true, 'the catalog action should complete after safely skipping an installed plugin');
+  const fakeClaudeCalls = await fsp.readFile(fakeClaudeLog, 'utf8');
+  assert.match(fakeClaudeCalls, /plugin list/, 'CCTI should check the installed Claude Code plugins first');
+  assert.doesNotMatch(fakeClaudeCalls, /plugin install|plugin marketplace add/, 'CCTI must not reinstall an already available curated plugin or repeat its marketplace add command');
 
   const forgedPlugin = await reviewPluginChange(null, { discoveryId: report.discoveryId, findingId: 'plugin:/etc', action: 'disable' });
   assert.equal(forgedPlugin.ok, false);
@@ -450,6 +464,10 @@ async function run() {
 
 run().finally(async () => {
   Module._load = originalLoad;
+  if (originalAppData === undefined) delete process.env.APPDATA;
+  else process.env.APPDATA = originalAppData;
+  if (originalLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+  else process.env.LOCALAPPDATA = originalLocalAppData;
   if (process.env.CCTI_KEEP_FIXTURE === '1') {
     console.log(`Retained isolated setup-manager fixture for inspection: ${tempRoot}`);
     return;
