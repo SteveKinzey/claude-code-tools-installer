@@ -513,7 +513,7 @@ run().finally(async () => {
     console.log(`Retained isolated setup-manager fixture for inspection: ${tempRoot}`);
     return;
   }
-  await fsp.rm(tempRoot, { recursive: true, force: true });
+  await fsp.rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }).catch((error) => {
   console.error(error.stack || error.message);
   process.exitCode = 1;
