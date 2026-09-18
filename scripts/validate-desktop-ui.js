@@ -193,7 +193,7 @@ if (!main.includes('mainWindow.webContents.setWindowOpenHandler') || !main.inclu
 if (!main.includes('ok: result.code === 0 && after.installed') || !main.includes('could not verify Claude Code')) {
   throw new Error('Complete setup must not report success unless Claude Code is verified after the installer exits.');
 }
-if (!main.includes('const holdsInstallLock = !dryRun') || !main.includes('if (holdsInstallLock) {\n      activeComponentInstall = true;')) {
+if (!main.includes('const holdsInstallLock = !dryRun') || !/if \(holdsInstallLock\) \{\r?\n\s{6}activeComponentInstall = true;/.test(main)) {
   throw new Error('Component installation must acquire its main-process lock before asynchronous project inspection.');
 }
 if (!main.includes('CCTI could not check the selected project') || !renderer.includes('async function scanSetup()') || !renderer.includes('No valid project folder is selected.')) {
