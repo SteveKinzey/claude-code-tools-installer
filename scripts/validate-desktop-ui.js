@@ -3,11 +3,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'index.html'), 'utf8');
-const renderer = fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'app.js'), 'utf8');
-const styles = fs.readFileSync(path.join(root, 'desktop', 'src', 'renderer', 'styles.css'), 'utf8');
-const preload = fs.readFileSync(path.join(root, 'desktop', 'src', 'preload.js'), 'utf8');
-const main = fs.readFileSync(path.join(root, 'desktop', 'src', 'main.js'), 'utf8');
+const readText = (...segments) => fs.readFileSync(path.join(root, ...segments), 'utf8').replace(/\r\n/g, '\n');
+const html = readText('desktop', 'src', 'renderer', 'index.html');
+const renderer = readText('desktop', 'src', 'renderer', 'app.js');
+const styles = readText('desktop', 'src', 'renderer', 'styles.css');
+const preload = readText('desktop', 'src', 'preload.js');
+const main = readText('desktop', 'src', 'main.js');
 const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'));
 const duplicateUiTestPath = path.join(root, 'scripts', 'test-duplicate-skill-ui.js');
 const duplicateUiLauncherPath = path.join(root, 'scripts', 'run-duplicate-skill-ui-test.js');
