@@ -160,8 +160,9 @@ async function run() {
       assert.equal(launched.ok, true);
       assert.match(launched.message, /Windows Terminal/);
       assert.equal(launches.at(-1).command, commandLocations['wt.exe']);
-      assert.deepEqual(launches.at(-1).args.slice(0, 4), ['-d', home, 'powershell.exe', '-NoExit']);
+      assert.deepEqual(launches.at(-1).args.slice(0, 6), ['-d', home, 'powershell.exe', '-NoLogo', '-NoProfile', '-NoExit']);
       assert.match(launches.at(-1).args.at(-1), /Set-Location -LiteralPath/);
+      assert.match(launches.at(-1).args.at(-1), /ComSpec/);
       assert.match(launches.at(-1).args.at(-1), /claude\.cmd/);
       delete commandLocations['wt.exe'];
       const packageExecutable = commandLocations['WindowsTerminal.exe'];

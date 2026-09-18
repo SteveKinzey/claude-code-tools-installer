@@ -922,9 +922,9 @@ async function openSelectedTerminal({ folder, command, preference }) {
   if (process.platform === 'win32') {
     const launchScript = `Set-Location -LiteralPath ${quotePowerShell(folder)}; ${command}`;
     if (terminal.launcher === 'windows-terminal') {
-      await startDetached(terminalCommand, ['-d', folder, 'powershell.exe', '-NoExit', '-Command', launchScript], { cwd: folder, env });
+      await startDetached(terminalCommand, ['-d', folder, 'powershell.exe', '-NoLogo', '-NoProfile', '-NoExit', '-Command', launchScript], { cwd: folder, env });
     } else {
-      await startDetached(terminalCommand, ['-NoExit', '-Command', launchScript], { cwd: folder, env });
+      await startDetached(terminalCommand, ['-NoLogo', '-NoProfile', '-NoExit', '-Command', launchScript], { cwd: folder, env });
     }
     return terminal;
   }
@@ -952,7 +952,9 @@ async function launchClaudeCode({ projectPath } = {}) {
   try {
     const { preference } = await selectedTerminalForLaunch();
     const command = process.platform === 'win32'
-      ? `& ${quotePowerShell(status.path)}`
+      ? (/\.cmd$/i.test(status.path)
+        ? `& $env:ComSpec '/d' '/s' '/c' ${quotePowerShell(`"${status.path}"`)}`
+        : `& ${quotePowerShell(status.path)}`)
       : `cd ${quotePosix(folder)}; exec ${quotePosix(status.path)}`;
     const terminal = await openSelectedTerminal({ folder, command, preference });
     const fallbackNote = preference.selectedId === preference.storedId ? '' : ` Your saved ${supportedTerminalOption(preference.storedId)?.label || 'terminal'} preference is unavailable, so CCTI used ${terminal.label}.`;
