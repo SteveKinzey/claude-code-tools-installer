@@ -184,6 +184,21 @@ if (!main.includes('const reviewedPluginPlans') || !main.includes('const reviewe
 if (!main.includes('async function installedSkillsMatching') || !main.includes('skillContentManifest') || !main.includes("kind: 'duplicate-skill'") || !main.includes("code: 'already-available'")) {
   throw new Error('Custom skill additions must stop before copying a skill with an existing name or identical verified content in Claude Code.');
 }
+if (!main.includes('const reviewedCustomAddOnPlans') || !main.includes('function storeCustomAddOnReview') || !main.includes('async function applyCustomAddOn({ reviewId })') || !renderer.includes('applyCustomAddOn({ reviewId: review.reviewId })')) {
+  throw new Error('Custom add-on application must consume an opaque reviewed plan instead of editable renderer inputs.');
+}
+if (!main.includes('mainWindow.webContents.setWindowOpenHandler') || !main.includes("return { action: 'deny' }") || !main.includes("mainWindow.webContents.on('will-navigate'")) {
+  throw new Error('External navigation must be denied in-app and opened only through the main-process browser boundary.');
+}
+if (!main.includes('ok: result.code === 0 && after.installed') || !main.includes('could not verify Claude Code')) {
+  throw new Error('Complete setup must not report success unless Claude Code is verified after the installer exits.');
+}
+if (!main.includes('const holdsInstallLock = !dryRun') || !main.includes('if (holdsInstallLock) {\n      activeComponentInstall = true;')) {
+  throw new Error('Component installation must acquire its main-process lock before asynchronous project inspection.');
+}
+if (!main.includes('CCTI could not check the selected project') || !renderer.includes('async function scanSetup()') || !renderer.includes('No valid project folder is selected.')) {
+  throw new Error('A missing selected setup-manager project must return a stable actionable error instead of an unhandled renderer rejection.');
+}
 if (!main.includes('async function installedClaudePluginIds') || !main.includes('pluginIsInstalled(installedIds, requestedPlugin)')) {
   throw new Error('Curated plugin installs must skip plugins Claude Code already reports as installed.');
 }

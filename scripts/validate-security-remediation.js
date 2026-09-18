@@ -45,6 +45,8 @@ const workflows = fs.readdirSync(path.join(root, '.github', 'workflows'))
   .map((name) => path.join(root, '.github', 'workflows', name));
 const desktopWorkflows = workflows.filter((workflowPath) => readWorkflowText(workflowPath).includes('working-directory: desktop'));
 assert.ok(desktopWorkflows.length > 0, 'At least one desktop CI workflow must exist.');
+const fullDesktopValidationWorkflows = desktopWorkflows.filter((workflowPath) => readWorkflowText(workflowPath).includes('npm run check'));
+assert.ok(fullDesktopValidationWorkflows.length > 0, 'At least one desktop CI workflow must run the complete validation gate.');
 
 const checkoutWorkflows = workflows.filter((workflowPath) => readWorkflowText(workflowPath).includes('actions/checkout@'));
 assert.ok(checkoutWorkflows.length > 0, 'At least one workflow must check out repository source.');
@@ -66,6 +68,11 @@ for (const workflowPath of desktopWorkflows) {
   assert.match(contents, /node-version:\s*['"]?22\.12\.0['"]?/, `${filename} must pin Node ${minimumNode}.`);
   assert.doesNotMatch(contents, /npm install/, `${filename} must use lockfile-deterministic npm ci instead of npm install.`);
   assert.match(contents, /npm ci/, `${filename} must install dependencies with npm ci.`);
+}
+
+for (const workflowPath of fullDesktopValidationWorkflows) {
+  const contents = readWorkflowText(workflowPath);
+  const filename = path.basename(workflowPath);
   assert.match(contents, /npm run check/, `${filename} must execute the complete desktop check, including the high-severity audit gate.`);
 }
 
@@ -99,8 +106,11 @@ const verifyMetadataIndex = macReleaseWorkflow.indexOf('verify-macos-update-meta
 const checksumCreationIndex = macReleaseWorkflow.indexOf('name: Create SHA-256 checksums');
 assert.ok(refreshMetadataIndex >= 0 && verifyMetadataIndex > refreshMetadataIndex && checksumCreationIndex > verifyMetadataIndex, 'Final latest-mac.yml verification must run after metadata refresh and before checksums or release upload.');
 assert.match(macReleaseWorkflow, /for artifact in "\$DMG" "\$ZIP" "\$METADATA" "\$DMG_CHECKSUM" "\$ZIP_CHECKSUM"; do/, 'macOS release workflow must upload each notarized release asset in a deterministic order.');
-assert.match(macReleaseWorkflow, /gh api -X DELETE "repos\/\$GITHUB_REPOSITORY\/releases\/assets\/\$asset_id"/, 'macOS release workflow must remove an existing matching release asset before retrying an upload.');
-assert.match(macReleaseWorkflow, /if gh release upload "\$TAG" "\$artifact"; then/, 'macOS release workflow must retain safe per-asset retry replacement without concurrent upload races.');
+assert.match(macReleaseWorkflow, /upload_release_asset "\$artifact"/, 'macOS release workflow must use its per-asset retry helper without concurrent upload races.');
+assert.match(macReleaseWorkflow, /gh api -X DELETE "repos\/\$GITHUB_REPOSITORY\/releases\/assets\/\$asset_id"/, 'macOS release upload retries must remove only the matching conflicting asset before retrying.');
+assert.match(macReleaseWorkflow, /if gh release upload "\$TAG" "\$artifact"; then/, 'macOS release upload retries must upload each asset individually.');
+assert.match(macReleaseWorkflow, /gh release create "\$TAG" --target "\$SOURCE_COMMIT" --title "\$TAG" --generate-notes --draft/, 'macOS release publication must start from a private draft.');
+assert.match(macReleaseWorkflow, /Verify draft release inventory before publication/, 'macOS releases must verify the complete draft asset inventory before publishing.');
 assert.match(macCandidateWorkflow, /source_tag:/, 'macOS candidate workflow must support building an existing immutable source tag.');
 assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must copy runtime files from the requested source tag at repository root.');
 assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must verify runtime files exactly match the requested source tag at repository root.');

@@ -3,34 +3,28 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_DIR="${ROOT_DIR}/releases"
-STAGING_DIR="$(mktemp -d)"
-PRODUCT_DIR="${STAGING_DIR}/claude-code-tools-installer"
-
-cleanup() {
-  find "$STAGING_DIR" -depth -delete 2>/dev/null || true
+cd "$ROOT_DIR"
+git diff --quiet && git diff --cached --quiet || {
+  echo "Refusing to build a source bundle from an uncommitted worktree." >&2
+  exit 2
 }
-trap cleanup EXIT
 
-mkdir -p "$PRODUCT_DIR" "$RELEASE_DIR"
-rm -f "$RELEASE_DIR/claude-code-tools-installer.zip" "$RELEASE_DIR/claude-code-tools-installer-linux.tar.gz" "$RELEASE_DIR/claude-code-tools-installer-windows.zip"
-cp "$ROOT_DIR/README.md" "$PRODUCT_DIR/"
-cp "$ROOT_DIR/setup-my-claude.sh" "$PRODUCT_DIR/"
-cp "$ROOT_DIR/setup-my-claude-linux.sh" "$PRODUCT_DIR/"
-cp "$ROOT_DIR/setup-my-claude.ps1" "$PRODUCT_DIR/"
-cp -R "$ROOT_DIR/assets" "$PRODUCT_DIR/assets"
-mkdir -p "$PRODUCT_DIR/desktop"
-cp "$ROOT_DIR/desktop/package.json" "$ROOT_DIR/desktop/catalog.json" "$ROOT_DIR/desktop/README.md" "$ROOT_DIR/desktop/RELEASE_MACOS.md" "$ROOT_DIR/desktop/CERTIFICATE_TRANSFER_MACOS.md" "$PRODUCT_DIR/desktop/"
-cp -R "$ROOT_DIR/desktop/src" "$PRODUCT_DIR/desktop/src"
-cp -R "$ROOT_DIR/desktop/build" "$PRODUCT_DIR/desktop/build"
-mkdir -p "$PRODUCT_DIR/scripts"
-cp "$ROOT_DIR/scripts/validate-catalog.js" "$ROOT_DIR/scripts/validate-macos-release-config.js" "$ROOT_DIR/scripts/verify-signed-macos-dmg.sh" "$ROOT_DIR/scripts/build-source-releases.sh" "$PRODUCT_DIR/scripts/"
+revision="${SOURCE_REVISION:-$(git describe --tags --always --dirty)}"
+safe_revision="$(printf '%s' "$revision" | tr -cd 'A-Za-z0-9._-')"
+test -n "$safe_revision" || { echo "Could not determine a safe source revision." >&2; exit 2; }
 
-(
-  cd "$STAGING_DIR"
-  zip -qr "$RELEASE_DIR/claude-code-tools-installer.zip" claude-code-tools-installer
-  tar -czf "$RELEASE_DIR/claude-code-tools-installer-linux.tar.gz" claude-code-tools-installer
-  zip -qr "$RELEASE_DIR/claude-code-tools-installer-windows.zip" claude-code-tools-installer
-)
+mkdir -p "$RELEASE_DIR"
+prefix="claude-code-tools-installer-source-${safe_revision}"
+zip_path="$RELEASE_DIR/${prefix}.zip"
+tar_path="$RELEASE_DIR/${prefix}.tar.gz"
+manifest_path="$RELEASE_DIR/${prefix}.sha256"
 
-echo "Rebuilt cross-platform source archives in $RELEASE_DIR"
-echo "The desktop Electron packages remain separate unsigned test builds under releases/test-builds/ until platform signing is complete."
+git archive --format=zip --prefix="${prefix}/" HEAD > "$zip_path"
+git archive --format=tar --prefix="${prefix}/" HEAD | gzip -n > "$tar_path"
+{
+  shasum -a 256 "$zip_path"
+  shasum -a 256 "$tar_path"
+} > "$manifest_path"
+
+echo "Built reproducible source bundles for $revision in $RELEASE_DIR"
+echo "These are source-only archives. They are not platform installers and must not be attached to executable download cards."
