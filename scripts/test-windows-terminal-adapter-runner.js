@@ -5,6 +5,7 @@ const fsp = require('node:fs/promises');
 const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 if (process.platform !== 'win32') throw new Error('This test must run on a Windows host.');
 
@@ -58,6 +59,22 @@ function restoreEnv(name, value) {
   else process.env[name] = value;
 }
 
+function executableProbe(command) {
+  const inheritedPath = process.env.PATH || process.env.Path || '';
+  const resolvedPath = [path.join(appData, 'npm'), inheritedPath].filter(Boolean).join(path.delimiter);
+  const result = spawnSync('where.exe', [command], {
+    cwd: home,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: resolvedPath, Path: resolvedPath },
+  });
+  return {
+    command,
+    status: result.status,
+    stdout: String(result.stdout || '').trim().split(/\r?\n/).filter(Boolean).map((entry) => path.basename(entry)),
+    stderr: String(result.stderr || '').trim(),
+  };
+}
+
 async function waitForMarker(label, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -78,7 +95,7 @@ async function run() {
     process.env.APPDATA = appData;
     process.env.LOCALAPPDATA = localAppData;
     process.env.CCTI_TERMINAL_MARKER = marker;
-    await Promise.all([fsp.mkdir(path.dirname(fakeClaude), { recursive: true }), fsp.mkdir(project, { recursive: true })]);
+    await Promise.all([fsp.mkdir(home, { recursive: true }), fsp.mkdir(path.dirname(fakeClaude), { recursive: true }), fsp.mkdir(project, { recursive: true })]);
     await fsp.writeFile(fakeClaude, [
       '@echo off',
       'if "%~1"=="--version" (',
@@ -107,6 +124,14 @@ async function run() {
 
     const initial = await getPreference();
     const availableIds = initial.options.filter((option) => option.available).map((option) => option.id);
+    if (availableIds.length !== 2) {
+      console.error(JSON.stringify({
+        diagnostic: 'windows-terminal-discovery',
+        availableIds,
+        pathKeys: { PATH: Boolean(process.env.PATH), Path: Boolean(process.env.Path) },
+        probes: ['powershell.exe', 'wt.exe', 'claude'].map(executableProbe),
+      }));
+    }
     assert.deepEqual(availableIds, ['default', 'windows-terminal'], 'fresh Windows runner must expose PowerShell and Windows Terminal choices.');
 
     const evidence = { ok: true, platform: 'win32', adapters: [] };

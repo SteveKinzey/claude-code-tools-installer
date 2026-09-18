@@ -39,6 +39,9 @@ jobs:
       - name: Install desktop dependencies
         run: npm ci
 
+      - name: Run complete desktop quality gate
+        run: npm run check
+
       - name: Ensure Windows terminal prerequisites
         shell: pwsh
         run: |

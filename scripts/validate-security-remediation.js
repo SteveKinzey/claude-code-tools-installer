@@ -99,7 +99,8 @@ const verifyMetadataIndex = macReleaseWorkflow.indexOf('verify-macos-update-meta
 const checksumCreationIndex = macReleaseWorkflow.indexOf('name: Create SHA-256 checksums');
 assert.ok(refreshMetadataIndex >= 0 && verifyMetadataIndex > refreshMetadataIndex && checksumCreationIndex > verifyMetadataIndex, 'Final latest-mac.yml verification must run after metadata refresh and before checksums or release upload.');
 assert.match(macReleaseWorkflow, /for artifact in "\$DMG" "\$ZIP" "\$METADATA" "\$DMG_CHECKSUM" "\$ZIP_CHECKSUM"; do/, 'macOS release workflow must upload each notarized release asset in a deterministic order.');
-assert.match(macReleaseWorkflow, /gh release upload "\$TAG" "\$artifact" --clobber/, 'macOS release workflow must retain safe per-asset retry replacement without concurrent upload races.');
+assert.match(macReleaseWorkflow, /gh api -X DELETE "repos\/\$GITHUB_REPOSITORY\/releases\/assets\/\$asset_id"/, 'macOS release workflow must remove an existing matching release asset before retrying an upload.');
+assert.match(macReleaseWorkflow, /if gh release upload "\$TAG" "\$artifact"; then/, 'macOS release workflow must retain safe per-asset retry replacement without concurrent upload races.');
 assert.match(macCandidateWorkflow, /source_tag:/, 'macOS candidate workflow must support building an existing immutable source tag.');
 assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must copy runtime files from the requested source tag at repository root.');
 assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must verify runtime files exactly match the requested source tag at repository root.');
