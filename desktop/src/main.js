@@ -14,6 +14,8 @@ const reviewedBulkCleanupPlans = new Map();
 const reviewedBulkRestorePlans = new Map();
 const reviewedSkillBackupReplacementPlans = new Map();
 const reviewedPluginChanges = new Map();
+const reviewedProjectPackageRemovalPlans = new Map();
+const reviewedManagedExtrasRemovalPlans = new Map();
 const reviewedCustomAddOnPlans = new Map();
 const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
@@ -63,6 +65,10 @@ const reviewedPluginPlans = {
 
 function setupManagerDir() {
   return path.join(app.getPath('home'), '.setup-my-claude');
+}
+
+function managedExtrasManifestPath() {
+  return path.join(setupManagerDir(), 'manifest.tsv');
 }
 
 function terminalPreferencePath() {
@@ -1557,7 +1563,7 @@ function componentPackageFindings(manifest, packageJsonPath) {
   const dependencies = Object.entries({ ...(manifest.dependencies || {}), ...(manifest.devDependencies || {}) });
   return [
     { id: `project-file:${packageJsonPath}`, type: 'project-file', name: 'Project package file', scope: 'This project', path: packageJsonPath, description: 'This file keeps the project packages CCTI installed in the selected folder.' },
-    ...dependencies.slice(0, 80).map(([name, version]) => ({ id: `project-package:${packageJsonPath}:${name}`, type: 'project-package', name, scope: 'This project', path: packageJsonPath, description: `Project package${version ? ` · ${version}` : ''}.` })),
+    ...dependencies.slice(0, 80).map(([name, version]) => ({ id: `project-package:${packageJsonPath}:${name}`, type: 'project-package', name, version: String(version || ''), scope: 'This project', path: packageJsonPath, description: `Project package${version ? ` · ${version}` : ''}.` })),
   ];
 }
 
@@ -1836,6 +1842,12 @@ function settingsFindings(json, filePath, scope) {
 
 async function discoverClaudeSetup(projectPath = '') {
   const home = app.getPath('home');
+  let managedExtras;
+  try {
+    managedExtras = await managedExtrasFromManifest();
+  } catch (error) {
+    managedExtras = { actions: [], manualItems: [], ignored: 0, error: error.message };
+  }
   const skillLocations = [{ root: home, scope: 'Just you' }];
   const locations = [
     { root: home, scope: 'Just you', settings: path.join(home, '.claude', 'settings.json') },
@@ -1922,6 +1934,7 @@ async function discoverClaudeSetup(projectPath = '') {
   ];
   const discoveryId = randomUUID();
   const manageablePlugins = uniqueFindings.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
+  const projectPackages = uniqueFindings.filter((item) => item.type === 'project-package' && item.scope === 'This project');
   const skillBackups = uniqueFindings.filter((item) => item.type === 'skill-backup');
   discoveredSkillCleanup.set(discoveryId, {
     createdAt: Date.now(),
@@ -1947,6 +1960,7 @@ async function discoverClaudeSetup(projectPath = '') {
       restorable: item.restorable,
     }])),
     plugins: new Map(manageablePlugins.map((item) => [item.id, { name: item.name, scope: item.scope }])),
+    projectPackages: new Map(projectPackages.map((item) => [item.id, { name: item.name, version: item.version, packageJsonPath: item.path, projectPath: resolvedProjectPath }])),
     projectPath: resolvedProjectPath,
   });
   for (const [id, report] of discoveredSkillCleanup) {
@@ -1955,7 +1969,19 @@ async function discoverClaudeSetup(projectPath = '') {
   while (discoveredSkillCleanup.size > 10) {
     discoveredSkillCleanup.delete(discoveredSkillCleanup.keys().next().value);
   }
-  return { discoveryId, checkedAt: new Date().toISOString(), projectPath: resolvedProjectPath, findings: uniqueFindings, duplicates };
+  return {
+    discoveryId,
+    checkedAt: new Date().toISOString(),
+    projectPath: resolvedProjectPath,
+    findings: uniqueFindings,
+    duplicates,
+    managedExtras: {
+      actionCount: managedExtras.actions.length,
+      manualCount: managedExtras.manualItems.length,
+      ignored: managedExtras.ignored,
+      error: managedExtras.error || '',
+    },
+  };
 }
 
 async function reviewPluginChange({ discoveryId, findingId, action }) {
@@ -1979,6 +2005,225 @@ async function applyPluginChange({ reviewId }) {
     return { ok: true, message: `${plan.name} is now ${plan.action === 'enable' ? 'enabled' : 'disabled'} for the selected scope.` };
   } catch (error) {
     return { ok: false, error: `CCTI could not ${plan.action} this add-on: ${error.message}` };
+  }
+}
+
+function projectPackageVersion(manifest, name) {
+  const dependency = manifest?.dependencies?.[name];
+  const devDependency = manifest?.devDependencies?.[name];
+  if (typeof dependency === 'string') return dependency;
+  if (typeof devDependency === 'string') return devDependency;
+  return '';
+}
+
+async function reviewProjectPackageRemoval({ discoveryId, findingId }) {
+  const report = discoveredSkillCleanup.get(String(discoveryId || ''));
+  const finding = report?.projectPackages?.get(String(findingId || ''));
+  if (!finding || !report?.projectPath || finding.projectPath !== report.projectPath) {
+    return { ok: false, error: 'Run the project checkup again before removing a package.' };
+  }
+  try {
+    const projectPackage = await inspectProjectPackage(finding.projectPath);
+    const currentVersion = projectPackage.packageState === 'existing' ? projectPackageVersion(projectPackage.manifest, finding.name) : '';
+    if (!currentVersion || projectPackage.packageJsonPath !== finding.packageJsonPath || currentVersion !== finding.version) {
+      return { ok: false, error: 'This project package changed after the checkup. Run the checkup again before removing it.' };
+    }
+    const reviewId = randomUUID();
+    const plan = { reviewId, name: finding.name, version: finding.version, projectPath: finding.projectPath, packageJsonPath: finding.packageJsonPath, createdAt: Date.now() };
+    reviewedProjectPackageRemovalPlans.set(reviewId, plan);
+    for (const [id, candidate] of reviewedProjectPackageRemovalPlans) {
+      if (Date.now() - candidate.createdAt > 10 * 60 * 1000) reviewedProjectPackageRemovalPlans.delete(id);
+    }
+    return {
+      ok: true,
+      ...plan,
+      command: `npm uninstall --ignore-scripts --no-audit --no-fund ${finding.name}`,
+      description: 'Removes this one reviewed package from the selected project only. Package scripts remain disabled. CCTI will not touch your global tools, skills, add-ons, or any other project.',
+    };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not review this project package: ${error.message}` };
+  }
+}
+
+async function applyProjectPackageRemoval({ reviewId, confirmation }) {
+  const plan = reviewedProjectPackageRemovalPlans.get(String(reviewId || ''));
+  if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) return { ok: false, error: 'This package removal review has expired. Run the checkup again.' };
+  if (confirmation !== 'REMOVE PROJECT PACKAGE') return { ok: false, error: 'Type REMOVE PROJECT PACKAGE exactly to remove the reviewed package.' };
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'Another CCTI action is running. Wait for it to finish before removing a project package.' };
+  try {
+    const projectPackage = await inspectProjectPackage(plan.projectPath);
+    const currentVersion = projectPackage.packageState === 'existing' ? projectPackageVersion(projectPackage.manifest, plan.name) : '';
+    if (!currentVersion || projectPackage.packageJsonPath !== plan.packageJsonPath || currentVersion !== plan.version) {
+      return { ok: false, error: 'This project package changed after review. Run the checkup again before removing it.' };
+    }
+    activeComponentInstall = true;
+    emit('component:state', { running: true });
+    emit('component:output', { stream: 'stdout', text: `[CCTI] Removing reviewed project package ${plan.name} with package scripts disabled…\n` });
+    const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const result = await runProcess(npmCommand, ['uninstall', '--ignore-scripts', '--no-audit', '--no-fund', plan.name], { cwd: plan.projectPath, env: claudeProcessEnv() });
+    if (result.code !== 0) return { ok: false, error: result.stderr.trim() || `CCTI could not remove ${plan.name} from this project.` };
+    reviewedProjectPackageRemovalPlans.delete(plan.reviewId);
+    return { ok: true, message: `${plan.name} was removed from the selected project. Package scripts were disabled; global tools, skills, add-ons, and other projects were not changed.` };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not remove the reviewed project package: ${error.message}` };
+  } finally {
+    activeComponentInstall = false;
+    emit('component:state', { running: false });
+  }
+}
+
+function manifestActionLabel({ kind, target, item }) {
+  const knownLabels = {
+    path: 'CCTI reference folder',
+    skill: 'CCTI-installed skill',
+    mcp: 'CCTI-managed MCP connection',
+    'npm-global': 'CCTI-installed global package',
+    'brew-cask': 'CCTI-installed desktop tool',
+    'managed-runtime': 'CCTI-managed Node.js runtime',
+  };
+  return `${knownLabels[kind] || kind}: ${item || target}`;
+}
+
+async function managedExtrasFromManifest() {
+  const manifestPath = managedExtrasManifestPath();
+  let source;
+  try {
+    source = await fs.readFile(manifestPath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return { manifestPath, source: '', digest: '', actions: [], manualItems: [], ignored: 0 };
+    throw error;
+  }
+  const home = app.getPath('home');
+  const referenceRoot = path.join(home, '.claude', 'reference-repos');
+  const skillRoot = path.join(home, '.claude', 'skills');
+  const expectedPathByItem = new Map([
+    ['learn-claude-code', path.join(referenceRoot, 'learn-claude-code')],
+    ['karpathy-skills', path.join(referenceRoot, 'andrej-karpathy-skills')],
+    ['ui-ux-pro-max', path.join(referenceRoot, 'ui-ux-pro-max')],
+    ['awesome-claude-skills', path.join(referenceRoot, 'awesome-claude-skills')],
+    ['multica', path.join(referenceRoot, 'multica')],
+    ['awesome-mcp-servers', path.join(referenceRoot, 'awesome-mcp-servers')],
+    ['system-prompts-ai', path.join(referenceRoot, 'system-prompts-and-models-of-ai-tools')],
+    ['best-practice', path.join(referenceRoot, 'claude-code-best-practice')],
+    ['caveman', path.join(referenceRoot, 'caveman')],
+    ['gstack', path.join(skillRoot, 'gstack')],
+    ['ponytail', path.join(skillRoot, 'ponytail')],
+    ['taste-skill', path.join(skillRoot, 'design-taste-frontend')],
+    ['planning-with-files', path.join(skillRoot, 'planning-with-files')],
+    ['graphify', path.join(skillRoot, 'graphify')],
+  ]);
+  const expectedGlobalPackageByItem = new Map([
+    ['bun-runtime', 'bun'],
+    ['codegraph', '@colbymchenry/codegraph'],
+    ['repomix', 'repomix'],
+    ['firecrawl', 'firecrawl-cli'],
+    ['claude-code-router', '@musistudio/claude-code-router'],
+  ]);
+  const expectedMcpByItem = new Map([['repomix', 'repomix'], ['playwright-mcp', 'playwright']]);
+  const allowedManualItems = new Set(['claude-code', 'claude-mem']);
+  const actionsByKey = new Map();
+  const manualItems = [];
+  let ignored = 0;
+  for (const line of source.split(/\r?\n/).filter(Boolean)) {
+    const [timestamp, kind, target, extra, item] = line.split('\t');
+    if (!timestamp || !kind || !target || !item || line.split('\t').length !== 5) {
+      ignored += 1;
+      continue;
+    }
+    const expectedPath = expectedPathByItem.get(item);
+    const allowed = ((kind === 'path' || kind === 'skill') && expectedPath === path.resolve(target))
+      || (kind === 'managed-runtime' && item === 'node-runtime' && path.resolve(target) === path.join(setupManagerDir(), 'node-runtime'))
+      || (kind === 'npm-global' && expectedGlobalPackageByItem.get(item) === target)
+      || (kind === 'mcp' && expectedMcpByItem.get(item) === target)
+      || (kind === 'brew-cask' && item === 'cc-switch' && target === 'cc-switch');
+    if (kind === 'manual-review' && allowedManualItems.has(item)) {
+      manualItems.push({ item, target, extra, label: `${item}: ${extra || 'Use its documented removal steps.'}` });
+      continue;
+    }
+    if (!allowed) {
+      ignored += 1;
+      continue;
+    }
+    const key = `${kind}\u0000${target}`;
+    if (!actionsByKey.has(key)) actionsByKey.set(key, { kind, target, item, label: manifestActionLabel({ kind, target, item }), lines: [line] });
+    else actionsByKey.get(key).lines.push(line);
+  }
+  return {
+    manifestPath,
+    source,
+    digest: createHash('sha256').update(source, 'utf8').digest('hex'),
+    actions: [...actionsByKey.values()],
+    manualItems,
+    ignored,
+  };
+}
+
+async function reviewManagedExtrasRemoval() {
+  try {
+    const manifest = await managedExtrasFromManifest();
+    if (!manifest.actions.length) {
+      return { ok: false, error: manifest.manualItems.length ? 'CCTI found only items that require their own documented removal steps. Nothing can be removed automatically.' : 'No CCTI-managed extras are recorded for removal.' };
+    }
+    const reviewId = randomUUID();
+    const plan = { reviewId, manifestPath: manifest.manifestPath, digest: manifest.digest, actions: manifest.actions, manualItems: manifest.manualItems, createdAt: Date.now() };
+    reviewedManagedExtrasRemovalPlans.set(reviewId, plan);
+    for (const [id, candidate] of reviewedManagedExtrasRemovalPlans) {
+      if (Date.now() - candidate.createdAt > 10 * 60 * 1000) reviewedManagedExtrasRemovalPlans.delete(id);
+    }
+    return {
+      ok: true,
+      ...plan,
+      ignored: manifest.ignored,
+      description: 'Removes only the CCTI-managed paths, global packages, MCP connections, desktop tool, and managed runtime listed below. Each target is bound to the CCTI manifest you just reviewed. Claude Code itself and any manual-review item remain untouched.',
+    };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not read its managed extras list: ${error.message}` };
+  }
+}
+
+async function applyManagedExtrasRemoval({ reviewId, confirmation }) {
+  const plan = reviewedManagedExtrasRemovalPlans.get(String(reviewId || ''));
+  if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) return { ok: false, error: 'This managed extras review has expired. Run the checkup again.' };
+  if (confirmation !== 'REMOVE CCTI EXTRAS') return { ok: false, error: 'Type REMOVE CCTI EXTRAS exactly to remove the reviewed items.' };
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'Another CCTI action is running. Wait for it to finish before removing CCTI-managed extras.' };
+  try {
+    const currentManifest = await managedExtrasFromManifest();
+    if (currentManifest.digest !== plan.digest) return { ok: false, error: 'The CCTI managed extras list changed after review. Run the checkup again before removing it.' };
+    activeInstall = true;
+    emit('installer:state', { running: true });
+    const completedLines = new Set();
+    for (const action of plan.actions) {
+      emit('installer:output', { stream: 'stdout', text: `[CCTI] Removing reviewed ${action.label}…\n` });
+      if (['path', 'skill', 'managed-runtime'].includes(action.kind)) {
+        await fs.rm(action.target, { recursive: true, force: true });
+      } else if (action.kind === 'mcp') {
+        const claude = await claudeStatus();
+        if (!claude.installed) return { ok: false, removedCount: completedLines.size, error: 'Claude Code is not ready, so CCTI cannot remove the reviewed MCP connection. No remaining item was changed.' };
+        const result = await runProcess(claude.path || 'claude', ['mcp', 'remove', action.target], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+        if (result.code !== 0) return { ok: false, removedCount: completedLines.size, error: result.stderr.trim() || `CCTI could not remove the MCP connection ${action.target}. No remaining item was changed.` };
+      } else if (action.kind === 'npm-global') {
+        const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+        const result = await runProcess(npmCommand, ['uninstall', '-g', '--ignore-scripts', '--no-audit', '--no-fund', action.target], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+        if (result.code !== 0) return { ok: false, removedCount: completedLines.size, error: result.stderr.trim() || `CCTI could not remove the global package ${action.target}. No remaining item was changed.` };
+      } else if (action.kind === 'brew-cask') {
+        const available = await runProcess('brew', ['list', '--cask', action.target], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+        if (available.code === 0) {
+          const result = await runProcess('brew', ['uninstall', '--cask', action.target], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+          if (result.code !== 0) return { ok: false, removedCount: completedLines.size, error: result.stderr.trim() || `CCTI could not remove the desktop tool ${action.target}. No remaining item was changed.` };
+        }
+      }
+      action.lines.forEach((line) => completedLines.add(line));
+    }
+    const remaining = currentManifest.source.split(/\r?\n/).filter((line) => line && !completedLines.has(line));
+    await fs.writeFile(plan.manifestPath, remaining.length ? `${remaining.join('\n')}\n` : '', 'utf8');
+    reviewedManagedExtrasRemovalPlans.delete(plan.reviewId);
+    const manualNote = plan.manualItems.length ? ` ${plan.manualItems.length} separately managed item${plan.manualItems.length === 1 ? ' remains' : 's remain'} for manual review.` : '';
+    return { ok: true, removedCount: plan.actions.length, message: `Removed ${plan.actions.length} reviewed CCTI-managed extra${plan.actions.length === 1 ? '' : 's'}. Claude Code, unrelated tools, and all non-CCTI projects were left alone.${manualNote}` };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not remove the reviewed managed extras: ${error.message}` };
+  } finally {
+    activeInstall = false;
+    emit('installer:state', { running: false });
   }
 }
 
@@ -2148,7 +2393,22 @@ async function reviewCleanup({ discoveryId, findingId }) {
   }
   const destination = skillBackupDestination(report, source);
   const reviewId = randomUUID();
-  const plan = { ok: true, reviewId, discoveryId, findingId, source, destination, description: 'This moves the selected skill to a backup folder. It does not delete it. You can move it back later.' };
+  const plan = {
+    ok: true,
+    reviewId,
+    discoveryId,
+    findingId,
+    source,
+    destination,
+    moves: [{
+      name: finding.name,
+      scope: finding.scope,
+      source,
+      destination,
+      files: moveFilesForPreview({ source, destination, files: finding.files }),
+    }],
+    description: 'This moves the selected skill to a backup folder. It does not delete it. You can move it back later.',
+  };
   reviewedCleanupPlans.set(reviewId, { ...plan, createdAt: Date.now() });
   for (const [id, review] of reviewedCleanupPlans) {
     if (Date.now() - review.createdAt > 10 * 60 * 1000) reviewedCleanupPlans.delete(id);
@@ -2685,6 +2945,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('telemetry:report-setup-success', async (_event, payload) => reportAnonymousSetupSuccess(payload));
   ipcMain.handle('setup-manager:review-plugin-change', async (_event, payload) => reviewPluginChange(payload));
   ipcMain.handle('setup-manager:apply-plugin-change', async (_event, payload) => applyPluginChange(payload));
+  ipcMain.handle('setup-manager:review-project-package-removal', async (_event, payload) => reviewProjectPackageRemoval(payload || {}));
+  ipcMain.handle('setup-manager:apply-project-package-removal', async (_event, payload) => applyProjectPackageRemoval(payload || {}));
+  ipcMain.handle('setup-manager:review-managed-extras-removal', async () => reviewManagedExtrasRemoval());
+  ipcMain.handle('setup-manager:apply-managed-extras-removal', async (_event, payload) => applyManagedExtrasRemoval(payload || {}));
   ipcMain.handle('compass:status', async () => ({ onlineAvailable: true, provider: 'Site-powered Compass', model: 'Claude Haiku 4.5' }));
   ipcMain.handle('compass:ask', async (_event, payload) => askSitePoweredCompass(payload));
   ipcMain.handle('app:review-uninstall', async () => resolveAppUninstallPlan());

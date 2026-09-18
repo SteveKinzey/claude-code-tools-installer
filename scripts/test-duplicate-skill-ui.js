@@ -63,11 +63,22 @@ const nameOverlapItems = [
   },
 ];
 
+const projectPackage = {
+  id: 'project-package:/fixture-project/package.json:@convex-dev/agent',
+  type: 'project-package',
+  name: '@convex-dev/agent',
+  version: '0.14.0',
+  scope: 'This project',
+  path: '/fixture-project/package.json',
+  description: 'Project package · 0.14.0.',
+};
+
 const discoveryReport = {
   discoveryId: 'duplicate-ui-fixture',
   checkedAt: '2026-09-12T12:00:00.000Z',
   projectPath: '/fixture-project',
-  findings: [...duplicateItems, ...nameOverlapItems],
+  findings: [...duplicateItems, ...nameOverlapItems, projectPackage],
+  managedExtras: { actionCount: 1, manualCount: 1, ignored: 0, error: '' },
   duplicates: [
     {
       name: 'revenue-systems',
@@ -128,6 +139,10 @@ function injectedBridge() {
       window.__duplicateUiCalls.push({ method: 'confirm', message });
       return true;
     };
+    window.prompt = (message) => {
+      window.__duplicateUiCalls.push({ method: 'prompt', message });
+      return message.includes('PROJECT PACKAGE') ? 'REMOVE PROJECT PACKAGE' : message.includes('CCTI EXTRAS') ? 'REMOVE CCTI EXTRAS' : '';
+    };
     const record = (method, payload) => window.__duplicateUiCalls.push({ method, payload });
     window.installer = {
       getCatalog: async () => [],
@@ -148,9 +163,28 @@ function injectedBridge() {
           reviewId: 'duplicate-cleanup-review',
           source: duplicateItems[0].path,
           destination: '/fixture-home/.claude/ccti-backups/revenue-systems-20260912-120000',
+          moves: [{
+            name: 'revenue-systems',
+            scope: duplicateItems[0].scope,
+            source: duplicateItems[0].path,
+            destination: '/fixture-home/.claude/ccti-backups/revenue-systems-20260912-120000',
+            files: [{
+              source: '/fixture-home/.claude/skills/revenue-systems/SKILL.md',
+              destination: '/fixture-home/.claude/ccti-backups/revenue-systems-20260912-120000/SKILL.md',
+              size: 42,
+              sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            }],
+          }],
         };
       },
       applyCleanup: async (payload) => { record('applyCleanup', payload); return { ok: true, message: 'Moved the selected skill to a backup folder.' }; },
+      reviewProjectPackageRemoval: async (payload) => {
+        record('reviewProjectPackageRemoval', payload);
+        return { ok: true, reviewId: 'project-package-removal-review', name: '@convex-dev/agent', projectPath: '/fixture-project', packageJsonPath: '/fixture-project/package.json', command: 'npm uninstall --ignore-scripts --no-audit --no-fund @convex-dev/agent' };
+      },
+      applyProjectPackageRemoval: async (payload) => { record('applyProjectPackageRemoval', payload); return { ok: false, error: 'Fixture stopped before package removal.' }; },
+      reviewManagedExtrasRemoval: async () => ({ ok: true, reviewId: 'managed-extras-removal-review', actions: [{ label: 'CCTI reference folder: learn-claude-code' }], manualItems: [{ label: 'claude-mem: Use docs' }], description: 'Removes only reviewed CCTI-managed extras.' }),
+      applyManagedExtrasRemoval: async (payload) => { record('applyManagedExtrasRemoval', payload); return { ok: false, error: 'Fixture stopped before managed extras removal.' }; },
       reviewAllDuplicates: async (payload) => {
         record('reviewAllDuplicates', payload);
         return {
@@ -401,7 +435,50 @@ async function run() {
     });
 
     await pageValue(window, "document.querySelector('#scan-setup-button').click()");
-    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === true, 'duplicate skills dialog after a checkup scan');
+    await waitFor(window, () => document.querySelector('#cleanup-actions')?.classList.contains('is-hidden') === false, 'cleanup action panel after a checkup scan');
+    const cleanupActionPanel = await pageValue(window, `(() => ({
+      duplicate: document.querySelector('#cleanup-duplicates-status').textContent,
+      skills: document.querySelector('#cleanup-skills-status').textContent,
+      plugins: document.querySelector('#cleanup-plugins-status').textContent,
+      packages: document.querySelector('#cleanup-packages-status').textContent,
+      managedExtras: document.querySelector('#cleanup-managed-extras-status').textContent,
+      inventoryOpen: document.querySelector('#setup-manager-inventory').open,
+      duplicateButton: document.querySelector('#cleanup-review-duplicates-button').textContent,
+      skillButton: document.querySelector('#cleanup-manage-skills-button').textContent,
+      packageButton: document.querySelector('#cleanup-manage-packages-button').textContent,
+      managedExtrasButton: document.querySelector('#cleanup-review-managed-extras-button').textContent,
+    }))()`);
+    assert.match(cleanupActionPanel.duplicate, /1 verified identical-content group/i);
+    assert.match(cleanupActionPanel.skills, /4 installed skills/i);
+    assert.match(cleanupActionPanel.plugins, /no user or project add-ons/i);
+    assert.match(cleanupActionPanel.packages, /1 package found/i);
+    assert.match(cleanupActionPanel.managedExtras, /1 CCTI-managed extra/i);
+    assert.equal(cleanupActionPanel.inventoryOpen, false, 'the raw inventory should not bury cleanup actions after a checkup');
+    assert.equal(cleanupActionPanel.duplicateButton, 'Review 1 duplicate copy');
+    assert.equal(cleanupActionPanel.skillButton, 'Review 4 installed skills');
+    assert.equal(cleanupActionPanel.packageButton, 'Review 1 project package');
+    assert.equal(cleanupActionPanel.managedExtrasButton, 'Review 1 removal');
+    await pageValue(window, "document.querySelector('#cleanup-manage-skills-button').click()");
+    await waitFor(window, () => document.querySelector('#setup-manager-inventory')?.open === true, 'installed skills inventory reveal');
+    await pageValue(window, "document.querySelector('.manager-item-skill button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === true && document.querySelector('#duplicate-skill-dialog-heading')?.textContent === 'Move this skill to a backup', 'single skill backup preview');
+    assert.equal(await pageValue(window, "document.querySelector('#backup-selected-skill-button').hidden"), false, 'a discovered skill must offer a clear safe backup action');
+    await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === false, 'single skill preview dismissal');
+    await pageValue(window, "document.querySelector('.manager-item-project-package button').click()");
+    await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'applyProjectPackageRemoval'), 'reviewed project package removal control');
+    assert.deepEqual((await pageValue(window, 'window.__duplicateUiCalls')).find((call) => call.method === 'applyProjectPackageRemoval')?.payload, {
+      reviewId: 'project-package-removal-review',
+      confirmation: 'REMOVE PROJECT PACKAGE',
+    });
+    await pageValue(window, "document.querySelector('#cleanup-review-managed-extras-button').click()");
+    await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'applyManagedExtrasRemoval'), 'reviewed CCTI-managed extras removal control');
+    assert.deepEqual((await pageValue(window, 'window.__duplicateUiCalls')).find((call) => call.method === 'applyManagedExtrasRemoval')?.payload, {
+      reviewId: 'managed-extras-removal-review',
+      confirmation: 'REMOVE CCTI EXTRAS',
+    });
+    await pageValue(window, "document.querySelector('#cleanup-review-duplicates-button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === true, 'duplicate skills dialog after explicit cleanup action');
 
     const scanDialog = await pageValue(window, `(() => {
       const dialog = document.querySelector('#duplicate-skill-dialog');
@@ -452,7 +529,7 @@ async function run() {
     assert.match(backupPreview.files, /\/fixture-home\/\.setup-my-claude\/disabled-skills\/revenue-systems-backup\/SKILL\.md/);
     assert.match(backupPreview.files, /SHA-256 a{64}/);
     assert.equal(backupPreview.backVisible, true);
-    assert.equal(backupPreview.confirmCalls, 0, 'the preview should open before the final confirmation is shown');
+    assert.equal(backupPreview.confirmCalls, 2, 'the duplicate preview should not add a confirmation before its final action');
     assert.equal(await pageValue(window, "document.activeElement?.id"), 'duplicate-backup-preview-heading', 'the file preview heading should receive focus when the preview phase opens');
 
     await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').click()");
@@ -464,7 +541,7 @@ async function run() {
     await pageValue(window, "document.querySelector('#deduplicate-all-skills-button').click()");
     await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'applyAllDuplicates'), 'reviewed bulk backup move');
     const cleanupCalls = await pageValue(window, 'window.__duplicateUiCalls');
-    const cleanupConfirmation = cleanupCalls.find((call) => call.method === 'confirm')?.message || '';
+    const cleanupConfirmation = cleanupCalls.filter((call) => call.method === 'confirm').at(-1)?.message || '';
     assert.match(cleanupConfirmation, /Back up exactly 1 reviewed file/);
     assert.match(cleanupConfirmation, /exact file list and backup destinations are shown in the CCTI dialog/i);
     assert.match(cleanupConfirmation, /does not delete any skill/i);

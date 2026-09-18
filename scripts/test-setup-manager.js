@@ -134,6 +134,10 @@ async function run() {
   const applySkillBackupReplacement = handlers.get('setup-manager:apply-skill-backup-replacement');
   const reviewPluginChange = handlers.get('setup-manager:review-plugin-change');
   const applyPluginChange = handlers.get('setup-manager:apply-plugin-change');
+  const reviewProjectPackageRemoval = handlers.get('setup-manager:review-project-package-removal');
+  const applyProjectPackageRemoval = handlers.get('setup-manager:apply-project-package-removal');
+  const reviewManagedExtrasRemoval = handlers.get('setup-manager:review-managed-extras-removal');
+  const applyManagedExtrasRemoval = handlers.get('setup-manager:apply-managed-extras-removal');
   const runInstall = handlers.get('install:run');
   const previewComponents = handlers.get('components:preview');
   const reviewAppUninstall = handlers.get('app:review-uninstall');
@@ -146,7 +150,7 @@ async function run() {
   const applyAppUninstall = handlers.get('app:apply-uninstall');
   const runDiagnostics = handlers.get('diagnostics:run');
 
-  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewAllDuplicates && applyAllDuplicates && reviewAllSkillBackups && applyAllSkillBackups && reviewPluginChange && applyPluginChange && runInstall && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && verifyDroppedInstallationManifest && compareInstallationManifests && applyAppUninstall, 'all handlers including bulk duplicate cleanup and restore, app uninstall, and manifest verification should be registered');
+  assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewAllDuplicates && applyAllDuplicates && reviewPluginChange && applyPluginChange && reviewProjectPackageRemoval && applyProjectPackageRemoval && reviewManagedExtrasRemoval && applyManagedExtrasRemoval && runInstall && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && verifyDroppedInstallationManifest && compareInstallationManifests && applyAppUninstall, 'all handlers including project package removal, CCTI-managed extras review, bulk duplicate cleanup and restore, app uninstall, and manifest verification should be registered');
 
   const componentCatalog = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
   const componentPreview = await previewComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id] });
@@ -212,6 +216,51 @@ async function run() {
   assert.match(userSkill.updatedAt, /^\d{4}-\d{2}-\d{2}T/, 'discovered skills should expose their SKILL.md last-edited time for a user-reviewed cleanup choice');
   const userPlugin = report.findings.find((item) => item.type === 'plugin' && item.scope === 'Just you');
   assert.ok(userPlugin, 'a user-scope plugin should be found');
+  await fsp.writeFile(path.join(project, 'package.json'), JSON.stringify({
+    name: 'checked-project',
+    private: true,
+    dependencies: { '@convex-dev/agent': '0.14.0' },
+  }, null, 2), 'utf8');
+  const packageReport = await discover(null, { projectPath: project });
+  const projectPackage = packageReport.findings.find((item) => item.type === 'project-package' && item.name === '@convex-dev/agent');
+  assert.ok(projectPackage, 'a selected project package should be available for a reviewed removal action');
+  const forgedProjectPackageReview = await reviewProjectPackageRemoval(null, { discoveryId: packageReport.discoveryId, findingId: 'project-package:/etc:bad' });
+  assert.equal(forgedProjectPackageReview.ok, false, 'project package removal must accept only the bounded checked finding');
+  const projectPackageReview = await reviewProjectPackageRemoval(null, { discoveryId: packageReport.discoveryId, findingId: projectPackage.id });
+  assert.equal(projectPackageReview.ok, true, 'a checked project package should have a reviewed removal plan');
+  assert.match(projectPackageReview.command, /^npm uninstall --ignore-scripts --no-audit --no-fund @convex-dev\/agent$/);
+  const invalidProjectPackageApply = await applyProjectPackageRemoval(null, { reviewId: projectPackageReview.reviewId, confirmation: 'WRONG_CONFIRMATION' });
+  assert.equal(invalidProjectPackageApply.ok, false, 'project package removal must require the explicit confirmation phrase');
+  const projectPackageRemoval = await applyProjectPackageRemoval(null, { reviewId: projectPackageReview.reviewId, confirmation: 'REMOVE PROJECT PACKAGE' });
+  assert.equal(projectPackageRemoval.ok, true, 'the confirmed reviewed project package should be removable with package scripts disabled');
+  const changedProjectManifest = JSON.parse(await fsp.readFile(path.join(project, 'package.json'), 'utf8'));
+  assert.equal(changedProjectManifest.dependencies?.['@convex-dev/agent'], undefined, 'project package removal must update only the selected project package file');
+  const managedManifestPath = path.join(home, '.setup-my-claude', 'manifest.tsv');
+  await fsp.mkdir(path.dirname(managedManifestPath), { recursive: true });
+  await fsp.writeFile(managedManifestPath, [
+    `2026-09-18T00:00:00Z\tpath\t${path.join(home, '.claude', 'reference-repos', 'learn-claude-code')}\t\tlearn-claude-code`,
+    '2026-09-18T00:00:00Z\tnpm-global\t@colbymchenry/codegraph\tcodegraph\tcodegraph',
+    '2026-09-18T00:00:00Z\tmanual-review\tclaude-mem\tUse its documented removal steps.\tclaude-mem',
+    `2026-09-18T00:00:00Z\tpath\t${path.join(tempRoot, 'outside-ccti-root')}\t\tlearn-claude-code`,
+  ].join('\n') + '\n', 'utf8');
+  const managedExtrasReview = await reviewManagedExtrasRemoval();
+  assert.equal(managedExtrasReview.ok, true, 'only recognized CCTI manifest entries should be eligible for reviewed removal');
+  assert.equal(managedExtrasReview.actions.length, 2);
+  assert.equal(managedExtrasReview.manualItems.length, 1);
+  assert.equal(managedExtrasReview.ignored, 1, 'manifest targets outside CCTI-managed roots must never enter a removal plan');
+  const invalidManagedExtrasApply = await applyManagedExtrasRemoval(null, { reviewId: managedExtrasReview.reviewId, confirmation: 'WRONG_CONFIRMATION' });
+  assert.equal(invalidManagedExtrasApply.ok, false, 'managed extras removal must require the explicit confirmation phrase');
+  const managedReferenceFolder = path.join(home, '.claude', 'reference-repos', 'learn-claude-code');
+  await fsp.mkdir(managedReferenceFolder, { recursive: true });
+  await fsp.writeFile(path.join(managedReferenceFolder, 'README.md'), 'CCTI-managed reference\n', 'utf8');
+  await fsp.writeFile(managedManifestPath, `2026-09-18T00:00:00Z\tpath\t${managedReferenceFolder}\t\tlearn-claude-code\n`, 'utf8');
+  const singleManagedExtrasReview = await reviewManagedExtrasRemoval();
+  assert.equal(singleManagedExtrasReview.ok, true);
+  assert.equal(singleManagedExtrasReview.actions.length, 1);
+  const managedExtrasRemoval = await applyManagedExtrasRemoval(null, { reviewId: singleManagedExtrasReview.reviewId, confirmation: 'REMOVE CCTI EXTRAS' });
+  assert.equal(managedExtrasRemoval.ok, true, 'the confirmed managed extras review should remove only its reviewed path');
+  await assert.rejects(fsp.access(managedReferenceFolder));
+  assert.equal(await fsp.readFile(managedManifestPath, 'utf8'), '', 'completed managed extras records must not be repeated by a later cleanup review');
 
   const missingProjectReport = await discover(null, { projectPath: path.join(tempRoot, 'removed-project') });
   assert.equal(missingProjectReport.ok, false, 'a project that disappears before checkup must return a normalized failure');

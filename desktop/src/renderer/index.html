@@ -130,19 +130,63 @@
         </div>
         <p id="manager-project-note" class="project-path-note">No project folder selected. A computer check looks only in the usual Claude Code locations for this user.</p>
         <p id="setup-manager-summary" class="manager-summary">Nothing has been checked yet.</p>
-        <div id="setup-manager-results" class="manager-results" aria-live="polite"></div>
-        <section id="duplicate-review" class="duplicate-review is-hidden" aria-labelledby="duplicate-review-heading">
-          <h3 id="duplicate-review-heading">Skill checkup: verified duplicates and name overlaps</h3>
+        <section id="cleanup-actions" class="cleanup-actions is-hidden" aria-labelledby="cleanup-actions-heading">
+          <div class="cleanup-actions-heading">
+            <p class="eyebrow">MAKE A CHANGE, SAFELY</p>
+            <h3 id="cleanup-actions-heading">Clean up or remove something</h3>
+            <p>Start here after a checkup. CCTI shows the exact item before it changes anything. Skills move to a backup instead of being deleted; add-ons can be turned off; project packages are removed only from the project you selected.</p>
+          </div>
+          <div class="cleanup-action-grid">
+            <article class="cleanup-action-card">
+              <h4>Duplicate skill copies</h4>
+              <p id="cleanup-duplicates-status">No verified duplicate skills found.</p>
+              <button id="cleanup-review-duplicates-button" class="button button-secondary" type="button" hidden>Review duplicate copies</button>
+            </article>
+            <article class="cleanup-action-card">
+              <h4>Skills you no longer want</h4>
+              <p id="cleanup-skills-status">No removable skills found.</p>
+              <button id="cleanup-manage-skills-button" class="button button-secondary" type="button" hidden>Review installed skills</button>
+            </article>
+            <article class="cleanup-action-card">
+              <h4>Add-ons you no longer want</h4>
+              <p id="cleanup-plugins-status">No add-ons that CCTI can turn off were found.</p>
+              <button id="cleanup-manage-plugins-button" class="button button-secondary" type="button" hidden>Manage add-ons</button>
+            </article>
+            <article class="cleanup-action-card">
+              <h4>Project packages you no longer need</h4>
+              <p id="cleanup-packages-status">Choose a project to check its packages.</p>
+              <button id="cleanup-manage-packages-button" class="button button-secondary" type="button" hidden>Review project packages</button>
+            </article>
+            <article class="cleanup-action-card cleanup-action-card-restore">
+              <h4>Bring back a backed-up skill</h4>
+              <p id="cleanup-backups-status">No safe skill backups found.</p>
+              <button id="cleanup-restore-backups-button" class="button button-primary" type="button" hidden>Review safe backups</button>
+            </article>
+            <article class="cleanup-action-card cleanup-action-card-remove">
+              <h4>CCTI-managed extras</h4>
+              <p id="cleanup-managed-extras-status">No CCTI-managed extras have been checked yet.</p>
+              <button id="cleanup-review-managed-extras-button" class="button button-danger" type="button" hidden>Review removal</button>
+            </article>
+          </div>
+          <p id="cleanup-actions-status" class="cleanup-actions-status" role="status" aria-live="polite">Nothing is deleted automatically.</p>
+        </section>
+        <details id="setup-manager-inventory" class="setup-manager-inventory">
+          <summary id="setup-manager-inventory-summary">Full checkup inventory</summary>
+          <p>Use this list to review every item CCTI found. Each eligible skill, add-on, and project package has a clear action button.</p>
+          <div id="setup-manager-results" class="manager-results" aria-live="polite"></div>
+        </details>
+        <details id="duplicate-review" class="duplicate-review is-hidden" aria-labelledby="duplicate-review-heading">
+          <summary id="duplicate-review-heading">Technical report: verified duplicates and name overlaps</summary>
           <p id="duplicate-review-summary">A verified duplicate has identical file content and can be moved only to a backup after review. A name overlap means two items share a name but may be different; it is informational and has no cleanup action.</p>
           <div id="duplicate-review-list" class="duplicate-review-list"></div>
           <button id="review-duplicate-skills-button" class="button button-secondary" type="button" hidden>Review verified duplicates</button>
-        </section>
-        <section id="skill-backup-review" class="duplicate-review is-hidden" aria-labelledby="skill-backup-review-heading">
-          <h3 id="skill-backup-review-heading">Backed-up skills</h3>
+        </details>
+        <details id="skill-backup-review" class="duplicate-review is-hidden" aria-labelledby="skill-backup-review-heading">
+          <summary id="skill-backup-review-heading">Technical backup report</summary>
           <p id="skill-backup-review-summary">CCTI restores a preserved skill only when its original location is empty. It never overwrites an active skill folder; use a replacement review only after inspecting the exact files.</p>
           <div id="skill-backup-review-list" class="duplicate-review-list"></div>
-          <button id="restore-all-skill-backups-button" class="button button-secondary" type="button">Restore safe backup copies</button>
-        </section>
+          <button id="restore-all-skill-backups-button" class="button button-secondary" type="button" hidden>Restore safe backup copies</button>
+        </details>
         <section class="custom-addon" aria-labelledby="custom-addon-heading">
           <div>
             <h3 id="custom-addon-heading">Add your own skill or add-on</h3>
@@ -391,6 +435,7 @@
         </section>
         <div class="duplicate-skill-dialog-actions">
           <button id="deduplicate-all-skills-button" class="button button-danger" type="button" hidden>De-duplicate all skills</button>
+          <button id="backup-selected-skill-button" class="button button-danger" type="button" hidden>Move selected skill to backup</button>
           <button id="restore-listed-skill-backups-button" class="button button-primary" type="button" hidden>Restore listed backup copies</button>
           <button id="cancel-deduplicate-preview-button" class="button button-ghost" type="button" hidden>Back to review</button>
           <button id="close-duplicate-skill-dialog" class="button button-secondary" type="submit">Keep all copies</button>

@@ -16,6 +16,7 @@ const state = {
   duplicateCleanupReview: null,
   skillBackupRestoreReview: null,
   skillBackupReplacementReview: null,
+  selectedSkillCleanupReview: null,
   duplicateDialogInvoker: null,
   customAddOnReview: null,
   compass: { online: false, history: [], opened: false },
@@ -75,7 +76,23 @@ const compassConnectFormElement = document.querySelector('#compass-connect-form'
 const openCompassConnectButton = document.querySelector('#open-compass-connect');
 const setupManagerSummaryElement = document.querySelector('#setup-manager-summary');
 const setupManagerResultsElement = document.querySelector('#setup-manager-results');
+const setupManagerInventoryElement = document.querySelector('#setup-manager-inventory');
+const setupManagerInventorySummaryElement = document.querySelector('#setup-manager-inventory-summary');
 const managerProjectNoteElement = document.querySelector('#manager-project-note');
+const cleanupActionsElement = document.querySelector('#cleanup-actions');
+const cleanupDuplicatesStatusElement = document.querySelector('#cleanup-duplicates-status');
+const cleanupSkillsStatusElement = document.querySelector('#cleanup-skills-status');
+const cleanupPluginsStatusElement = document.querySelector('#cleanup-plugins-status');
+const cleanupPackagesStatusElement = document.querySelector('#cleanup-packages-status');
+const cleanupBackupsStatusElement = document.querySelector('#cleanup-backups-status');
+const cleanupManagedExtrasStatusElement = document.querySelector('#cleanup-managed-extras-status');
+const cleanupActionsStatusElement = document.querySelector('#cleanup-actions-status');
+const cleanupReviewDuplicatesButton = document.querySelector('#cleanup-review-duplicates-button');
+const cleanupManageSkillsButton = document.querySelector('#cleanup-manage-skills-button');
+const cleanupManagePluginsButton = document.querySelector('#cleanup-manage-plugins-button');
+const cleanupManagePackagesButton = document.querySelector('#cleanup-manage-packages-button');
+const cleanupRestoreBackupsButton = document.querySelector('#cleanup-restore-backups-button');
+const cleanupReviewManagedExtrasButton = document.querySelector('#cleanup-review-managed-extras-button');
 const duplicateReviewElement = document.querySelector('#duplicate-review');
 const duplicateReviewListElement = document.querySelector('#duplicate-review-list');
 const duplicateReviewSummaryElement = document.querySelector('#duplicate-review-summary');
@@ -86,6 +103,7 @@ const duplicateSkillDialogHeadingElement = document.querySelector('#duplicate-sk
 const duplicateSkillDialogCopyElement = document.querySelector('#duplicate-skill-dialog-copy');
 const duplicateSkillDialogListElement = document.querySelector('#duplicate-skill-dialog-list');
 const deduplicateAllSkillsButton = document.querySelector('#deduplicate-all-skills-button');
+const backupSelectedSkillButton = document.querySelector('#backup-selected-skill-button');
 const duplicateBackupPreviewElement = document.querySelector('#duplicate-backup-preview');
 const duplicateBackupPreviewHeadingElement = document.querySelector('#duplicate-backup-preview-heading');
 const duplicateBackupPreviewSummaryElement = document.querySelector('#duplicate-backup-preview-summary');
@@ -1348,6 +1366,7 @@ function clearDuplicateBackupPreview() {
   state.duplicateCleanupReview = null;
   state.skillBackupRestoreReview = null;
   state.skillBackupReplacementReview = null;
+  state.selectedSkillCleanupReview = null;
   duplicateBackupPreviewElement.hidden = true;
   duplicateBackupPreviewSummaryElement.textContent = '';
   duplicateBackupPreviewListElement.replaceChildren();
@@ -1355,6 +1374,7 @@ function clearDuplicateBackupPreview() {
   cancelDeduplicatePreviewButton.textContent = 'Back to review';
   deduplicateAllSkillsButton.textContent = 'Back up verified duplicates';
   deduplicateAllSkillsButton.hidden = false;
+  backupSelectedSkillButton.hidden = true;
   restoreListedSkillBackupsButton.hidden = true;
 }
 
@@ -1375,6 +1395,8 @@ function focusDuplicateDialog(element) {
 function showDuplicateBackupPreview(review, { mode = 'backup' } = {}) {
   const restoring = mode === 'restore' || mode === 'replace';
   const replacing = mode === 'replace';
+  const singleSkill = mode === 'single-skill';
+  if (singleSkill) state.selectedSkillCleanupReview = review;
   if (restoring) state.skillBackupRestoreReview = review;
   else state.duplicateCleanupReview = review;
   if (replacing) {
@@ -1383,9 +1405,9 @@ function showDuplicateBackupPreview(review, { mode = 'backup' } = {}) {
   }
   const fileCount = review.moves.reduce((count, move) => count + (move.files || []).length, 0);
   duplicateBackupPreviewElement.hidden = false;
-  duplicateSkillDialogEyebrowElement.textContent = replacing ? 'REPLACEMENT REVIEW' : restoring ? 'RESTORE REVIEW' : 'BACKUP REVIEW';
-  duplicateSkillDialogHeadingElement.textContent = replacing ? 'Replace an active skill with a backup' : restoring ? 'Review backed-up skills' : 'Review verified duplicate skills';
-  duplicateBackupPreviewHeadingElement.textContent = replacing ? 'Files that will be safely swapped' : restoring ? 'Files that will be restored' : 'Files that will be backed up';
+  duplicateSkillDialogEyebrowElement.textContent = replacing ? 'REPLACEMENT REVIEW' : restoring ? 'RESTORE REVIEW' : singleSkill ? 'SKILL BACKUP REVIEW' : 'DUPLICATE BACKUP REVIEW';
+  duplicateSkillDialogHeadingElement.textContent = replacing ? 'Replace an active skill with a backup' : restoring ? 'Review backed-up skills' : singleSkill ? 'Move this skill to a backup' : 'Review verified duplicate skills';
+  duplicateBackupPreviewHeadingElement.textContent = replacing ? 'Files that will be safely swapped' : restoring ? 'Files that will be restored' : singleSkill ? 'Files that will move to backup' : 'Files that will be backed up';
   duplicateBackupPreviewSummaryElement.textContent = replacing
     ? `Review ${fileCount} exact file${fileCount === 1 ? '' : 's'} across two skill folders. CCTI first backs up the active copy, then restores the selected saved copy. No files are deleted, merged, or overwritten.`
     : `Review ${fileCount} exact file${fileCount === 1 ? '' : 's'} across ${review.moves.length} skill ${review.moves.length === 1 ? 'folder' : 'folders'}. The next action moves only these files into the shown ${restoring ? 'original Claude Code' : 'backup'} locations.`;
@@ -1407,9 +1429,11 @@ function showDuplicateBackupPreview(review, { mode = 'backup' } = {}) {
     : restoring
       ? 'CCTI restores only empty original locations and never overwrites active skills. Choose Restore only when this preview is correct.'
       : 'Review the exact files and backup destinations. CCTI does not delete skills.';
-  deduplicateAllSkillsButton.hidden = restoring;
+  deduplicateAllSkillsButton.hidden = restoring || singleSkill;
   deduplicateAllSkillsButton.textContent = 'Back up listed verified duplicates';
   deduplicateAllSkillsButton.disabled = review.moves.length === 0 || fileCount === 0;
+  backupSelectedSkillButton.hidden = !singleSkill;
+  backupSelectedSkillButton.disabled = !singleSkill || review.moves.length !== 1 || fileCount === 0;
   restoreListedSkillBackupsButton.hidden = !restoring;
   restoreListedSkillBackupsButton.textContent = replacing ? 'Back up active copy and restore selected backup' : 'Restore listed backup copies';
   restoreListedSkillBackupsButton.disabled = review.moves.length === 0 || fileCount === 0;
@@ -1471,6 +1495,15 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
   focusDuplicateDialog(duplicateSkillDialogHeadingElement);
 }
 
+function revealSetupManagerInventory(selector) {
+  setupManagerInventoryElement.open = true;
+  window.requestAnimationFrame(() => {
+    const target = setupManagerResultsElement.querySelector(selector);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target?.focus?.();
+  });
+}
+
 function renderSetupManager(report) {
   state.managerReport = report;
   const items = Array.isArray(report?.findings) ? report.findings : [];
@@ -1484,6 +1517,62 @@ function renderSetupManager(report) {
   setupManagerSummaryElement.textContent = items.length
     ? `Found ${globalItems} item${globalItems === 1 ? '' : 's'} for this computer, ${projectItems} item${projectItems === 1 ? '' : 's'} in the selected project, ${skills} skill${skills === 1 ? '' : 's'}, ${plugins} add-on${plugins === 1 ? '' : 's'}, and ${connections} saved connection${connections === 1 ? '' : 's'}${followUps ? `, plus ${followUps} follow-up item${followUps === 1 ? '' : 's'}` : ''}. This list is a checkup only. Nothing was changed.`
     : 'Nothing was found in the places checked. That is okay. You can still add tools or your own skill when ready.';
+  const manageableSkills = items.filter((item) => item.type === 'skill' && ['Just you', 'This project'].includes(item.scope));
+  const manageablePlugins = items.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
+  const projectPackages = items.filter((item) => item.type === 'project-package' && item.scope === 'This project');
+  const skillBackups = items.filter((item) => item.type === 'skill-backup');
+  const safeSkillBackups = skillBackups.filter((item) => item.restorable);
+  const verifiedSkillDuplicateGroups = duplicates.filter((duplicate) => duplicate.type === 'skill' && duplicate.match === 'content-hash' && duplicate.items?.length > 1);
+  const nameOverlapGroups = duplicates.filter((duplicate) => duplicate.match !== 'content-hash' && duplicate.items?.length > 1);
+  cleanupActionsElement.classList.remove('is-hidden');
+  cleanupDuplicatesStatusElement.textContent = verifiedSkillDuplicateGroups.length
+    ? `${verifiedSkillDuplicateGroups.length} verified identical-content group${verifiedSkillDuplicateGroups.length === 1 ? '' : 's'} can be reviewed and moved to backup.`
+    : nameOverlapGroups.length
+      ? `${nameOverlapGroups.length} same-name overlap${nameOverlapGroups.length === 1 ? ' is' : 's are'} informational only. CCTI will not remove them.`
+      : 'No verified duplicate skill copies found.';
+  cleanupReviewDuplicatesButton.hidden = verifiedSkillDuplicateGroups.length === 0;
+  cleanupReviewDuplicatesButton.disabled = verifiedSkillDuplicateGroups.length === 0;
+  cleanupReviewDuplicatesButton.textContent = verifiedSkillDuplicateGroups.length === 1 ? 'Review 1 duplicate copy' : `Review ${verifiedSkillDuplicateGroups.length} duplicate groups`;
+  cleanupSkillsStatusElement.textContent = manageableSkills.length
+    ? `${manageableSkills.length} installed skill${manageableSkills.length === 1 ? '' : 's'} can be moved to backup one at a time.`
+    : 'No installed skill folders found in the locations checked.';
+  cleanupManageSkillsButton.hidden = manageableSkills.length === 0;
+  cleanupManageSkillsButton.disabled = manageableSkills.length === 0;
+  cleanupManageSkillsButton.textContent = manageableSkills.length === 1 ? 'Review 1 installed skill' : `Review ${manageableSkills.length} installed skills`;
+  cleanupPluginsStatusElement.textContent = manageablePlugins.length
+    ? `${manageablePlugins.length} add-on${manageablePlugins.length === 1 ? '' : 's'} can be turned off without uninstalling.`
+    : 'No user or project add-ons found that CCTI can turn off.';
+  cleanupManagePluginsButton.hidden = manageablePlugins.length === 0;
+  cleanupManagePluginsButton.disabled = manageablePlugins.length === 0;
+  cleanupManagePluginsButton.textContent = manageablePlugins.length === 1 ? 'Manage 1 add-on' : `Manage ${manageablePlugins.length} add-ons`;
+  cleanupPackagesStatusElement.textContent = projectPackages.length
+    ? `${projectPackages.length} package${projectPackages.length === 1 ? '' : 's'} found in the selected project. Review before removing one.`
+    : report?.projectPath ? 'No project packages found in the selected folder.' : 'Choose a project to check its packages.';
+  cleanupManagePackagesButton.hidden = projectPackages.length === 0;
+  cleanupManagePackagesButton.disabled = projectPackages.length === 0;
+  cleanupManagePackagesButton.textContent = projectPackages.length === 1 ? 'Review 1 project package' : `Review ${projectPackages.length} project packages`;
+  cleanupBackupsStatusElement.textContent = safeSkillBackups.length
+    ? `${safeSkillBackups.length} safe backup ${safeSkillBackups.length === 1 ? 'is' : 'copies are'} ready to restore without overwriting an active skill.`
+    : skillBackups.length
+      ? `${skillBackups.length} backup ${skillBackups.length === 1 ? 'needs' : 'copies need'} individual review because an active skill is already in that location.`
+      : 'No safe skill backups found.';
+  cleanupRestoreBackupsButton.hidden = safeSkillBackups.length === 0;
+  cleanupRestoreBackupsButton.disabled = safeSkillBackups.length === 0;
+  cleanupRestoreBackupsButton.textContent = safeSkillBackups.length === 1 ? 'Review 1 safe backup' : `Review ${safeSkillBackups.length} safe backups`;
+  const managedExtras = report?.managedExtras || { actionCount: 0, manualCount: 0, ignored: 0, error: '' };
+  cleanupManagedExtrasStatusElement.textContent = managedExtras.error
+    ? 'CCTI could not read its managed extras list. No removal action is available.'
+    : managedExtras.actionCount
+      ? `${managedExtras.actionCount} CCTI-managed extra${managedExtras.actionCount === 1 ? '' : 's'} can be reviewed for removal.${managedExtras.manualCount ? ` ${managedExtras.manualCount} separately managed item${managedExtras.manualCount === 1 ? ' remains' : 's remain'} untouched.` : ''}`
+      : managedExtras.manualCount
+        ? `${managedExtras.manualCount} item${managedExtras.manualCount === 1 ? ' requires' : 's require'} its own documented removal steps. CCTI will not guess.`
+        : 'No CCTI-managed extras are recorded for removal.';
+  cleanupReviewManagedExtrasButton.hidden = !managedExtras.actionCount;
+  cleanupReviewManagedExtrasButton.disabled = !managedExtras.actionCount;
+  cleanupReviewManagedExtrasButton.textContent = managedExtras.actionCount === 1 ? 'Review 1 removal' : `Review ${managedExtras.actionCount} removals`;
+  cleanupActionsStatusElement.textContent = 'Nothing is deleted automatically. CCTI shows the exact files or command, then asks again before it acts.';
+  setupManagerInventorySummaryElement.textContent = `Full checkup inventory · ${items.length} item${items.length === 1 ? '' : 's'}`;
+  setupManagerInventoryElement.open = false;
   setupManagerResultsElement.replaceChildren();
   if (!items.length) {
     const empty = document.createElement('p');
@@ -1514,6 +1603,18 @@ function renderSetupManager(report) {
     location.className = 'manager-path';
     location.textContent = item.path;
     card.append(title, meta, copy, location);
+    if (item.type === 'skill' && ['Just you', 'This project'].includes(item.scope)) {
+      const controls = document.createElement('div');
+      controls.className = 'plugin-controls';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'button button-secondary';
+      button.textContent = 'Move to backup';
+      button.setAttribute('aria-label', `Review moving ${item.name} to a backup folder`);
+      button.addEventListener('click', () => reviewSingleSkillCleanup(item));
+      controls.append(button);
+      card.append(controls);
+    }
     if (item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope)) {
       const controls = document.createElement('div');
       controls.className = 'plugin-controls';
@@ -1527,6 +1628,18 @@ function renderSetupManager(report) {
       }
       card.append(controls);
     }
+    if (item.type === 'project-package' && item.scope === 'This project') {
+      const controls = document.createElement('div');
+      controls.className = 'plugin-controls';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'button button-ghost';
+      button.textContent = 'Review removal';
+      button.setAttribute('aria-label', `Review removing ${item.name} from this project`);
+      button.addEventListener('click', () => reviewAndRemoveProjectPackage(item));
+      controls.append(button);
+      card.append(controls);
+    }
     setupManagerResultsElement.append(card);
   }
   if (items.length > 80) {
@@ -1536,8 +1649,6 @@ function renderSetupManager(report) {
     setupManagerResultsElement.append(more);
   }
   duplicateReviewListElement.replaceChildren();
-  const verifiedSkillDuplicateGroups = duplicates.filter((duplicate) => duplicate.type === 'skill' && duplicate.match === 'content-hash' && duplicate.items?.length > 1);
-  const nameOverlapGroups = duplicates.filter((duplicate) => duplicate.match !== 'content-hash' && duplicate.items?.length > 1);
   reviewDuplicateSkillsButton.hidden = verifiedSkillDuplicateGroups.length === 0;
   reviewDuplicateSkillsButton.disabled = verifiedSkillDuplicateGroups.length === 0;
   reviewDuplicateSkillsButton.textContent = verifiedSkillDuplicateGroups.length === 1 ? 'Review 1 verified duplicate' : `Review ${verifiedSkillDuplicateGroups.length} verified duplicates`;
@@ -1571,8 +1682,6 @@ function renderSetupManager(report) {
     duplicateReviewListElement.append(group);
   }
 
-  const skillBackups = items.filter((item) => item.type === 'skill-backup');
-  const safeSkillBackups = skillBackups.filter((item) => item.restorable);
   skillBackupReviewElement.classList.toggle('is-hidden', skillBackups.length === 0);
   skillBackupReviewListElement.replaceChildren();
   restoreAllSkillBackupsButton.hidden = safeSkillBackups.length === 0;
@@ -1613,12 +1722,13 @@ function renderSetupManager(report) {
 async function scanSetup() {
   setupManagerSummaryElement.textContent = 'Checking the selected Claude Code locations. Nothing is being changed.';
   setupManagerResultsElement.replaceChildren();
+  cleanupActionsElement.classList.add('is-hidden');
+  setupManagerInventoryElement.open = false;
   duplicateReviewElement.classList.add('is-hidden');
   try {
     const result = await window.installer.discoverSetup({ projectPath: state.managerProjectPath });
     if (!result?.ok && result?.error) throw new Error(result.error);
     renderSetupManager(result);
-    openDuplicateSkillDialog(result.duplicates || []);
   } catch (error) {
     state.managerReport = null;
     state.managerProjectPath = '';
@@ -1636,21 +1746,76 @@ async function chooseManagerProject() {
   await scanSetup();
 }
 
-async function reviewAndApplyCleanup(finding) {
+async function reviewSingleSkillCleanup(finding) {
   const discoveryId = state.managerReport?.discoveryId;
   const review = await window.installer.reviewCleanup({ discoveryId, findingId: finding.id });
   if (!review.ok) {
     appendOutput(`[Checkup] ${review.error}\n`, 'stderr');
     return;
   }
-  if (!window.confirm(`Move this skill to a backup folder?\n\n${finding.name}\n\nCurrent location:\n${review.source}\n\nBackup location:\n${review.destination}\n\nThis does not delete the skill. No other settings will change.`)) return;
+  if (document.activeElement instanceof HTMLElement) state.duplicateDialogInvoker = document.activeElement;
+  duplicateSkillDialogListElement.replaceChildren();
+  if (!duplicateSkillDialogElement.open) duplicateSkillDialogElement.showModal();
+  showDuplicateBackupPreview(review, { mode: 'single-skill' });
+}
+
+async function applySelectedSkillCleanup() {
+  const review = state.selectedSkillCleanupReview;
+  if (!review) return;
+  const fileCount = movePreviewFileCount(review);
+  if (!window.confirm(`Move exactly ${fileCount} reviewed file${fileCount === 1 ? '' : 's'} from this skill to the shown backup folder?\n\nThis does not delete the skill. It can be restored later. Plugins, settings, connections, and project files will not change.`)) return;
+  duplicateSkillDialogElement.close();
   const result = await window.installer.applyCleanup({ reviewId: review.reviewId });
+  clearDuplicateBackupPreview();
   if (!result.ok) {
     appendOutput(`[Checkup] ${result.error}\n`, 'stderr');
     return;
   }
   appendOutput(`[Checkup] ${result.message}\n`);
   await scanSetup();
+}
+
+async function reviewAndRemoveProjectPackage(finding) {
+  const review = await window.installer.reviewProjectPackageRemoval({ discoveryId: state.managerReport?.discoveryId, findingId: finding.id });
+  if (!review.ok) {
+    appendOutput(`[Checkup] ${review.error}\n`, 'stderr');
+    return;
+  }
+  const accepted = window.confirm(`Review project package removal.\n\nPackage: ${review.name}\nProject folder: ${review.projectPath}\nPackage file: ${review.packageJsonPath}\n\nCCTI will run this exact command with package scripts disabled:\n${review.command}\n\nThis changes only the selected project’s package files and installed package folder. It does not remove global tools, skills, add-ons, or other projects. Continue?`);
+  if (!accepted) return;
+  const confirmation = window.prompt(`Final check: type REMOVE PROJECT PACKAGE to remove ${review.name} from this selected project. Nothing happens until you type it exactly.`);
+  if (confirmation !== 'REMOVE PROJECT PACKAGE') return;
+  cleanupActionsStatusElement.textContent = `Removing ${review.name} from the selected project with package scripts disabled…`;
+  const result = await window.installer.applyProjectPackageRemoval({ reviewId: review.reviewId, confirmation });
+  cleanupActionsStatusElement.textContent = result.ok
+    ? result.message
+    : result.error || 'CCTI could not remove that project package.';
+  appendOutput(`[Checkup] ${cleanupActionsStatusElement.textContent}\n`, result.ok ? 'stdout' : 'stderr');
+  if (result.ok) await scanSetup();
+}
+
+async function reviewAndRemoveManagedExtras() {
+  const review = await window.installer.reviewManagedExtrasRemoval();
+  if (!review.ok) {
+    cleanupActionsStatusElement.textContent = review.error || 'CCTI could not prepare the managed extras review.';
+    appendOutput(`[Checkup] ${cleanupActionsStatusElement.textContent}\n`, 'stderr');
+    return;
+  }
+  const actionList = review.actions.map((action) => `• ${action.label}`).join('\n');
+  const manualNote = review.manualItems.length
+    ? `\n\nLeft untouched for separate review:\n${review.manualItems.map((item) => `• ${item.label}`).join('\n')}`
+    : '';
+  const accepted = window.confirm(`Review CCTI-managed extras removal.\n\n${review.description}\n\nItems CCTI can remove:\n${actionList}${manualNote}\n\nContinue to the final confirmation?`);
+  if (!accepted) return;
+  const confirmation = window.prompt('Final check: type REMOVE CCTI EXTRAS exactly. CCTI will remove only the items in the review you just read.');
+  if (confirmation !== 'REMOVE CCTI EXTRAS') return;
+  cleanupActionsStatusElement.textContent = 'Removing only the reviewed CCTI-managed extras…';
+  const result = await window.installer.applyManagedExtrasRemoval({ reviewId: review.reviewId, confirmation });
+  cleanupActionsStatusElement.textContent = result.ok
+    ? result.message
+    : result.error || 'CCTI could not remove the reviewed managed extras.';
+  appendOutput(`[Checkup] ${cleanupActionsStatusElement.textContent}\n`, result.ok ? 'stdout' : 'stderr');
+  if (result.ok) await scanSetup();
 }
 
 async function deduplicateAllSkills() {
@@ -1913,6 +2078,12 @@ useExistingButton.addEventListener('click', () => {
 });
 installClaudeButton.addEventListener('click', installClaudeCode);
 reviewDuplicateSkillsButton.addEventListener('click', () => openDuplicateSkillDialog(state.managerReport?.duplicates || []));
+cleanupReviewDuplicatesButton.addEventListener('click', () => openDuplicateSkillDialog(state.managerReport?.duplicates || []));
+cleanupManageSkillsButton.addEventListener('click', () => revealSetupManagerInventory('.manager-item-skill .button'));
+cleanupManagePluginsButton.addEventListener('click', () => revealSetupManagerInventory('.manager-item-plugin .button'));
+cleanupManagePackagesButton.addEventListener('click', () => revealSetupManagerInventory('.manager-item-project-package .button'));
+cleanupRestoreBackupsButton.addEventListener('click', restoreAllSkillBackups);
+cleanupReviewManagedExtrasButton.addEventListener('click', reviewAndRemoveManagedExtras);
 runClaudeButton.addEventListener('click', runClaudeCode);
 removeClaudeButton.addEventListener('click', removeClaudeCode);
 terminalPreferenceSelectElement.addEventListener('change', changeTerminalPreference);
@@ -1953,9 +2124,15 @@ installComponentsButton.addEventListener('click', installProjectComponents);
 document.querySelector('#scan-setup-button').addEventListener('click', scanSetup);
 document.querySelector('#choose-manager-project-button').addEventListener('click', chooseManagerProject);
 deduplicateAllSkillsButton.addEventListener('click', deduplicateAllSkills);
+backupSelectedSkillButton.addEventListener('click', applySelectedSkillCleanup);
 restoreListedSkillBackupsButton.addEventListener('click', restoreAllSkillBackups);
 restoreAllSkillBackupsButton.addEventListener('click', restoreAllSkillBackups);
 cancelDeduplicatePreviewButton.addEventListener('click', () => {
+  if (state.selectedSkillCleanupReview) {
+    clearDuplicateBackupPreview();
+    duplicateSkillDialogElement.close();
+    return;
+  }
   if (state.duplicateCleanupReview) {
     openDuplicateSkillDialog(state.managerReport?.duplicates || [], { preserveInvoker: true });
     return;

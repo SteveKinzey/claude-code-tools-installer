@@ -171,6 +171,7 @@ async function run() {
       { id: 'component-results', role: null, live: 'polite', busy: null },
       { id: 'component-detail', role: null, live: 'polite', busy: null },
       { id: 'anonymous-success-message', role: null, live: 'polite', busy: null },
+      { id: 'cleanup-actions-status', role: 'status', live: 'polite', busy: null },
       { id: 'terminal-preference-note', role: 'status', live: 'polite', busy: 'false' },
       { id: 'run-status', role: 'status', live: 'polite', busy: 'false' },
       { id: 'output', role: null, live: 'polite', busy: null },
@@ -188,7 +189,17 @@ async function run() {
     );
 
     await evaluate(window, "document.querySelector('#scan-setup-button').click()");
-    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open, 'duplicate review dialog');
+    await waitFor(window, () => !document.querySelector('#cleanup-actions')?.classList.contains('is-hidden'), 'action-first cleanup panel');
+    const cleanupPanel = await evaluate(window, `(() => ({
+      inventoryOpen: document.querySelector('#setup-manager-inventory').open,
+      duplicateAction: document.querySelector('#cleanup-review-duplicates-button').textContent,
+      duplicateActionHidden: document.querySelector('#cleanup-review-duplicates-button').hidden,
+      live: document.querySelector('#cleanup-actions-status').getAttribute('aria-live'),
+      role: document.querySelector('#cleanup-actions-status').getAttribute('role'),
+    }))()`);
+    assert.deepEqual(cleanupPanel, { inventoryOpen: false, duplicateAction: 'Review 1 duplicate copy', duplicateActionHidden: false, live: 'polite', role: 'status' });
+    await evaluate(window, "document.querySelector('#cleanup-review-duplicates-button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open, 'explicit duplicate review dialog');
     const dialogSemantics = await evaluate(window, `(() => {
       const dialog = document.querySelector('#duplicate-skill-dialog');
       const preview = document.querySelector('#duplicate-backup-preview');
