@@ -44,10 +44,11 @@ function child() {
   return result;
 }
 
-function fakeSpawn(command, args) {
+function fakeSpawn(command, args, options = {}) {
   const result = child();
   process.nextTick(() => {
     if (command === 'which' || command === 'where.exe') {
+      if (platform === 'win32') assert.match(options.env?.Path || '', /Windows\\System32/, 'Windows command discovery must preserve a mixed-case inherited Path variable');
       const located = commandLocations[args[0]] || '';
       if (located) {
         result.stdout.emit('data', `${located}\n`);
@@ -97,6 +98,8 @@ const originalPlatform = process.platform;
 const originalSetInterval = global.setInterval;
 const originalPreferenceTest = process.env.CCTI_TERMINAL_PREFERENCE_TEST;
 const originalBundlePaths = process.env.CCTI_TEST_TERMINAL_BUNDLE_PATHS;
+const originalPath = process.env.PATH;
+const originalWindowsPath = process.env.Path;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'electron') return electronStub;
   if (request === 'node:child_process') return { spawn: fakeSpawn };
@@ -106,6 +109,10 @@ global.setInterval = () => ({ unref() {} });
 Object.defineProperty(process, 'platform', { value: platform, configurable: true });
 process.env.CCTI_TERMINAL_PREFERENCE_TEST = '1';
 process.env.CCTI_TEST_TERMINAL_BUNDLE_PATHS = JSON.stringify(macBundles);
+if (platform === 'win32') {
+  delete process.env.PATH;
+  process.env.Path = 'C:\\Windows\\System32';
+}
 
 async function select(setPreference, terminalId) {
   const result = await setPreference(null, { terminalId });
@@ -185,6 +192,10 @@ async function run() {
     else process.env.CCTI_TERMINAL_PREFERENCE_TEST = originalPreferenceTest;
     if (originalBundlePaths === undefined) delete process.env.CCTI_TEST_TERMINAL_BUNDLE_PATHS;
     else process.env.CCTI_TEST_TERMINAL_BUNDLE_PATHS = originalBundlePaths;
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalWindowsPath === undefined) delete process.env.Path;
+    else process.env.Path = originalWindowsPath;
     await fsp.rm(tempRoot, { recursive: true, force: true });
   }
 }

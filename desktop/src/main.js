@@ -195,12 +195,14 @@ function claudeProcessEnv() {
         path.join(home, '.npm-global', 'bin'),
         path.join(home, '.volta', 'bin'),
         path.join(home, '.asdf', 'shims'),
-        path.join(home, '.cargo', 'bin'),
+      path.join(home, '.cargo', 'bin'),
       ];
-  const paths = [nativeBin, managedNodeBin, ...commonPaths, process.env.PATH || ''].filter(Boolean);
+  const inheritedPath = process.env.PATH || process.env.Path || '';
+  const resolvedPath = [...new Set([nativeBin, managedNodeBin, ...commonPaths, inheritedPath].filter(Boolean).join(path.delimiter).split(path.delimiter).filter(Boolean))].join(path.delimiter);
   return {
     ...process.env,
-    PATH: [...new Set(paths.join(path.delimiter).split(path.delimiter).filter(Boolean))].join(path.delimiter),
+    PATH: resolvedPath,
+    ...(process.platform === 'win32' ? { Path: resolvedPath } : {}),
   };
 }
 
