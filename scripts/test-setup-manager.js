@@ -144,6 +144,7 @@ async function run() {
   const verifyDroppedInstallationManifest = handlers.get('app:verify-dropped-installation-manifest');
   const compareInstallationManifests = handlers.get('app:compare-installation-manifests');
   const applyAppUninstall = handlers.get('app:apply-uninstall');
+  const runDiagnostics = handlers.get('diagnostics:run');
 
   assert.ok(reviewCustom && applyCustom && discover && reviewCleanup && applyCleanup && reviewAllDuplicates && applyAllDuplicates && reviewAllSkillBackups && applyAllSkillBackups && reviewPluginChange && applyPluginChange && runInstall && previewComponents && reviewAppUninstall && exportInstallationManifest && openManifestFolder && getManifestVerificationCommand && verifyInstallationManifest && verifyDroppedInstallationManifest && compareInstallationManifests && applyAppUninstall, 'all handlers including bulk duplicate cleanup and restore, app uninstall, and manifest verification should be registered');
 
@@ -180,6 +181,17 @@ async function run() {
   const nameOverlapGroup = report.duplicates.find((group) => group.match === 'name' && group.name === 'same-name-different-content');
   assert.ok(nameOverlapGroup, 'same-name skill folders with different verified content should remain visible as an informational overlap');
   assert.notEqual(nameOverlapGroup.items[0].contentHash, nameOverlapGroup.items[1].contentHash, 'a name overlap must not be treated as matching content');
+  if (report.findings.filter((item) => item.type === 'connection' && item.name === 'shared-connection' && item.scope === 'Claude Code').length !== 1) {
+    const diagnostics = await runDiagnostics();
+    console.error(JSON.stringify({
+      diagnostic: 'setup-manager-cli-discovery',
+      fakeClaudeExists: fs.existsSync(fakeClaudePath),
+      appData: process.env.APPDATA || '',
+      localAppData: process.env.LOCALAPPDATA || '',
+      cliFindings: report.findings.filter((item) => item.scope === 'Claude Code').map((item) => ({ type: item.type, name: item.name })),
+      claudeStatus: String(diagnostics.report || '').split('\n').filter((line) => /^(Status:|Resolved command:|PATH used by CCTI)/.test(line)),
+    }));
+  }
   assert.equal(report.findings.filter((item) => item.type === 'connection' && item.name === 'shared-connection' && item.scope === 'Claude Code').length, 1, 'repeated CLI output for the same location should produce one inventory item');
   const userSkill = report.findings.find((item) => item.type === 'skill' && item.scope === 'Just you' && item.name === 'duplicate-skill');
   assert.ok(userSkill, 'the user skill should be found');
