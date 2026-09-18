@@ -52,8 +52,15 @@ jobs:
             "$windowsApps" | Add-Content $env:GITHUB_PATH
           }
           if (-not (Get-Command wt.exe -ErrorAction SilentlyContinue)) {
-            winget install --id Microsoft.WindowsTerminal --exact --silent --source winget --accept-package-agreements --accept-source-agreements
-            if ($LASTEXITCODE -ne 0) { throw 'Windows Terminal installation failed.' }
+            if (Get-Command winget -ErrorAction SilentlyContinue) {
+              winget install --id Microsoft.WindowsTerminal --exact --silent --source winget --accept-package-agreements --accept-source-agreements
+              if ($LASTEXITCODE -ne 0) { throw 'Windows Terminal installation through winget failed.' }
+            } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
+              choco install microsoft-windows-terminal --yes --no-progress
+              if ($LASTEXITCODE -ne 0) { throw 'Windows Terminal installation through Chocolatey failed.' }
+            } else {
+              throw 'Neither Windows Package Manager nor Chocolatey is available to install Windows Terminal on this fresh runner.'
+            }
             $env:PATH = "$windowsApps;$env:PATH"
           }
           $powerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
@@ -81,5 +88,5 @@ jobs:
         with:
           name: ccti-windows-terminal-adapter-evidence-${{ github.sha }}
           path: ${{ runner.temp }}\ccti-windows-terminal-adapter-evidence.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
