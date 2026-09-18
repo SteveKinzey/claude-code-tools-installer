@@ -246,7 +246,8 @@ function runProcess(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     let timer = null;
     let settled = false;
-    const child = spawn(command, args, { windowsHide: true, ...options });
+    const usesWindowsCommandShell = process.platform === 'win32' && /\.cmd$/i.test(String(command));
+    const child = spawn(command, args, { windowsHide: true, ...options, ...(usesWindowsCommandShell ? { shell: true } : {}) });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
