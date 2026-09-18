@@ -24,6 +24,7 @@
     "diagnostics:check": "node ../scripts/test-desktop-diagnostics-services.js",
     "terminal-preference:check": "node ../scripts/test-terminal-preference.js",
     "terminal-adapters:check": "node ../scripts/test-terminal-adapters.js darwin && node ../scripts/test-terminal-adapters.js win32 && node ../scripts/test-terminal-adapters.js linux",
+    "terminal-adapters:windows-runner": "node ../scripts/test-windows-terminal-adapter-runner.js",
     "updates:check": "node ../scripts/test-desktop-update-services.js",
     "updates:live-check": "node ../scripts/test-live-published-update.js",
     "project-prerequisites:check": "node ../scripts/test-project-prerequisites.js",

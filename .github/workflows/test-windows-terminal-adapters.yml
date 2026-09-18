@@ -1,0 +1,85 @@
+name: Test CCTI Windows terminal adapters
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/src/main.js'
+      - 'desktop/src/preload.js'
+      - 'desktop/package.json'
+      - 'desktop/package-lock.json'
+      - 'scripts/test-terminal-adapters.js'
+      - 'scripts/test-windows-terminal-adapter-runner.js'
+      - '.github/workflows/test-windows-terminal-adapters.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  terminal-adapters:
+    name: Verify PowerShell and Windows Terminal on clean Windows
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.12.0'
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Ensure Windows terminal prerequisites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Command powershell.exe -ErrorAction SilentlyContinue)) {
+            throw 'PowerShell is required for the CCTI default Windows terminal adapter.'
+          }
+          $windowsApps = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+          if (Test-Path $windowsApps) {
+            $env:PATH = "$windowsApps;$env:PATH"
+            "$windowsApps" | Add-Content $env:GITHUB_PATH
+          }
+          if (-not (Get-Command wt.exe -ErrorAction SilentlyContinue)) {
+            winget install --id Microsoft.WindowsTerminal --exact --silent --source winget --accept-package-agreements --accept-source-agreements
+            if ($LASTEXITCODE -ne 0) { throw 'Windows Terminal installation failed.' }
+            $env:PATH = "$windowsApps;$env:PATH"
+          }
+          $powerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
+          $windowsTerminal = (Get-Command wt.exe -ErrorAction Stop).Source
+          Write-Host "PowerShell adapter prerequisite: $powerShell"
+          Write-Host "Windows Terminal adapter prerequisite: $windowsTerminal"
+
+      - name: Verify fixed adapter contracts
+        run: npm run terminal-adapters:check
+
+      - name: Execute CCTI adapters against verified fixture
+        env:
+          CCTI_TERMINAL_EVIDENCE_PATH: ${{ runner.temp }}\ccti-windows-terminal-adapter-evidence.json
+        run: node ../scripts/test-windows-terminal-adapter-runner.js
+
+      - name: Clean disposable terminal fixture processes
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Process WindowsTerminal -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+      - name: Upload terminal execution evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ccti-windows-terminal-adapter-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}\ccti-windows-terminal-adapter-evidence.json
+          if-no-files-found: error
+          retention-days: 14

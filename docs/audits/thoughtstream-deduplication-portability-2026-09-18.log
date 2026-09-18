@@ -1,0 +1,9 @@
+
+> claude-code-tools-installer-desktop@2026.9.20 duplicate-skill:portability
+> node ../scripts/test-duplicate-skill-portability.js
+
+{"ok":true,"fixture":"external:thoughtstream","scopes":["Just you","This project"],"collision":"content-hash","backupRoot":"<fixture-app-state>/disabled-skills","restoredTo":"<fixture-home>/.claude/skills/portable-revenue-workflow"}
+project_head=bf77c860a237b6d1cc17ef85f123a11da3a960c2
+project_status=clean
+project_claude_overlay=absent
+source_head=95eed9569f6fc9dc31714a9c061ba8d6697eade3
