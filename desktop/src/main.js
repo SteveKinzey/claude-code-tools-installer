@@ -93,7 +93,7 @@ function supportedTerminalOptions() {
   if (process.platform === 'win32') {
     return [
       { id: 'default', label: 'PowerShell', launcher: 'windows-powershell', commands: ['pwsh.exe', 'powershell.exe'] },
-      { id: 'windows-terminal', label: 'Windows Terminal', launcher: 'windows-terminal', commands: ['wt.exe'] },
+      { id: 'windows-terminal', label: 'Windows Terminal', launcher: 'windows-terminal', commands: ['wt.exe'], packageExecutable: 'WindowsTerminal.exe' },
     ];
   }
   return [
@@ -109,6 +109,7 @@ function supportedTerminalOptions() {
 async function terminalOptionAvailable(option) {
   if (option.alwaysAvailable) return true;
   if (Array.isArray(option.bundlePaths)) return Boolean((await Promise.all(option.bundlePaths.map(pathExists))).find(Boolean));
+  if (option.packageExecutable) return Boolean(await firstAvailableTerminalCommand(option));
   return Boolean((await Promise.all((option.commands || []).map(commandLocation))).find(Boolean));
 }
 
@@ -856,6 +857,21 @@ async function firstAvailableTerminalCommand(option) {
   for (const command of option.commands || []) {
     const resolved = await commandLocation(command);
     if (resolved) return resolved;
+  }
+  if (process.platform === 'win32' && option.packageExecutable) {
+    try {
+      const query = "$package = Get-AppxPackage -Name Microsoft.WindowsTerminal* -AllUsers | Sort-Object Version -Descending | Select-Object -First 1; if ($package) { $package.InstallLocation }";
+      const result = await runProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', query], {
+        cwd: app.getPath('home'),
+        env: claudeProcessEnv(),
+        timeout: 4000,
+      });
+      const installLocation = result.code === 0
+        ? result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || ''
+        : '';
+      const executable = installLocation ? path.join(installLocation, option.packageExecutable) : '';
+      if (executable && await pathExists(executable)) return executable;
+    } catch {}
   }
   return '';
 }

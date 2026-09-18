@@ -16,6 +16,7 @@ const home = path.join(tempRoot, 'home');
 const fakeClaudePath = platform === 'win32'
   ? path.join(home, 'AppData', 'Roaming', 'npm', 'claude.cmd')
   : path.join(home, '.local', 'bin', 'claude');
+const windowsTerminalPackage = path.join(home, 'WindowsTerminal-package');
 const handlers = new Map();
 const launches = [];
 let readyCallback;
@@ -26,6 +27,7 @@ const commandLocations = {
   'pwsh.exe': 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
   'powershell.exe': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
   'wt.exe': 'C:\\Users\\fixture\\AppData\\Local\\Microsoft\\WindowsApps\\wt.exe',
+  'WindowsTerminal.exe': path.join(windowsTerminalPackage, 'WindowsTerminal.exe'),
   'x-terminal-emulator': '/usr/bin/x-terminal-emulator',
   'gnome-terminal': '/usr/bin/gnome-terminal',
   konsole: '/usr/bin/konsole',
@@ -53,6 +55,11 @@ function fakeSpawn(command, args) {
       } else {
         result.emit('close', 1);
       }
+      return;
+    }
+    if (command === 'powershell.exe' && args.some((arg) => String(arg).includes('Get-AppxPackage'))) {
+      result.stdout.emit('data', `${windowsTerminalPackage}\n`);
+      result.emit('close', 0);
       return;
     }
     if (command === fakeClaudePath && args[0] === '--version') {
@@ -149,6 +156,16 @@ async function run() {
       assert.deepEqual(launches.at(-1).args.slice(0, 4), ['-d', home, 'powershell.exe', '-NoExit']);
       assert.match(launches.at(-1).args.at(-1), /Set-Location -LiteralPath/);
       assert.match(launches.at(-1).args.at(-1), /claude\.cmd/);
+      delete commandLocations['wt.exe'];
+      const packageExecutable = commandLocations['WindowsTerminal.exe'];
+      await fsp.mkdir(path.dirname(packageExecutable), { recursive: true });
+      await fsp.writeFile(packageExecutable, 'fixture');
+      const packageFallback = await getPreference();
+      assert.equal(packageFallback.options.find((option) => option.id === 'windows-terminal')?.available, true, 'registered Windows Terminal packages must remain available when the wt.exe alias is absent');
+      await select(setPreference, 'windows-terminal');
+      const packageLaunch = await runClaude(null, { projectPath: home });
+      assert.equal(packageLaunch.ok, true);
+      assert.equal(launches.at(-1).command, packageExecutable);
     } else {
       assert.deepEqual(initial.options.map((option) => option.id), ['default', 'gnome-terminal', 'konsole', 'xterm', 'kitty', 'alacritty']);
       await select(setPreference, 'kitty');
