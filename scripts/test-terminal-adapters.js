@@ -138,7 +138,7 @@ async function run() {
       assert.equal(ghostty.ok, true);
       assert.match(ghostty.message, /Ghostty/);
       assert.deepEqual(launches.at(-1).args, ['-e', 'bash', '-lc', `cd '${home}'; exec '${fakeClaudePath}'`]);
-      assert.match(launches.at(-1).command, /Ghostty\.app\/Contents\/MacOS\/ghostty$/);
+      assert.match(launches.at(-1).command.replace(/\\/g, '/'), /Ghostty\.app\/Contents\/MacOS\/ghostty$/);
       await select(setPreference, 'iterm2');
       const test = await testTerminal();
       assert.equal(test.ok, true);
