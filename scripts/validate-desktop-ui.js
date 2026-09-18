@@ -179,7 +179,7 @@ if (!fs.readFileSync(path.join(root, 'setup-my-claude.sh'), 'utf8').includes('cl
 if (!renderer.includes("setAttribute('role', 'switch')") || !renderer.includes("toggle.textContent = state.selected.has(tool.id) ? 'On' : 'Off'")) {
   throw new Error('Curated extra tools must use clear accessible On/Off controls.');
 }
-if (!main.includes('const reviewedPluginPlans') || !main.includes('const reviewedPluginIds') || !main.includes('installReviewedPlugins(reviewedPluginIds)') || !main.includes("runProcess('claude', args")) {
+if (!main.includes('const reviewedPluginPlans') || !main.includes('const reviewedPluginIds') || !main.includes('installReviewedPlugins(reviewedPluginIds)') || !main.includes('async function runClaudeProcess') || !main.includes('runClaudeProcess(args')) {
   throw new Error('Supported fixed plugin choices must run inside CCTI after the approved tool plan succeeds.');
 }
 if (!main.includes('async function installedSkillsMatching') || !main.includes('skillContentManifest') || !main.includes("kind: 'duplicate-skill'") || !main.includes("code: 'already-available'")) {
