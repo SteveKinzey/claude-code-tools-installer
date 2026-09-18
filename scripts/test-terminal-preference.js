@@ -114,7 +114,11 @@ async function run() {
     const preferencePath = path.join(tempRoot, 'terminal-preference.json');
     const persisted = JSON.parse(await fsp.readFile(preferencePath, 'utf8'));
     assert.equal(persisted.terminalId, 'iterm2', 'the selected terminal must persist in CCTI-only preferences');
-    assert.equal((await fsp.stat(preferencePath)).mode & 0o077, 0, 'terminal preference must not be group or world readable');
+    if (originalPlatform !== 'win32') {
+      assert.equal((await fsp.stat(preferencePath)).mode & 0o077, 0, 'terminal preference must not be group or world readable');
+    } else {
+      assert.deepEqual(Object.keys(persisted), ['terminalId'], 'the Windows preference file must persist only the trusted terminal identifier');
+    }
 
     const iTermLaunch = await runClaude(null, {});
     assert.equal(iTermLaunch.ok, true);
