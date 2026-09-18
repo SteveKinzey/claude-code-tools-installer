@@ -2419,7 +2419,7 @@ async function reviewCleanup({ discoveryId, findingId }) {
 async function applyCleanup({ reviewId }) {
   const plan = reviewedCleanupPlans.get(reviewId);
   const currentFinding = plan && discoveredSkillCleanup.get(plan.discoveryId)?.skills.get(plan.findingId);
-  if (!plan || !currentFinding || currentFinding.path !== plan.source) {
+  if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000 || !currentFinding || currentFinding.path !== plan.source) {
     return { ok: false, error: 'This cleanup review has expired. Run the checkup again and review the backup move before continuing.' };
   }
   try {

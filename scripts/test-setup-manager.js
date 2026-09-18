@@ -226,6 +226,15 @@ async function run() {
   assert.ok(projectPackage, 'a selected project package should be available for a reviewed removal action');
   const forgedProjectPackageReview = await reviewProjectPackageRemoval(null, { discoveryId: packageReport.discoveryId, findingId: 'project-package:/etc:bad' });
   assert.equal(forgedProjectPackageReview.ok, false, 'project package removal must accept only the bounded checked finding');
+  const expiredProjectPackageReview = await reviewProjectPackageRemoval(null, { discoveryId: packageReport.discoveryId, findingId: projectPackage.id });
+  const originalDateNow = Date.now;
+  Date.now = () => originalDateNow() + 10 * 60 * 1000 + 1;
+  const expiredProjectPackageApply = await applyProjectPackageRemoval(null, { reviewId: expiredProjectPackageReview.reviewId, confirmation: 'REMOVE PROJECT PACKAGE' });
+  Date.now = originalDateNow;
+  assert.equal(expiredProjectPackageApply.ok, false, 'project package removal must reject a review that has expired');
+  assert.match(expiredProjectPackageApply.error, /expired/i);
+  const unchangedProjectManifest = JSON.parse(await fsp.readFile(path.join(project, 'package.json'), 'utf8'));
+  assert.equal(unchangedProjectManifest.dependencies?.['@convex-dev/agent'], '0.14.0', 'an expired review must not change the project package file');
   const projectPackageReview = await reviewProjectPackageRemoval(null, { discoveryId: packageReport.discoveryId, findingId: projectPackage.id });
   assert.equal(projectPackageReview.ok, true, 'a checked project package should have a reviewed removal plan');
   assert.match(projectPackageReview.command, /^npm uninstall --ignore-scripts --no-audit --no-fund @convex-dev\/agent$/);
@@ -243,6 +252,18 @@ async function run() {
     '2026-09-18T00:00:00Z\tmanual-review\tclaude-mem\tUse its documented removal steps.\tclaude-mem',
     `2026-09-18T00:00:00Z\tpath\t${path.join(tempRoot, 'outside-ccti-root')}\t\tlearn-claude-code`,
   ].join('\n') + '\n', 'utf8');
+  const expiredManagedExtrasReview = await reviewManagedExtrasRemoval();
+  Date.now = () => originalDateNow() + 10 * 60 * 1000 + 1;
+  const expiredManagedExtrasApply = await applyManagedExtrasRemoval(null, { reviewId: expiredManagedExtrasReview.reviewId, confirmation: 'REMOVE CCTI EXTRAS' });
+  Date.now = originalDateNow;
+  assert.equal(expiredManagedExtrasApply.ok, false, 'managed extras removal must reject a review that has expired');
+  assert.match(expiredManagedExtrasApply.error, /expired/i);
+  assert.equal(await fsp.readFile(managedManifestPath, 'utf8'), [
+    `2026-09-18T00:00:00Z\tpath\t${path.join(home, '.claude', 'reference-repos', 'learn-claude-code')}\t\tlearn-claude-code`,
+    '2026-09-18T00:00:00Z\tnpm-global\t@colbymchenry/codegraph\tcodegraph\tcodegraph',
+    '2026-09-18T00:00:00Z\tmanual-review\tclaude-mem\tUse its documented removal steps.\tclaude-mem',
+    `2026-09-18T00:00:00Z\tpath\t${path.join(tempRoot, 'outside-ccti-root')}\t\tlearn-claude-code`,
+  ].join('\n') + '\n', 'an expired managed-extras review must not change the manifest or its targets');
   const managedExtrasReview = await reviewManagedExtrasRemoval();
   assert.equal(managedExtrasReview.ok, true, 'only recognized CCTI manifest entries should be eligible for reviewed removal');
   assert.equal(managedExtrasReview.actions.length, 2);
@@ -297,6 +318,14 @@ async function run() {
   const forgedCleanup = await reviewCleanup(null, { discoveryId: report.discoveryId, findingId: 'skill:/etc' });
   assert.equal(forgedCleanup.ok, false);
 
+  const expiredCleanupPlan = await reviewCleanup(null, { discoveryId: report.discoveryId, findingId: userSkill.id });
+  Date.now = () => originalDateNow() + 10 * 60 * 1000 + 1;
+  const expiredCleanupResult = await applyCleanup(null, { reviewId: expiredCleanupPlan.reviewId });
+  Date.now = originalDateNow;
+  assert.equal(expiredCleanupResult.ok, false, 'individual skill cleanup must reject an expired review');
+  assert.match(expiredCleanupResult.error, /expired/i);
+  await fsp.access(path.join(userSkill.path, 'SKILL.md'));
+
   const cleanupPlan = await reviewCleanup(null, { discoveryId: report.discoveryId, findingId: userSkill.id });
   assert.equal(cleanupPlan.ok, true);
   assert.match(cleanupPlan.destination, /disabled-skills/);
@@ -304,6 +333,14 @@ async function run() {
   assert.equal(cleanupResult.ok, true);
   await assert.rejects(fsp.access(userSkill.path));
   await fsp.access(path.join(cleanupPlan.destination, 'SKILL.md'));
+
+  const expiredBulkPlan = await reviewAllDuplicates(null, { discoveryId: report.discoveryId });
+  Date.now = () => originalDateNow() + 10 * 60 * 1000 + 1;
+  const expiredBulkResult = await applyAllDuplicates(null, { reviewId: expiredBulkPlan.reviewId });
+  Date.now = originalDateNow;
+  assert.equal(expiredBulkResult.ok, false, 'bulk duplicate backup must reject an expired review');
+  assert.match(expiredBulkResult.error, /expired/i);
+  await fsp.access(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'));
 
   const staleBulkPlan = await reviewAllDuplicates(null, { discoveryId: report.discoveryId });
   await fsp.writeFile(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'), '# Changed after preview\n', 'utf8');
@@ -358,6 +395,13 @@ async function run() {
   assert.equal(safeBackups.length, 4, 'the checkup should find the prior single-skill backup plus global and project backups created by bulk cleanup');
   assert.ok(safeBackups.some((item) => item.scope === 'Just you'));
   assert.ok(safeBackups.some((item) => item.scope === 'This project'));
+  const expiredBackupRestorePlan = await reviewAllSkillBackups(null, { discoveryId: backupReport.discoveryId });
+  Date.now = () => originalDateNow() + 10 * 60 * 1000 + 1;
+  const expiredBackupRestoreResult = await applyAllSkillBackups(null, { reviewId: expiredBackupRestorePlan.reviewId });
+  Date.now = originalDateNow;
+  assert.equal(expiredBackupRestoreResult.ok, false, 'safe backup restore must reject an expired review');
+  assert.match(expiredBackupRestoreResult.error, /expired/i);
+  await fsp.access(path.join(namedBulkMove.destination, 'SKILL.md'));
   const backupRestorePlan = await reviewAllSkillBackups(null, { discoveryId: backupReport.discoveryId });
   assert.equal(backupRestorePlan.ok, true, 'a safe restoration review should be available for backed up duplicate skills');
   assert.equal(backupRestorePlan.moves.length, 4);
