@@ -26,7 +26,8 @@ function childProcess() {
 
 function spawnStub(command, args = []) {
   const child = childProcess();
-  const completeSetup = command === 'bash' && args.includes('--complete');
+  const completeSetup = (command === 'bash' && args.includes('--complete'))
+    || ((command === 'pwsh.exe' || command === 'powershell.exe') && args.includes('-Complete'));
   const prerequisiteSetup = command === 'bash' && args.includes('--project-prerequisites');
   if (prerequisiteSetup) {
     componentSpawns.push(child);
