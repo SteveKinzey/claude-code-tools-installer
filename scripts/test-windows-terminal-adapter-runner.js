@@ -28,6 +28,7 @@ const originalMarker = process.env.CCTI_TERMINAL_MARKER;
 const originalFetch = global.fetch;
 const originalSetInterval = global.setInterval;
 const spawnCalls = [];
+const detachedFixturePids = new Set();
 
 const electronStub = {
   app: {
@@ -114,6 +115,21 @@ function replayLastTerminalPayload() {
   };
 }
 
+async function removeFixtureRoot() {
+  for (const pid of detachedFixturePids) {
+    spawnSync('taskkill.exe', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
+  }
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    try {
+      await fsp.rm(fixtureRoot, { recursive: true, force: true, maxRetries: 0 });
+      return;
+    } catch (error) {
+      if (attempt === 11 || error?.code !== 'EBUSY') throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+}
+
 async function waitForMarker(label, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -157,8 +173,10 @@ async function run() {
         return {
           ...childProcess,
           spawn(command, args, options) {
+            const child = childProcess.spawn(command, args, options);
             spawnCalls.push({ command, args, options });
-            return childProcess.spawn(command, args, options);
+            if (options?.detached && Number.isInteger(child.pid)) detachedFixturePids.add(child.pid);
+            return child;
           },
         };
       }
@@ -219,7 +237,7 @@ async function run() {
     restoreEnv('APPDATA', originalAppData);
     restoreEnv('LOCALAPPDATA', originalLocalAppData);
     restoreEnv('CCTI_TERMINAL_MARKER', originalMarker);
-    await fsp.rm(fixtureRoot, { recursive: true, force: true });
+    await removeFixtureRoot();
   }
 }
 
