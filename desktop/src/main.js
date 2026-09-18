@@ -638,7 +638,7 @@ async function installedClaudePluginIds() {
   const claude = await claudeStatus();
   if (!claude.installed) return [];
   try {
-    const result = await runProcess('claude', ['plugin', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 8000 });
+    const result = await runProcess(claude.path || 'claude', ['plugin', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 8000 });
     return result.code === 0 ? pluginIdsFromList(result.stdout) : [];
   } catch {
     return [];
@@ -646,6 +646,9 @@ async function installedClaudePluginIds() {
 }
 
 async function installReviewedPlugins(selectedIds) {
+  const claude = await claudeStatus();
+  if (!claude.installed) throw new Error('Claude Code must be ready before CCTI can change a reviewed add-on.');
+  const claudeCommand = claude.path || 'claude';
   const installedIds = await installedClaudePluginIds();
   for (const id of selectedIds) {
     const installAction = (reviewedPluginPlans[id] || []).find((args) => args[0] === 'plugin' && args[1] === 'install');
@@ -656,7 +659,7 @@ async function installReviewedPlugins(selectedIds) {
     }
     for (const args of reviewedPluginPlans[id] || []) {
       emit('installer:output', { stream: 'stdout', text: `[CCTI] Running reviewed plugin action: claude ${args.join(' ')}\n` });
-      const result = await runProcess('claude', args, { cwd: app.getPath('home'), env: claudeProcessEnv() });
+      const result = await runProcess(claudeCommand, args, { cwd: app.getPath('home'), env: claudeProcessEnv() });
       if (result.stdout) emit('installer:output', { stream: 'stdout', text: result.stdout });
       if (result.stderr) emit('installer:output', { stream: result.code === 0 ? 'stdout' : 'stderr', text: result.stderr });
       if (result.code !== 0 && args[1] !== 'marketplace') throw new Error(`CCTI could not install ${id}. Claude Code returned exit code ${result.code}.`);
@@ -1871,9 +1874,10 @@ async function discoverClaudeSetup(projectPath = '') {
 
   const claude = await claudeStatus();
   if (claude.installed) {
+    const claudeCommand = claude.path || 'claude';
     const [plugins, connections] = await Promise.all([
-      runProcess('claude', ['plugin', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
-      runProcess('claude', ['mcp', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
+      runProcess(claudeCommand, ['plugin', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
+      runProcess(claudeCommand, ['mcp', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
     ]);
     if (plugins.code === 0) plugins.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).forEach((name) => findings.push({ id: `plugin-cli:${name}`, type: 'plugin', name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
     if (connections.code === 0) connections.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/)[0]).filter(Boolean).forEach((name) => findings.push({ id: `connection-cli:${name}`, type: 'connection', name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
@@ -1966,7 +1970,9 @@ async function applyPluginChange({ reviewId }) {
   if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) return { ok: false, error: 'This review has expired. Run the checkup again.' };
   reviewedPluginChanges.delete(reviewId);
   try {
-    const result = await runProcess('claude', ['plugin', plan.action, plan.name, '--scope', plan.scope], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+    const claude = await claudeStatus();
+    if (!claude.installed) return { ok: false, error: 'Claude Code is not ready. Run the checkup again after Claude Code is available.' };
+    const result = await runProcess(claude.path || 'claude', ['plugin', plan.action, plan.name, '--scope', plan.scope], { cwd: app.getPath('home'), env: claudeProcessEnv() });
     if (result.code !== 0) return { ok: false, error: result.stderr.trim() || `Claude Code could not ${plan.action} this add-on.` };
     return { ok: true, message: `${plan.name} is now ${plan.action === 'enable' ? 'enabled' : 'disabled'} for the selected scope.` };
   } catch (error) {
@@ -2118,7 +2124,9 @@ async function applyCustomAddOn({ reviewId }) {
     }
   }
   try {
-    const result = await runProcess('claude', ['plugin', 'marketplace', 'add', plan.source], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+    const claude = await claudeStatus();
+    if (!claude.installed) return { ok: false, error: 'Claude Code is not ready. Run the checkup again after Claude Code is available.' };
+    const result = await runProcess(claude.path || 'claude', ['plugin', 'marketplace', 'add', plan.source], { cwd: app.getPath('home'), env: claudeProcessEnv() });
     if (result.code !== 0) return { ok: false, error: result.stderr.trim() || 'CCTI could not add this marketplace.' };
     return { ok: true, message: 'CCTI added the reviewed marketplace to your Claude Code setup. No plugin from it was installed yet.' };
   } catch (error) {
