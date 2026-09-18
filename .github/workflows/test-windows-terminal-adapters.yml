@@ -52,16 +52,21 @@ jobs:
             "$windowsApps" | Add-Content $env:GITHUB_PATH
           }
           if (-not (Get-Command wt.exe -ErrorAction SilentlyContinue)) {
-            if (Get-Command winget -ErrorAction SilentlyContinue) {
-              winget install --id Microsoft.WindowsTerminal --exact --silent --source winget --accept-package-agreements --accept-source-agreements
-              if ($LASTEXITCODE -ne 0) { throw 'Windows Terminal installation through winget failed.' }
-            } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
-              choco install microsoft-windows-terminal --yes --no-progress
-              if ($LASTEXITCODE -ne 0) { throw 'Windows Terminal installation through Chocolatey failed.' }
-            } else {
-              throw 'Neither Windows Package Manager nor Chocolatey is available to install Windows Terminal on this fresh runner.'
-            }
-            $env:PATH = "$windowsApps;$env:PATH"
+            $release = Invoke-RestMethod 'https://api.github.com/repos/microsoft/terminal/releases/latest'
+            $asset = $release.assets | Where-Object { $_.name -match '_x64\.zip$' } | Select-Object -First 1
+            if (-not $asset) { throw 'The official Windows Terminal release did not include an x64 ZIP asset.' }
+            $terminalRoot = Join-Path $env:RUNNER_TEMP 'ccti-official-windows-terminal'
+            $terminalZip = Join-Path $env:RUNNER_TEMP $asset.name
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $terminalZip
+            Expand-Archive -Path $terminalZip -DestinationPath $terminalRoot -Force
+            $terminalExecutable = Get-ChildItem $terminalRoot -Recurse -Filter WindowsTerminal.exe | Select-Object -First 1
+            if (-not $terminalExecutable) { throw 'The official Windows Terminal ZIP did not contain WindowsTerminal.exe.' }
+            $signature = Get-AuthenticodeSignature -FilePath $terminalExecutable.FullName
+            if ($signature.Status -ne 'Valid') { throw "The downloaded Windows Terminal executable signature is not valid: $($signature.Status)." }
+            Copy-Item -Path $terminalExecutable.FullName -Destination (Join-Path $terminalExecutable.DirectoryName 'wt.exe') -Force
+            $env:PATH = "$($terminalExecutable.DirectoryName);$env:PATH"
+            $terminalExecutable.DirectoryName | Add-Content $env:GITHUB_PATH
+            Write-Host "Provisioned verified Windows Terminal release $($release.tag_name) for this disposable runner."
           }
           $powerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
           $windowsTerminal = (Get-Command wt.exe -ErrorAction Stop).Source
