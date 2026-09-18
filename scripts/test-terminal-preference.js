@@ -117,7 +117,8 @@ async function run() {
     if (originalPlatform !== 'win32') {
       assert.equal((await fsp.stat(preferencePath)).mode & 0o077, 0, 'terminal preference must not be group or world readable');
     } else {
-      assert.deepEqual(Object.keys(persisted), ['terminalId'], 'the Windows preference file must persist only the trusted terminal identifier');
+      assert.deepEqual(Object.keys(persisted).sort(), ['terminalId', 'updatedAt'], 'the Windows preference file must persist only the trusted terminal identifier and a CCTI update timestamp');
+      assert.ok(Number.isFinite(Date.parse(persisted.updatedAt)), 'the Windows preference timestamp must be a valid ISO date');
     }
 
     const iTermLaunch = await runClaude(null, {});
