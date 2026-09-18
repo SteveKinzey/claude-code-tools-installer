@@ -14,6 +14,7 @@ const reviewedBulkCleanupPlans = new Map();
 const reviewedBulkRestorePlans = new Map();
 const reviewedSkillBackupReplacementPlans = new Map();
 const reviewedPluginChanges = new Map();
+const reviewedCustomAddOnPlans = new Map();
 const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
 let activeSkillCleanup = false;
@@ -1988,6 +1989,32 @@ function validRepository(value) {
   return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
 }
 
+function storeCustomAddOnReview(review, sourceManifest = null) {
+  const reviewId = randomUUID();
+  const plan = {
+    kind: review.kind,
+    source: review.source,
+    scope: review.scope,
+    destination: review.destination || '',
+    sourceManifest,
+    createdAt: Date.now(),
+  };
+  reviewedCustomAddOnPlans.set(reviewId, plan);
+  for (const [id, candidate] of reviewedCustomAddOnPlans) {
+    if (Date.now() - candidate.createdAt > 10 * 60 * 1000) reviewedCustomAddOnPlans.delete(id);
+  }
+  return { ...review, reviewId };
+}
+
+function isSafeExternalUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 async function reviewCustomAddOn({ source, scope, projectPath }) {
   const cleanSource = String(source || '').trim();
   const cleanScope = ['user', 'project'].includes(scope) ? scope : 'user';
@@ -2006,13 +2033,13 @@ async function reviewCustomAddOn({ source, scope, projectPath }) {
     try {
       const url = new URL(cleanSource);
       if (url.username || url.password || !url.pathname.endsWith('marketplace.json')) throw new Error();
-      return { ok: true, kind: 'marketplace', source: cleanSource, scope: 'user', command: `claude plugin marketplace add ${cleanSource}`, description: 'Adds this trusted plugin marketplace to your Claude Code checklist. You will run the shown command only after a final confirmation.' };
+      return storeCustomAddOnReview({ ok: true, kind: 'marketplace', source: cleanSource, scope: 'user', command: `claude plugin marketplace add ${cleanSource}`, description: 'Adds this trusted plugin marketplace to your Claude Code checklist. You will run the shown command only after a final confirmation.' });
     } catch {
       return { ok: false, error: 'Use a trusted HTTPS marketplace link that ends in marketplace.json.' };
     }
   }
   if (validRepository(cleanSource)) {
-    return { ok: true, kind: 'marketplace', source: cleanSource, scope: 'user', description: 'Adds this reviewed GitHub marketplace to your Claude Code setup after one final confirmation.' };
+    return storeCustomAddOnReview({ ok: true, kind: 'marketplace', source: cleanSource, scope: 'user', description: 'Adds this reviewed GitHub marketplace to your Claude Code setup after one final confirmation.' });
   }
   const sourcePath = path.resolve(cleanSource);
   try {
@@ -2041,11 +2068,11 @@ async function reviewCustomAddOn({ source, scope, projectPath }) {
             : `CCTI did not add ${path.basename(sourcePath)} because this skill name is already available in Claude Code.`,
         };
       }
-      return { ok: true, kind: 'skill-copy', source: sourcePath, scope: cleanScope, destination, description: 'Copies this local skill folder into the selected Claude Code scope. The original folder stays where it is.' };
+      return storeCustomAddOnReview({ ok: true, kind: 'skill-copy', source: sourcePath, scope: cleanScope, destination, description: 'Copies this local skill folder into the selected Claude Code scope. The original folder stays where it is.' }, sourceManifest);
     } catch {
       try {
         await fs.access(path.join(sourcePath, '.claude-plugin', 'marketplace.json'));
-        return { ok: true, kind: 'marketplace', source: sourcePath, scope: 'user', description: 'Adds this reviewed local plugin marketplace to your Claude Code setup after one final confirmation.' };
+        return storeCustomAddOnReview({ ok: true, kind: 'marketplace', source: sourcePath, scope: 'user', description: 'Adds this reviewed local plugin marketplace to your Claude Code setup after one final confirmation.' });
       } catch {
         return { ok: false, error: 'This folder is not a skill (SKILL.md) or a plugin marketplace (.claude-plugin/marketplace.json).' };
       }
@@ -2055,24 +2082,42 @@ async function reviewCustomAddOn({ source, scope, projectPath }) {
   }
 }
 
-async function applyCustomAddOn(payload) {
-  const review = await reviewCustomAddOn(payload);
-  if (!review.ok) return review;
-  if (review.kind === 'duplicate-skill' || review.blocked) {
-    return { ok: false, code: 'already-available', error: review.description, name: review.name, existing: review.existing || [] };
+async function applyCustomAddOn({ reviewId }) {
+  const plan = reviewedCustomAddOnPlans.get(reviewId);
+  if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) {
+    return { ok: false, error: 'This add-on review has expired. Review the source again before adding it.' };
   }
-  if (review.kind === 'skill-copy') {
+  reviewedCustomAddOnPlans.delete(reviewId);
+  if (plan.kind === 'skill-copy') {
     try {
-      await fs.access(review.destination);
-      return { ok: false, code: 'already-available', error: `CCTI did not add ${path.basename(review.destination)} because this skill is already available in Claude Code.` };
+      const sourceInfo = await fs.lstat(plan.source);
+      if (sourceInfo.isSymbolicLink() || !sourceInfo.isDirectory()) throw new Error('The reviewed skill folder is no longer a direct readable folder.');
+      await fs.access(path.join(plan.source, 'SKILL.md'));
+      const currentManifest = await skillContentManifest(plan.source);
+      if (!plan.sourceManifest || currentManifest.identity !== plan.sourceManifest.identity || JSON.stringify(currentManifest.files) !== JSON.stringify(plan.sourceManifest.files)) {
+        return { ok: false, error: 'The reviewed skill changed after review. Review it again before adding it.' };
+      }
+      await fs.access(plan.destination);
+      return { ok: false, code: 'already-available', error: `CCTI did not add ${path.basename(plan.destination)} because this skill is already available in Claude Code.` };
     } catch {
-      await fs.mkdir(path.dirname(review.destination), { recursive: true });
-      await fs.cp(review.source, review.destination, { recursive: true, errorOnExist: true });
-      return { ok: true, message: `Added your skill to ${review.scope === 'user' ? 'your Claude Code setup' : 'the selected project'}.` };
+      try {
+        const sourceInfo = await fs.lstat(plan.source);
+        if (sourceInfo.isSymbolicLink() || !sourceInfo.isDirectory()) return { ok: false, error: 'The reviewed skill folder is no longer a direct readable folder. Review it again before adding it.' };
+        await fs.access(path.join(plan.source, 'SKILL.md'));
+        const currentManifest = await skillContentManifest(plan.source);
+        if (!plan.sourceManifest || currentManifest.identity !== plan.sourceManifest.identity || JSON.stringify(currentManifest.files) !== JSON.stringify(plan.sourceManifest.files)) {
+          return { ok: false, error: 'The reviewed skill changed after review. Review it again before adding it.' };
+        }
+        await fs.mkdir(path.dirname(plan.destination), { recursive: true });
+        await fs.cp(plan.source, plan.destination, { recursive: true, errorOnExist: true });
+        return { ok: true, message: `Added your skill to ${plan.scope === 'user' ? 'your Claude Code setup' : 'the selected project'}.` };
+      } catch (error) {
+        return { ok: false, error: `CCTI could not add the reviewed skill: ${error.message}` };
+      }
     }
   }
   try {
-    const result = await runProcess('claude', ['plugin', 'marketplace', 'add', review.source], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+    const result = await runProcess('claude', ['plugin', 'marketplace', 'add', plan.source], { cwd: app.getPath('home'), env: claudeProcessEnv() });
     if (result.code !== 0) return { ok: false, error: result.stderr.trim() || 'CCTI could not add this marketplace.' };
     return { ok: true, message: 'CCTI added the reviewed marketplace to your Claude Code setup. No plugin from it was installed yet.' };
   } catch (error) {
@@ -2423,6 +2468,18 @@ async function createWindow() {
     },
   });
 
+  if (typeof mainWindow.webContents.setWindowOpenHandler === 'function') {
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (isSafeExternalUrl(url)) shell.openExternal(url).catch(() => {});
+      return { action: 'deny' };
+    });
+  }
+  if (typeof mainWindow.webContents.on === 'function') {
+    mainWindow.webContents.on('will-navigate', (event) => {
+      event.preventDefault();
+    });
+  }
+
   await mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
@@ -2445,7 +2502,13 @@ app.whenReady().then(async () => {
   ipcMain.handle('claude:review-removal', knownClaudeRemovalPlan);
   ipcMain.handle('claude:apply-removal', async (_event, payload) => applyKnownClaudeRemoval(payload || {}));
   ipcMain.handle('setup-manager:choose-project', chooseSetupProject);
-  ipcMain.handle('setup-manager:discover', async (_event, { projectPath } = {}) => discoverClaudeSetup(projectPath));
+  ipcMain.handle('setup-manager:discover', async (_event, { projectPath } = {}) => {
+    try {
+      return await discoverClaudeSetup(projectPath);
+    } catch (error) {
+      return { ok: false, error: `CCTI could not check the selected project: ${error.message}`, findings: [], duplicates: [], discoveryId: '' };
+    }
+  });
   ipcMain.handle('setup-manager:choose-custom-source', chooseCustomSource);
   ipcMain.handle('setup-manager:review-custom', async (_event, payload) => reviewCustomAddOn(payload || {}));
   ipcMain.handle('setup-manager:apply-custom', async (_event, payload) => applyCustomAddOn(payload || {}));
@@ -2489,7 +2552,15 @@ app.whenReady().then(async () => {
     try {
       const result = await spawnInstaller(fresh ? 'fresh-complete' : 'complete');
       const after = await claudeStatus();
-      return { ok: result.code === 0, code: result.code, installed: after.installed, version: after.version };
+      return {
+        ok: result.code === 0 && after.installed,
+        code: result.code,
+        installed: after.installed,
+        version: after.version,
+        error: result.code === 0 && !after.installed
+          ? 'The installer finished, but CCTI could not verify Claude Code. Open Diagnostics or run the Claude Code check again before continuing.'
+          : '',
+      };
     } catch (error) {
       return { ok: false, error: error.message, installed: false, version: '' };
     } finally {
@@ -2562,6 +2633,11 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('components:install', async (_event, { projectPath, componentIds, dryRun }) => {
     if (activeComponentInstall) return { ok: false, error: 'A project component installation is already running.' };
+    const holdsInstallLock = !dryRun;
+    if (holdsInstallLock) {
+      activeComponentInstall = true;
+      emit('component:state', { running: true });
+    }
     try {
       const [projectInspection, components] = await Promise.all([
         inspectProjectPackage(projectPath),
@@ -2571,8 +2647,6 @@ app.whenReady().then(async () => {
       if (dryRun) {
         return { ok: true, preview: true, command: `npm install ${packages.join(' ')}`, components, packageJsonPath: projectInspection.packageJsonPath, packageState: projectInspection.packageState };
       }
-      activeComponentInstall = true;
-      emit('component:state', { running: true });
       emit('component:output', { stream: 'stdout', text: '[CCTI] Preparing the required project runtime…\n' });
       const prerequisites = await spawnInstaller('project-prerequisites');
       if (prerequisites.code !== 0) return { ok: false, code: prerequisites.code, error: 'CCTI could not prepare the required project runtime. Review the activity details and try again.' };
@@ -2590,8 +2664,10 @@ app.whenReady().then(async () => {
     } catch (error) {
       return { ok: false, error: error.message };
     } finally {
-      activeComponentInstall = false;
-      emit('component:state', { running: false });
+      if (holdsInstallLock) {
+        activeComponentInstall = false;
+        emit('component:state', { running: false });
+      }
     }
   });
 

@@ -10,13 +10,9 @@
 
 The public product site is [claudetool.app](https://claudetool.app/). It includes the plain-language walkthrough, searchable catalog, private-first Compass help, release sign-up, public user manual, Privacy Policy, Terms, Disclaimer, and four captioned product videos.
 
-The current public release is [v2026.08.12](https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.08.12). Its Windows file is a legacy **ZIP download**. New Windows distribution work uses the Microsoft Store MSIX route documented below. The release provider reports the direct file as `claude-code-tools-installer-windows.zip`, 1,819,520 bytes. Its published SHA-256 is:
+Current platform availability, filenames, byte sizes, and SHA-256 digests are derived from the [GitHub Releases record](https://github.com/SteveKinzey/claude-code-tools-installer/releases) by the product site. A source tag is **not** a download. If the site does not list a SHA-256-backed artifact for a platform, use the release archive instead of constructing a download URL.
 
-```text
-9811d14d9048440b77a96504197656aeb7411c45c8812d33916187957bd28a60
-```
-
-Download only from the [release page](https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.08.12), then compare the file digest if you know how. The site and release record are checked separately. A release download is not evidence of a completed setup, active user, or vote.
+Download only from the linked release record, then compare the published digest before opening an artifact. The site and release record are checked separately. A release download is not evidence of a completed setup, active user, or vote.
 
 ## What You See in the GUI
 
@@ -39,9 +35,9 @@ Download the package for your computer from [Releases](https://github.com/SteveK
 
 | Your computer | Package | What to do next |
 |---|---|---|
-| **Windows** | [ZIP download](https://github.com/SteveKinzey/claude-code-tools-installer/releases/download/v2026.08.12/claude-code-tools-installer-windows.zip) | Legacy download: save the ZIP, unzip it into a folder you can find, read the included guide, then open the app. New Windows distribution work uses the Microsoft Store MSIX route. |
-| **macOS** | `.dmg` | Open the DMG, drag the app to Applications, launch it, then use the same Step 1 choice. |
-| **Linux** | `.tar.gz` application archive | Extract the archive, run the desktop app, then use the same Step 1 choice. |
+| **Windows** | Microsoft Store MSIX when published | The portable ZIP release path is intentionally disabled until a signed, publisher-verified workflow is approved. Do not treat a legacy ZIP as the current supported path. |
+| **macOS** | SHA-256-backed `.dmg` when listed | Open the verified DMG, drag the app to Applications, launch it, then use the same Step 1 choice. |
+| **Linux** | SHA-256-backed application archive when listed | Extract the verified archive, run the desktop app, then use the same Step 1 choice. |
 
 > **Electron 44 compatibility:** Releases built from the security-remediated dependency line require **macOS 13 or later** and 64-bit Windows or Linux. Windows x64 and ARM64 remain supported; Windows 32-bit and Linux ARMv7 are no longer supported by Electron.
 

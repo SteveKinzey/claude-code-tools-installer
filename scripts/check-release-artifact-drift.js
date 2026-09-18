@@ -20,9 +20,16 @@ function isReleaseTag(tag) {
 
 function classifyArtifact(name) {
   const file = String(name || "").toLowerCase();
-  if (/\.dmg$/.test(file) || /(?:macos|darwin|mac)(?:[-_.]|$)/.test(file)) return "macos";
-  if (/\.(?:exe|msi|msix|msixbundle)$/.test(file) || /(?:windows|win)(?:[-_.]|$)/.test(file)) return "windows";
-  if (/\.(?:appimage|deb|rpm|tar\.gz)$/.test(file) || /linux(?:[-_.]|$)/.test(file)) return "linux";
+  if (/\.(?:sha256|sha512|sig|asc|yml|yaml|json)$/i.test(file)) return null;
+  if (/claude[._-]?code[._-]?tools[._-]?installer/.test(file)
+    && /(?:macos|darwin|mac)(?:[-_.]|$)/.test(file)
+    && /\.(?:dmg|zip)$/.test(file)) return "macos";
+  if (/claude[._-]?code[._-]?tools[._-]?installer/.test(file)
+    && /(?:windows|win)(?:[-_.]|$)/.test(file)
+    && /\.(?:exe|msi|msix|msixbundle|zip)$/.test(file)) return "windows";
+  if (/claude[._-]?code[._-]?tools[._-]?installer/.test(file)
+    && /linux(?:[-_.]|$)/.test(file)
+    && /\.(?:appimage|deb|rpm|tar\.gz)$/.test(file)) return "linux";
   return null;
 }
 

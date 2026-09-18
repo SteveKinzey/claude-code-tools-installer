@@ -151,6 +151,20 @@ async function run() {
   assert.equal(githubSource.scope, 'user');
   assert.match(githubSource.description, /after one final confirmation/);
   assert.doesNotMatch(githubSource.description, /checklist|terminal|PowerShell/i);
+  assert.ok(githubSource.reviewId, 'a custom marketplace review must issue an opaque apply token');
+  if (process.platform !== 'win32') {
+    await fsp.writeFile(fakeClaudeLog, '', 'utf8');
+    const boundMarketplaceResult = await applyCustom(null, {
+      reviewId: githubSource.reviewId,
+      source: 'owner/different-marketplace',
+      scope: 'project',
+      projectPath: path.join(tempRoot, 'forged-project'),
+    });
+    assert.equal(boundMarketplaceResult.ok, true, 'the reviewed marketplace should remain applyable through its opaque token');
+    const marketplaceCalls = await fsp.readFile(fakeClaudeLog, 'utf8');
+    assert.match(marketplaceCalls, /plugin marketplace add owner\/trusted-marketplace/, 'apply must use the reviewed marketplace source');
+    assert.doesNotMatch(marketplaceCalls, /different-marketplace/, 'editable renderer fields must not replace the reviewed marketplace source');
+  }
 
   const report = await discover(null, { projectPath: project });
   assert.ok(report.discoveryId, 'a discovery session is required for cleanup');
@@ -171,6 +185,10 @@ async function run() {
   const userPlugin = report.findings.find((item) => item.type === 'plugin' && item.scope === 'Just you');
   assert.ok(userPlugin, 'a user-scope plugin should be found');
 
+  const missingProjectReport = await discover(null, { projectPath: path.join(tempRoot, 'removed-project') });
+  assert.equal(missingProjectReport.ok, false, 'a project that disappears before checkup must return a normalized failure');
+  assert.match(missingProjectReport.error, /could not check the selected project/i);
+
   const duplicateReview = await reviewCustom(null, { source: duplicateSourceSkill, scope: 'user', projectPath: project });
   assert.equal(duplicateReview.ok, true, 'a duplicate review should complete without copying anything');
   assert.equal(duplicateReview.blocked, true, 'CCTI must block a duplicate skill before approval');
@@ -178,9 +196,9 @@ async function run() {
   assert.equal(duplicateReview.name, 'duplicate-skill');
   assert.equal(duplicateReview.existing.length, 2, 'duplicate review should identify both installed Claude Code copies');
   assert.match(duplicateReview.description, /already available in Claude Code/i);
-  const blockedDuplicate = await applyCustom(null, { source: duplicateSourceSkill, scope: 'user', projectPath: project });
+  const blockedDuplicate = await applyCustom(null, { reviewId: duplicateReview.reviewId });
   assert.equal(blockedDuplicate.ok, false, 'CCTI must never copy a duplicate skill');
-  assert.equal(blockedDuplicate.code, 'already-available');
+  assert.match(blockedDuplicate.error, /review has expired/i);
   await fsp.access(path.join(duplicateSourceSkill, 'SKILL.md'));
   await fsp.access(path.join(home, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'));
   await fsp.access(path.join(project, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'));
@@ -354,10 +372,21 @@ async function run() {
   assert.equal(copyReview.ok, true);
   assert.equal(copyReview.kind, 'skill-copy');
   assert.equal(copyReview.destination, path.join(project, '.claude', 'skills', 'my-skill'));
-  const copyResult = await applyCustom(null, { source: sourceSkill, scope: 'project', projectPath: project });
+  assert.ok(copyReview.reviewId, 'a reviewed local skill must have an opaque apply token');
+  const copyResult = await applyCustom(null, { reviewId: copyReview.reviewId, source: duplicateSourceSkill });
   assert.equal(copyResult.ok, true);
   await fsp.access(path.join(copyReview.destination, 'SKILL.md'));
   await fsp.access(path.join(sourceSkill, 'SKILL.md'));
+
+  const changedSourceSkill = path.join(tempRoot, 'changed-after-review');
+  await writeSkill(changedSourceSkill, 'Changed after review', { contents: '# Original review\n' });
+  const changedReview = await reviewCustom(null, { source: changedSourceSkill, scope: 'user', projectPath: project });
+  assert.equal(changedReview.ok, true);
+  await fsp.writeFile(path.join(changedSourceSkill, 'SKILL.md'), '# Changed after review\n', 'utf8');
+  const changedApply = await applyCustom(null, { reviewId: changedReview.reviewId });
+  assert.equal(changedApply.ok, false, 'a local skill changed after review must not be copied');
+  assert.match(changedApply.error, /changed after review/i);
+  await assert.rejects(fsp.access(path.join(home, '.claude', 'skills', 'changed-after-review')));
 
   
   // Verify app uninstallation behavior

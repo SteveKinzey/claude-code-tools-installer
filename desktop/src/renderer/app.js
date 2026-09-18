@@ -1614,9 +1614,18 @@ async function scanSetup() {
   setupManagerSummaryElement.textContent = 'Checking the selected Claude Code locations. Nothing is being changed.';
   setupManagerResultsElement.replaceChildren();
   duplicateReviewElement.classList.add('is-hidden');
-  const result = await window.installer.discoverSetup({ projectPath: state.managerProjectPath });
-  renderSetupManager(result);
-  openDuplicateSkillDialog(result.duplicates);
+  try {
+    const result = await window.installer.discoverSetup({ projectPath: state.managerProjectPath });
+    if (!result?.ok && result?.error) throw new Error(result.error);
+    renderSetupManager(result);
+    openDuplicateSkillDialog(result.duplicates || []);
+  } catch (error) {
+    state.managerReport = null;
+    state.managerProjectPath = '';
+    setupManagerSummaryElement.textContent = error.message || 'CCTI could not check the selected project. Choose the folder again and retry.';
+    managerProjectNoteElement.textContent = 'No valid project folder is selected.';
+    appendOutput(`[Checkup] ${error.message || 'CCTI could not check the selected project.'}\n`, 'stderr');
+  }
 }
 
 async function chooseManagerProject() {
@@ -1766,11 +1775,7 @@ async function applyCustomAddOn() {
   if (!state.customAddOnReview) return;
   const review = state.customAddOnReview;
   if (!window.confirm(`Add this reviewed ${review.kind === 'skill-copy' ? 'skill' : 'marketplace'}?\n\n${review.description}\n\n${review.command || `${review.source}\n→\n${review.destination}`}\n\nNothing else will change.`)) return;
-  const result = await window.installer.applyCustomAddOn({
-    source: customAddOnSourceElement.value,
-    scope: customAddOnScopeElement.value,
-    projectPath: state.managerProjectPath,
-  });
+  const result = await window.installer.applyCustomAddOn({ reviewId: review.reviewId });
   customAddOnOutputElement.textContent = result.ok ? result.message : result.error;
   customAddOnOutputElement.classList.toggle('has-error', !result.ok);
   if (result.ok) {

@@ -243,8 +243,12 @@ jobs:
           DMG_CHECKSUM: ${{ steps.checksums.outputs.dmg_checksum }}
           ZIP_CHECKSUM: ${{ steps.checksums.outputs.zip_checksum }}
         run: |
+          if gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx false; then
+            echo "Refusing to modify an already-public release. Create a new release tag for a corrected artifact." >&2
+            exit 2
+          fi
           gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --target "$SOURCE_COMMIT" --title "$TAG" --generate-notes
+            gh release create "$TAG" --target "$SOURCE_COMMIT" --title "$TAG" --generate-notes --draft
           # Upload one asset per request. GitHub can finish a large DMG upload
           # after a concurrent batch has tried to replace it, producing a false
           # duplicate-name failure. Even single-asset --clobber can still race
@@ -274,6 +278,51 @@ jobs:
           for artifact in "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"; do
             upload_release_asset "$artifact"
           done
+
+      - name: Verify draft release inventory before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          DMG: ${{ steps.artifact.outputs.dmg }}
+          ZIP: ${{ steps.artifact.outputs.zip }}
+          METADATA: ${{ steps.artifact.outputs.metadata }}
+          DMG_CHECKSUM: ${{ steps.checksums.outputs.dmg_checksum }}
+          ZIP_CHECKSUM: ${{ steps.checksums.outputs.zip_checksum }}
+        run: |
+          release_json="$(gh release view "$TAG" --json id,isDraft,assets)"
+          node - "$release_json" "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM" <<'NODE'
+          const fs = require('node:fs');
+          const release = JSON.parse(process.argv[2]);
+          const files = process.argv.slice(3);
+          if (!release.isDraft) throw new Error('Release must remain a draft until final inventory verification succeeds.');
+          const assets = new Map(release.assets.map((asset) => [asset.name, asset]));
+          const required = files.map((file) => ({ file, name: require('node:path').basename(file) }));
+          for (const { name } of required) {
+            const asset = assets.get(name);
+            if (!asset || asset.state !== 'uploaded' || !Number.isFinite(asset.size) || asset.size <= 0 || !/^sha256:[a-f0-9]{64}$/i.test(asset.digest || '')) {
+              throw new Error(`Draft release is missing a verified uploaded asset: ${name}`);
+            }
+          }
+          for (const { file, name } of required.filter(({ name }) => name.endsWith('.sha256'))) {
+            const [digest, target] = fs.readFileSync(file, 'utf8').trim().split(/\s{2,}/);
+            const artifact = assets.get(target);
+            if (!artifact || artifact.digest.toLowerCase() !== `sha256:${digest}`.toLowerCase()) {
+              throw new Error(`Checksum sidecar ${name} does not match the uploaded asset ${target}.`);
+            }
+          }
+          const metadata = fs.readFileSync(files[2], 'utf8');
+          for (const { name } of required.slice(0, 2)) {
+            if (!metadata.includes(name)) throw new Error(`latest-mac.yml does not reference ${name}.`);
+          }
+          NODE
+
+      - name: Publish the verified draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          release_id="$(gh release view "$TAG" --json id --jq '.id')"
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" -f draft=false >/dev/null
 
       - name: Upload release evidence
         if: always()
