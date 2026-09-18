@@ -33,6 +33,7 @@ Release assurance now rejects checksum sidecars, metadata, generic source archiv
 | Windows release | Blocks unsigned portable-ZIP construction and public upload; removes write permission. | `release-workflows:check` |
 | Source bundles | Creates commit-derived, versioned source-only ZIP/TAR.GZ bundles with checksums. | `release-workflows:check`, shell syntax check |
 | CI | Adds pull-request workflow for locked install plus the full `npm run check` gate. | `desktop-validation.yml` |
+| Build dependency | Updates `electron-builder` from 26.15.3 to the current maintained v26 release, 26.16.1. | `npm audit --audit-level=high`, complete desktop gate |
 | Documentation | Removes stale current-release version, filename, and digest claims. | `release-workflows:check` |
 
 ## Migration and rollback
@@ -50,6 +51,8 @@ cd desktop && npm run check
 ```
 
 This includes catalog, UI, duplicate-skill, accessibility, portability, setup manager, action boundaries, diagnostics, terminal, update, project prerequisite, project interview, macOS release configuration, release drift, release workflow safety, release alert, security contract, syntax, and high-severity dependency-audit checks. `npm audit --audit-level=high` reported zero vulnerabilities.
+
+The build-tool security check also identified `electron-builder` 26.15.3. The dependency was upgraded to **26.16.1**, the currently maintained v26 release available from npm, and the full validation gate passed again.
 
 A Linux Electron tarball was also built, inspected for the packaged executable and `resources/app.asar`, checksum-recorded locally, and removed from the worktree. The package command's shell wrapper returned a false nonzero status after artifact creation, so package evidence is based on direct archive inspection rather than the wrapper exit code.
 
