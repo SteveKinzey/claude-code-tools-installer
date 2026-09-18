@@ -87,7 +87,7 @@ function safeSpawnCall(call) {
 }
 
 function replayLastPowerShellLaunch() {
-  const call = [...spawnCalls].reverse().find((entry) => /powershell\.exe$/i.test(String(entry.command)) && Array.isArray(entry.args) && entry.args.includes('-Command'));
+  const call = [...spawnCalls].reverse().find((entry) => /(?:powershell|pwsh)\.exe$/i.test(String(entry.command)) && Array.isArray(entry.args) && entry.args.includes('-Command'));
   if (!call) return { attempted: false, reason: 'No PowerShell terminal launch was captured.' };
   const args = call.args.filter((arg) => arg !== '-NoExit');
   const result = spawnSync(call.command, args, {
