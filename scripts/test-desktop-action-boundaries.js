@@ -26,14 +26,14 @@ function childProcess() {
 
 function spawnStub(command, args = []) {
   const child = childProcess();
-  const completeSetup = command === 'bash' && args.includes('--complete');
-  const prerequisiteSetup = command === 'bash' && args.includes('--project-prerequisites');
+  const completeSetup = args.includes('--complete') || args.includes('-Complete');
+  const prerequisiteSetup = args.includes('--project-prerequisites') || args.includes('-ProjectPrerequisites');
   if (prerequisiteSetup) {
     componentSpawns.push(child);
     return child;
   }
   queueMicrotask(() => {
-    if (completeSetup || command === 'npm') child.emit('close', 0);
+    if (completeSetup || command === 'npm' || command === 'npm.cmd') child.emit('close', 0);
     else child.emit('close', 1);
   });
   return child;
