@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, '..');
 const macWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml'), 'utf8');
 const windowsWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-windows-portable-zip.yml'), 'utf8');
 const sourceBuilder = fs.readFileSync(path.join(root, 'scripts', 'build-source-releases.sh'), 'utf8');
+const releaseDesktopCheck = fs.readFileSync(path.join(root, 'scripts', 'run-release-desktop-check.sh'), 'utf8');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 
 assert.match(macWorkflow, /gh release create .*--draft/, 'macOS publishing must begin with a draft release');
@@ -16,6 +17,7 @@ assert.match(macWorkflow, /Publish the verified draft release/, 'macOS publishin
 assert.match(macWorkflow, /Refusing to modify an already-public release/, 'macOS automation must not replace assets on an existing public release');
 assert.match(macWorkflow, /checkout "\$TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS releases must package the desktop runtime from the immutable tag.');
 assert.doesNotMatch(macWorkflow, /checkout "\$TAG" -- desktop scripts/, 'macOS releases must retain current release-policy validators rather than restoring stale tag scripts.');
+assert.match(macWorkflow, /bash \.\.\/scripts\/run-release-desktop-check\.sh/, 'macOS releases must use the resilient release-specific audit gate.');
 assert.match(macWorkflow, /--json databaseId --jq '\.databaseId'/, 'macOS publication must request GitHub\'s numeric release databaseId for the REST PATCH endpoint');
 assert.match(macWorkflow, /release_database_id.*=~ \^\[0-9\]\+\$/, 'macOS publication must reject a missing or non-numeric release databaseId');
 assert.match(macWorkflow, /releases\/\$\{release_database_id\}/, 'macOS publication must PATCH the numeric release databaseId rather than the GraphQL node ID');
@@ -29,6 +31,11 @@ assert.match(windowsWorkflow, /Windows portable ZIP release blocked/, 'the Windo
 assert.match(sourceBuilder, /git archive --format=zip/, 'source bundles must derive from the complete committed tree');
 assert.match(sourceBuilder, /git diff --quiet && git diff --cached --quiet/, 'source bundles must reject an uncommitted worktree');
 assert.match(sourceBuilder, /source-only archives/, 'source bundles must not be described as platform artifacts');
+assert.match(releaseDesktopCheck, /check_without_network_audit/, 'release audit gate must run the package-defined quality suite without only its network audit clause.');
+assert.match(releaseDesktopCheck, /validate-security-remediation\.js/, 'release audit gate must retain the security policy contract.');
+assert.match(releaseDesktopCheck, /npm@11\.6\.2/, 'release audit gate must use the pinned npm bulk-advisory client.');
+assert.match(releaseDesktopCheck, /503 Service Unavailable\|429 Too Many Requests\|performing maintenance/, 'release audit gate must retry only transient registry conditions.');
+assert.match(releaseDesktopCheck, /Dependency audit failed; refusing to continue the release/, 'release audit gate must fail closed for vulnerabilities or unexpected audit errors.');
 assert.doesNotMatch(readme, /current public release is \[v2026\.08\.12\]/i, 'README must not hard-code a stale current release');
 assert.match(readme, /derived from the \[GitHub Releases record\]/, 'README must describe API-driven release truth');
 

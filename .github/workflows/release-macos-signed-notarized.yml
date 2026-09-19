@@ -135,7 +135,7 @@ jobs:
       - name: Install and validate desktop dependencies
         run: |
           npm ci
-          npm run check
+          bash ../scripts/run-release-desktop-check.sh
 
       - name: Build a signed macOS DMG and ZIP
         env:
