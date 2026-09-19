@@ -321,8 +321,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
         run: |
-          release_id="$(gh release view "$TAG" --json id --jq '.id')"
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" -f draft=false >/dev/null
+          release_database_id="$(gh release view "$TAG" --json databaseId --jq '.databaseId')"
+          [[ "$release_database_id" =~ ^[0-9]+$ ]] || {
+            echo "Draft release is missing a numeric databaseId." >&2
+            exit 2
+          }
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_database_id}" -f draft=false >/dev/null
 
       - name: Upload release evidence
         if: always()

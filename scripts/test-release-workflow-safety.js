@@ -14,6 +14,9 @@ assert.match(macWorkflow, /Verify draft release inventory before publication/, '
 assert.match(macWorkflow, /Release must remain a draft until final inventory verification succeeds/, 'macOS inventory verification must fail closed');
 assert.match(macWorkflow, /Publish the verified draft release/, 'macOS publishing must occur only after verification');
 assert.match(macWorkflow, /Refusing to modify an already-public release/, 'macOS automation must not replace assets on an existing public release');
+assert.match(macWorkflow, /--json databaseId --jq '\.databaseId'/, 'macOS publication must request GitHub\'s numeric release databaseId for the REST PATCH endpoint');
+assert.match(macWorkflow, /release_database_id.*=~ \^\[0-9\]\+\$/, 'macOS publication must reject a missing or non-numeric release databaseId');
+assert.match(macWorkflow, /releases\/\$\{release_database_id\}/, 'macOS publication must PATCH the numeric release databaseId rather than the GraphQL node ID');
 assert.doesNotMatch(windowsWorkflow, /gh release upload/i, 'the unsigned Windows workflow must not upload public artifacts');
 assert.doesNotMatch(windowsWorkflow, /dist:win:zip/i, 'the unsigned Windows workflow must not build a publishable portable ZIP');
 assert.match(windowsWorkflow, /contents: read/, 'the blocked Windows workflow must not retain release write permission');

@@ -111,6 +111,9 @@ assert.match(macReleaseWorkflow, /gh api -X DELETE "repos\/\$GITHUB_REPOSITORY\/
 assert.match(macReleaseWorkflow, /if gh release upload "\$TAG" "\$artifact"; then/, 'macOS release upload retries must upload each asset individually.');
 assert.match(macReleaseWorkflow, /gh release create "\$TAG" --target "\$SOURCE_COMMIT" --title "\$TAG" --generate-notes --draft/, 'macOS release publication must start from a private draft.');
 assert.match(macReleaseWorkflow, /Verify draft release inventory before publication/, 'macOS releases must verify the complete draft asset inventory before publishing.');
+assert.match(macReleaseWorkflow, /gh release view "\$TAG" --json databaseId --jq '\.databaseId'/, 'macOS release publication must resolve the numeric GitHub release databaseId.');
+assert.match(macReleaseWorkflow, /release_database_id.*=~ \^\[0-9\]\+\$/, 'macOS release publication must reject a missing or non-numeric release databaseId.');
+assert.match(macReleaseWorkflow, /releases\/\$\{release_database_id\}/, 'macOS release publication must PATCH the numeric release databaseId, not a GraphQL node ID.');
 assert.match(macCandidateWorkflow, /source_tag:/, 'macOS candidate workflow must support building an existing immutable source tag.');
 assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must copy runtime files from the requested source tag at repository root.');
 assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must verify runtime files exactly match the requested source tag at repository root.');
