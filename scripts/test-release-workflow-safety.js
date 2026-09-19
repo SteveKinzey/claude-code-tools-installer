@@ -14,6 +14,8 @@ assert.match(macWorkflow, /Verify draft release inventory before publication/, '
 assert.match(macWorkflow, /Release must remain a draft until final inventory verification succeeds/, 'macOS inventory verification must fail closed');
 assert.match(macWorkflow, /Publish the verified draft release/, 'macOS publishing must occur only after verification');
 assert.match(macWorkflow, /Refusing to modify an already-public release/, 'macOS automation must not replace assets on an existing public release');
+assert.match(macWorkflow, /checkout "\$TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS releases must package the desktop runtime from the immutable tag.');
+assert.doesNotMatch(macWorkflow, /checkout "\$TAG" -- desktop scripts/, 'macOS releases must retain current release-policy validators rather than restoring stale tag scripts.');
 assert.match(macWorkflow, /--json databaseId --jq '\.databaseId'/, 'macOS publication must request GitHub\'s numeric release databaseId for the REST PATCH endpoint');
 assert.match(macWorkflow, /release_database_id.*=~ \^\[0-9\]\+\$/, 'macOS publication must reject a missing or non-numeric release databaseId');
 assert.match(macWorkflow, /releases\/\$\{release_database_id\}/, 'macOS publication must PATCH the numeric release databaseId rather than the GraphQL node ID');

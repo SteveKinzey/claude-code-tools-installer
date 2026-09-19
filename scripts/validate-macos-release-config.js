@@ -36,11 +36,12 @@ if (fs.existsSync(releaseWorkflowPath)) {
   const packageVersionLine = releaseWorkflow.split('\n').find((line) => line.includes('package_version=')) || '';
   expect(packageVersionLine.includes("node -e '"), 'Release tag validation must quote the Node version normalizer so Bash cannot expand its source.');
   expect(!packageVersionLine.includes('`v${'), 'Release tag validation must not contain a Bash-expandable JavaScript template literal.');
-  expect(releaseWorkflow.includes('checkout "$TAG" -- desktop scripts setup-my-claude.sh'), 'Release workflow must restore the tagged desktop runtime and test scripts before validation.');
+  expect(releaseWorkflow.includes('checkout "$TAG" -- desktop setup-my-claude.sh'), 'Release workflow must restore the tagged desktop runtime before validation.');
+  expect(!releaseWorkflow.includes('checkout "$TAG" -- desktop scripts'), 'Release workflow must retain current release-policy validators instead of restoring stale tag scripts.');
   expect(releaseWorkflow.includes('for artifact in "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"; do'), 'Release workflow must upload macOS assets sequentially to avoid GitHub asset-name races.');
   expect(releaseWorkflow.includes('upload_release_asset() {'), 'Release workflow must use a dedicated GitHub Release asset uploader.');
   expect(releaseWorkflow.includes('for attempt in 1 2 3; do'), 'Release workflow must retry macOS release asset uploads before failing.');
-  expect(releaseWorkflow.includes('gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"'), 'Release workflow must remove any pre-existing asset before uploading a replacement.');
+  expect(releaseWorkflow.includes('gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$release_asset_database_id"'), 'Release workflow must remove any pre-existing asset by numeric REST database ID before uploading a replacement.');
   expect(releaseWorkflow.includes('if gh release upload "$TAG" "$artifact"; then'), 'Release workflow must upload each release asset individually after pre-deleting duplicates.');
 }
 

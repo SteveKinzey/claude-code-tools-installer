@@ -63,11 +63,13 @@ jobs:
         env:
           TAG: ${{ steps.release.outputs.tag }}
         run: |
-          git -C "$GITHUB_WORKSPACE" checkout "$TAG" -- desktop scripts setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1
-          git -C "$GITHUB_WORKSPACE" diff --quiet "$TAG" -- desktop scripts setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1 || {
+          git -C "$GITHUB_WORKSPACE" checkout "$TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1
+          git -C "$GITHUB_WORKSPACE" diff --quiet "$TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1 || {
             echo "Runtime source does not exactly match $TAG." >&2
             exit 2
           }
+          # Keep release-policy validators from the hardened workflow revision.
+          # The packaged application source remains the exact immutable tag.
           printf 'Packaging runtime source: %s\n' "$(git -C "$GITHUB_WORKSPACE" rev-parse "${TAG}^{commit}")"
 
       - name: Set up Node.js 22
