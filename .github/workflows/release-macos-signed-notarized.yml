@@ -249,6 +249,11 @@ jobs:
           fi
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --target "$SOURCE_COMMIT" --title "$TAG" --generate-notes --draft
+          release_database_id="$(gh release view "$TAG" --json databaseId --jq '.databaseId')"
+          [[ "$release_database_id" =~ ^[0-9]+$ ]] || {
+            echo "Draft release is missing a numeric databaseId." >&2
+            exit 2
+          }
           # Upload one asset per request. GitHub can finish a large DMG upload
           # after a concurrent batch has tried to replace it, producing a false
           # duplicate-name failure. Even single-asset --clobber can still race
@@ -256,12 +261,16 @@ jobs:
           # retry the upload a few times before failing the release job.
           upload_release_asset() {
             local artifact="$1"
-            local artifact_name asset_id attempt
+            local artifact_name release_asset_database_id attempt
             artifact_name="$(basename "$artifact")"
             for attempt in 1 2 3; do
-              asset_id="$(gh release view "$TAG" --json assets --jq ".assets[] | select(.name == \"$artifact_name\") | .id" | head -n 1)"
-              if [[ -n "$asset_id" ]]; then
-                gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+              release_asset_database_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_database_id/assets?per_page=100" --paginate --jq ".[] | select(.name == \"$artifact_name\") | .id" | head -n 1)"
+              if [[ -n "$release_asset_database_id" ]]; then
+                [[ "$release_asset_database_id" =~ ^[0-9]+$ ]] || {
+                  echo "Existing release asset is missing a numeric database ID: $artifact_name" >&2
+                  return 1
+                }
+                gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$release_asset_database_id"
                 sleep 5
               fi
               if gh release upload "$TAG" "$artifact"; then
