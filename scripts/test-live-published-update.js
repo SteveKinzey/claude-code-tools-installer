@@ -58,12 +58,13 @@ async function run() {
     const status = await check();
     assert.equal(status.state, 'available');
     assert.equal(status.currentVersion, '2026.9.11');
-    assert.equal(status.latestVersion, '2026.09.15');
+    assert.match(status.latestVersion, /^\d+\.\d+\.\d+$/, 'the live update check must expose a three-segment public release version');
+    assert.notEqual(status.latestVersion, status.currentVersion, 'the live update check must discover a newer public release for the older fixture build');
     assert.equal(status.canDownload, true);
-    assert.match(status.releaseUrl, /releases\/tag\/v2026\.09\.15$/);
+    assert.equal(status.releaseUrl, `https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v${status.latestVersion}`);
     assert.ok(status.artifactDigestSummary.verified >= 3, 'the live release must expose verified native artifacts and checksum evidence');
     assert.equal(nativeChecks, 0, 'metadata discovery must never auto-download or invoke the native updater');
-    assert.ok(emitted.some((event) => event.channel === 'updates:status' && event.payload.latestVersion === '2026.09.15'), 'the renderer must receive the live update availability state');
+    assert.ok(emitted.some((event) => event.channel === 'updates:status' && event.payload.latestVersion === status.latestVersion), 'the renderer must receive the live update availability state');
     console.log(JSON.stringify({
       ok: true,
       currentVersion: status.currentVersion,
