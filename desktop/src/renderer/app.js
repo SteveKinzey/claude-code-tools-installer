@@ -11,7 +11,6 @@ const state = {
   claudeInstalled: false,
   claudeApproved: false,
   setupMode: '',
-  managerProjectPath: '',
   managerReport: null,
   duplicateCleanupReview: null,
   skillBackupRestoreReview: null,
@@ -78,19 +77,16 @@ const setupManagerSummaryElement = document.querySelector('#setup-manager-summar
 const setupManagerResultsElement = document.querySelector('#setup-manager-results');
 const setupManagerInventoryElement = document.querySelector('#setup-manager-inventory');
 const setupManagerInventorySummaryElement = document.querySelector('#setup-manager-inventory-summary');
-const managerProjectNoteElement = document.querySelector('#manager-project-note');
 const cleanupActionsElement = document.querySelector('#cleanup-actions');
 const cleanupDuplicatesStatusElement = document.querySelector('#cleanup-duplicates-status');
 const cleanupSkillsStatusElement = document.querySelector('#cleanup-skills-status');
 const cleanupPluginsStatusElement = document.querySelector('#cleanup-plugins-status');
-const cleanupPackagesStatusElement = document.querySelector('#cleanup-packages-status');
 const cleanupBackupsStatusElement = document.querySelector('#cleanup-backups-status');
 const cleanupManagedExtrasStatusElement = document.querySelector('#cleanup-managed-extras-status');
 const cleanupActionsStatusElement = document.querySelector('#cleanup-actions-status');
 const cleanupReviewDuplicatesButton = document.querySelector('#cleanup-review-duplicates-button');
 const cleanupManageSkillsButton = document.querySelector('#cleanup-manage-skills-button');
 const cleanupManagePluginsButton = document.querySelector('#cleanup-manage-plugins-button');
-const cleanupManagePackagesButton = document.querySelector('#cleanup-manage-packages-button');
 const cleanupRestoreBackupsButton = document.querySelector('#cleanup-restore-backups-button');
 const cleanupReviewManagedExtrasButton = document.querySelector('#cleanup-review-managed-extras-button');
 const duplicateReviewElement = document.querySelector('#duplicate-review');
@@ -1511,15 +1507,12 @@ function renderSetupManager(report) {
   const skills = items.filter((item) => item.type === 'skill').length;
   const plugins = items.filter((item) => item.type === 'plugin').length;
   const connections = items.filter((item) => item.type === 'connection').length;
-  const globalItems = items.filter((item) => item.scope === 'This computer').length;
-  const projectItems = items.filter((item) => item.scope === 'This project' || item.scope === 'Only you in this project').length;
   const followUps = items.filter((item) => item.scope === 'Your action may be needed').length;
   setupManagerSummaryElement.textContent = items.length
-    ? `Found ${globalItems} item${globalItems === 1 ? '' : 's'} for this computer, ${projectItems} item${projectItems === 1 ? '' : 's'} in the selected project, ${skills} skill${skills === 1 ? '' : 's'}, ${plugins} add-on${plugins === 1 ? '' : 's'}, and ${connections} saved connection${connections === 1 ? '' : 's'}${followUps ? `, plus ${followUps} follow-up item${followUps === 1 ? '' : 's'}` : ''}. This list is a checkup only. Nothing was changed.`
-    : 'Nothing was found in the places checked. That is okay. You can still add tools or your own skill when ready.';
+    ? `Found ${items.length} item${items.length === 1 ? "" : "s"} on this computer. Nothing was changed.`
+    : "Nothing was found on this computer. Nothing was changed.";
   const manageableSkills = items.filter((item) => item.type === 'skill' && ['Just you', 'This project'].includes(item.scope));
   const manageablePlugins = items.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
-  const projectPackages = items.filter((item) => item.type === 'project-package' && item.scope === 'This project');
   const skillBackups = items.filter((item) => item.type === 'skill-backup');
   const safeSkillBackups = skillBackups.filter((item) => item.restorable);
   const verifiedSkillDuplicateGroups = duplicates.filter((duplicate) => duplicate.type === 'skill' && duplicate.match === 'content-hash' && duplicate.items?.length > 1);
@@ -1545,12 +1538,6 @@ function renderSetupManager(report) {
   cleanupManagePluginsButton.hidden = manageablePlugins.length === 0;
   cleanupManagePluginsButton.disabled = manageablePlugins.length === 0;
   cleanupManagePluginsButton.textContent = manageablePlugins.length === 1 ? 'Manage 1 add-on' : `Manage ${manageablePlugins.length} add-ons`;
-  cleanupPackagesStatusElement.textContent = projectPackages.length
-    ? `${projectPackages.length} package${projectPackages.length === 1 ? '' : 's'} found in the selected project. Review before removing one.`
-    : report?.projectPath ? 'No project packages found in the selected folder.' : 'Choose a project to check its packages.';
-  cleanupManagePackagesButton.hidden = projectPackages.length === 0;
-  cleanupManagePackagesButton.disabled = projectPackages.length === 0;
-  cleanupManagePackagesButton.textContent = projectPackages.length === 1 ? 'Review 1 project package' : `Review ${projectPackages.length} project packages`;
   cleanupBackupsStatusElement.textContent = safeSkillBackups.length
     ? `${safeSkillBackups.length} safe backup ${safeSkillBackups.length === 1 ? 'is' : 'copies are'} ready to restore without overwriting an active skill.`
     : skillBackups.length
@@ -1628,24 +1615,12 @@ function renderSetupManager(report) {
       }
       card.append(controls);
     }
-    if (item.type === 'project-package' && item.scope === 'This project') {
-      const controls = document.createElement('div');
-      controls.className = 'plugin-controls';
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'button button-ghost';
-      button.textContent = 'Review removal';
-      button.setAttribute('aria-label', `Review removing ${item.name} from this project`);
-      button.addEventListener('click', () => reviewAndRemoveProjectPackage(item));
-      controls.append(button);
-      card.append(controls);
-    }
     setupManagerResultsElement.append(card);
   }
   if (items.length > 80) {
     const more = document.createElement('p');
     more.className = 'empty-results';
-    more.textContent = `Showing the first 80 of ${items.length} items. Narrow the check by choosing one project folder.`;
+    more.textContent = `Showing the first 80 of ${items.length} items found on this computer.`;
     setupManagerResultsElement.append(more);
   }
   duplicateReviewListElement.replaceChildren();
@@ -1720,30 +1695,19 @@ function renderSetupManager(report) {
 }
 
 async function scanSetup() {
-  setupManagerSummaryElement.textContent = 'Checking the selected Claude Code locations. Nothing is being changed.';
+  setupManagerSummaryElement.textContent = 'Checking this computer. Nothing is changing.';
   setupManagerResultsElement.replaceChildren();
   cleanupActionsElement.classList.add('is-hidden');
   setupManagerInventoryElement.open = false;
   duplicateReviewElement.classList.add('is-hidden');
   try {
-    const result = await window.installer.discoverSetup({ projectPath: state.managerProjectPath });
+    const result = await window.installer.discoverSetup();
     if (!result?.ok && result?.error) throw new Error(result.error);
     renderSetupManager(result);
-  } catch (error) {
+  } catch {
     state.managerReport = null;
-    state.managerProjectPath = '';
-    setupManagerSummaryElement.textContent = error.message || 'CCTI could not check the selected project. Choose the folder again and retry.';
-    managerProjectNoteElement.textContent = 'No valid project folder is selected.';
-    appendOutput(`[Checkup] ${error.message || 'CCTI could not check the selected project.'}\n`, 'stderr');
+    setupManagerSummaryElement.textContent = 'Check unavailable. Try again.';
   }
-}
-
-async function chooseManagerProject() {
-  const result = await window.installer.chooseSetupManagerProject();
-  if (result.canceled) return;
-  state.managerProjectPath = result.projectPath;
-  managerProjectNoteElement.textContent = `Also checking this project: ${result.projectPath}`;
-  await scanSetup();
 }
 
 async function reviewSingleSkillCleanup(finding) {
@@ -1910,7 +1874,6 @@ async function reviewCustomAddOn() {
   const result = await window.installer.reviewCustomAddOn({
     source: customAddOnSourceElement.value,
     scope: customAddOnScopeElement.value,
-    projectPath: state.managerProjectPath,
   });
   if (!result.ok) {
     state.customAddOnReview = null;
@@ -2081,7 +2044,6 @@ reviewDuplicateSkillsButton.addEventListener('click', () => openDuplicateSkillDi
 cleanupReviewDuplicatesButton.addEventListener('click', () => openDuplicateSkillDialog(state.managerReport?.duplicates || []));
 cleanupManageSkillsButton.addEventListener('click', () => revealSetupManagerInventory('.manager-item-skill .button'));
 cleanupManagePluginsButton.addEventListener('click', () => revealSetupManagerInventory('.manager-item-plugin .button'));
-cleanupManagePackagesButton.addEventListener('click', () => revealSetupManagerInventory('.manager-item-project-package .button'));
 cleanupRestoreBackupsButton.addEventListener('click', restoreAllSkillBackups);
 cleanupReviewManagedExtrasButton.addEventListener('click', reviewAndRemoveManagedExtras);
 runClaudeButton.addEventListener('click', runClaudeCode);
@@ -2122,7 +2084,6 @@ chooseProjectButton.addEventListener('click', chooseProjectFolder);
 previewComponentsButton.addEventListener('click', previewComponentPlan);
 installComponentsButton.addEventListener('click', installProjectComponents);
 document.querySelector('#scan-setup-button').addEventListener('click', scanSetup);
-document.querySelector('#choose-manager-project-button').addEventListener('click', chooseManagerProject);
 deduplicateAllSkillsButton.addEventListener('click', deduplicateAllSkills);
 backupSelectedSkillButton.addEventListener('click', applySelectedSkillCleanup);
 restoreListedSkillBackupsButton.addEventListener('click', restoreAllSkillBackups);

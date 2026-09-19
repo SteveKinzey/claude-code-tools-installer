@@ -171,6 +171,7 @@ async function run() {
       { id: 'component-results', role: null, live: 'polite', busy: null },
       { id: 'component-detail', role: null, live: 'polite', busy: null },
       { id: 'anonymous-success-message', role: null, live: 'polite', busy: null },
+      { id: 'setup-manager-summary', role: 'status', live: 'polite', busy: null },
       { id: 'cleanup-actions-status', role: 'status', live: 'polite', busy: null },
       { id: 'terminal-preference-note', role: 'status', live: 'polite', busy: 'false' },
       { id: 'run-status', role: 'status', live: 'polite', busy: 'false' },

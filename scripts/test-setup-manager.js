@@ -285,7 +285,7 @@ async function run() {
 
   const missingProjectReport = await discover(null, { projectPath: path.join(tempRoot, 'removed-project') });
   assert.equal(missingProjectReport.ok, false, 'a project that disappears before checkup must return a normalized failure');
-  assert.match(missingProjectReport.error, /could not check the selected project/i);
+  assert.match(missingProjectReport.error, /check unavailable. try again./i);
 
   const duplicateReview = await reviewCustom(null, { source: duplicateSourceSkill, scope: 'user', projectPath: project });
   assert.equal(duplicateReview.ok, true, 'a duplicate review should complete without copying anything');

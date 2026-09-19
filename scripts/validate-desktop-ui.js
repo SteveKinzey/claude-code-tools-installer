@@ -56,7 +56,6 @@ for (const channel of [
   'telemetry:report-setup-success',
   'compass:status',
   'compass:ask',
-  'setup-manager:choose-project',
   'setup-manager:discover',
   'setup-manager:choose-custom-source',
   'setup-manager:review-custom',
@@ -150,7 +149,7 @@ if (main.includes('Choose a JavaScript or TypeScript project folder that contain
 if (!renderer.includes('CCTI will prepare required project files and runtime automatically') || !renderer.includes('Preparing project and installing components')) {
   throw new Error('The project-component UI must clearly describe automatic prerequisite preparation and progress.');
 }
-if (!html.includes('CCTI prepares Node.js and creates package.json there when it is missing') || !renderer.includes("item.type === 'project-package'") || !renderer.includes("item.scope === 'This computer'")) {
+if (!html.includes("CCTI prepares Node.js and creates package.json there when it is missing") || !renderer.includes("window.installer.discoverSetup()")) {
   throw new Error('The UI must distinguish automatic project preparation and global-versus-project inventory scopes.');
 }
 if (!html.includes('id="start-project-interview-button"') || !html.includes('../project-interview.js') || !renderer.includes('function beginProjectInterview()') || !renderer.includes('function exportProjectPrd()')) {
@@ -197,8 +196,8 @@ if (!main.includes('ok: result.code === 0 && after.installed') || !main.includes
 if (!main.includes('const holdsInstallLock = !dryRun') || !/if \(holdsInstallLock\) \{\r?\n\s{6}activeComponentInstall = true;/.test(main)) {
   throw new Error('Component installation must acquire its main-process lock before asynchronous project inspection.');
 }
-if (!main.includes('CCTI could not check the selected project') || !renderer.includes('async function scanSetup()') || !renderer.includes('No valid project folder is selected.')) {
-  throw new Error('A missing selected setup-manager project must return a stable actionable error instead of an unhandled renderer rejection.');
+if (!main.includes("ipcMain.handle('setup-manager:discover'") || !renderer.includes('async function scanSetup()') || !renderer.includes("'Check unavailable. Try again.'")) {
+  throw new Error('The one-click computer check must handle an unavailable scan without exposing folder-selection errors.');
 }
 if (!main.includes('async function installedClaudePluginIds') || !main.includes('pluginIsInstalled(installedIds, requestedPlugin)')) {
   throw new Error('Curated plugin installs must skip plugins Claude Code already reports as installed.');
@@ -253,6 +252,13 @@ if (!renderer.includes("duplicate.match === 'content-hash'") || !renderer.includ
   throw new Error('The checkup UI must distinguish a verified identical-content duplicate from an informational same-name overlap, and explain optional completion counting in plain language.');
 }
 
+const directComputerScan = html.includes('It checks this computer’s CCTI tools, skills, add-ons, and saved connections.')
+  && renderer.includes('window.installer.discoverSetup()')
+  && preload.includes("discoverSetup: () => ipcRenderer.invoke('setup-manager:discover')")
+  && !renderer.includes('discoverSetup({ projectPath: state.managerProjectPath })');
+if (!directComputerScan || html.includes('id="choose-manager-project-button"') || html.includes('id="manager-project-note"') || renderer.includes('chooseManagerProject') || preload.includes('chooseSetupManagerProject') || main.includes("'setup-manager:choose-project'")) {
+  throw new Error('The computer check must be one-click and must not expose a project-folder chooser.');
+}
 
 if (!html.includes('id="uninstall-app-button"') || !html.includes('id="export-installation-manifest-button"') || !html.includes('id="open-manifest-folder-button"') || !html.includes('id="verify-installation-manifest-button"') || !html.includes('id="copy-manifest-verification-command-button"') || !html.includes('id="manifest-drop-zone"') || !html.includes('id="compare-installation-manifests-button"') || !html.includes('id="uninstall-panel"') || !renderer.includes('async function uninstallApplication()') || !renderer.includes('async function exportInstallationManifest()') || !renderer.includes('async function verifySavedInstallationManifest()') || !renderer.includes('async function verifyDroppedInstallationManifest(file)') || !renderer.includes('async function compareSavedInstallationManifests()') || !renderer.includes('async function copyManifestVerificationCommand()') || !renderer.includes('async function openManifestFolder()')) {
   throw new Error('The desktop app must include a bottom-placed complete app uninstall action with manifest export, drop verification, and verified comparison.');

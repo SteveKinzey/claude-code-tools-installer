@@ -120,21 +120,19 @@
             <div>
               <p class="eyebrow">OPTIONAL CHECKUP</p>
               <h2 id="setup-manager-heading">See what you already have</h2>
-              <p>Use this at any time. It shows CCTI tools, skills, add-ons, project packages, and saved connections by where they live: this computer, one selected project, or a step that still needs your action. It changes nothing while checking.</p>
+              <p>Use this at any time. It checks this computer’s CCTI tools, skills, add-ons, and saved connections. It changes nothing while checking.</p>
             </div>
           </div>
           <div class="button-group">
             <button id="scan-setup-button" class="button button-secondary" type="button">Check this computer</button>
-            <button id="choose-manager-project-button" class="button button-ghost" type="button">Also check a project</button>
           </div>
         </div>
-        <p id="manager-project-note" class="project-path-note">No project folder selected. A computer check looks only in the usual Claude Code locations for this user.</p>
-        <p id="setup-manager-summary" class="manager-summary">Nothing has been checked yet.</p>
+        <p id="setup-manager-summary" class="manager-summary" role="status" aria-live="polite">Ready to check this computer.</p>
         <section id="cleanup-actions" class="cleanup-actions is-hidden" aria-labelledby="cleanup-actions-heading">
           <div class="cleanup-actions-heading">
             <p class="eyebrow">MAKE A CHANGE, SAFELY</p>
             <h3 id="cleanup-actions-heading">Clean up or remove something</h3>
-            <p>Start here after a checkup. CCTI shows the exact item before it changes anything. Skills move to a backup instead of being deleted; add-ons can be turned off; project packages are removed only from the project you selected.</p>
+            <p>Start here after a checkup. CCTI shows the exact item before it changes anything. Skills move to a backup instead of being deleted, and add-ons can be turned off.</p>
           </div>
           <div class="cleanup-action-grid">
             <article class="cleanup-action-card">
@@ -151,11 +149,6 @@
               <h4>Add-ons you no longer want</h4>
               <p id="cleanup-plugins-status">No add-ons that CCTI can turn off were found.</p>
               <button id="cleanup-manage-plugins-button" class="button button-secondary" type="button" hidden>Manage add-ons</button>
-            </article>
-            <article class="cleanup-action-card">
-              <h4>Project packages you no longer need</h4>
-              <p id="cleanup-packages-status">Choose a project to check its packages.</p>
-              <button id="cleanup-manage-packages-button" class="button button-secondary" type="button" hidden>Review project packages</button>
             </article>
             <article class="cleanup-action-card cleanup-action-card-restore">
               <h4>Bring back a backed-up skill</h4>

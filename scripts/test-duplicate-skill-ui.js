@@ -237,7 +237,6 @@ function injectedBridge() {
           existing: duplicateItems,
         };
       },
-      chooseSetupManagerProject: async () => ({ canceled: true }),
       chooseCustomSource: async () => ({ canceled: true }),
       onOutput: () => {},
       onState: () => {},
@@ -434,29 +433,26 @@ async function run() {
       note: 'CCTI 2026.09.17 is downloaded and verified. Restart CCTI to apply it now.',
     });
 
+    assert.equal(await pageValue(window, "document.querySelector('#choose-manager-project-button')"), null, 'the computer check must not expose a project-folder chooser');
     await pageValue(window, "document.querySelector('#scan-setup-button').click()");
     await waitFor(window, () => document.querySelector('#cleanup-actions')?.classList.contains('is-hidden') === false, 'cleanup action panel after a checkup scan');
     const cleanupActionPanel = await pageValue(window, `(() => ({
       duplicate: document.querySelector('#cleanup-duplicates-status').textContent,
       skills: document.querySelector('#cleanup-skills-status').textContent,
       plugins: document.querySelector('#cleanup-plugins-status').textContent,
-      packages: document.querySelector('#cleanup-packages-status').textContent,
       managedExtras: document.querySelector('#cleanup-managed-extras-status').textContent,
       inventoryOpen: document.querySelector('#setup-manager-inventory').open,
       duplicateButton: document.querySelector('#cleanup-review-duplicates-button').textContent,
       skillButton: document.querySelector('#cleanup-manage-skills-button').textContent,
-      packageButton: document.querySelector('#cleanup-manage-packages-button').textContent,
       managedExtrasButton: document.querySelector('#cleanup-review-managed-extras-button').textContent,
     }))()`);
     assert.match(cleanupActionPanel.duplicate, /1 verified identical-content group/i);
     assert.match(cleanupActionPanel.skills, /4 installed skills/i);
     assert.match(cleanupActionPanel.plugins, /no user or project add-ons/i);
-    assert.match(cleanupActionPanel.packages, /1 package found/i);
     assert.match(cleanupActionPanel.managedExtras, /1 CCTI-managed extra/i);
     assert.equal(cleanupActionPanel.inventoryOpen, false, 'the raw inventory should not bury cleanup actions after a checkup');
     assert.equal(cleanupActionPanel.duplicateButton, 'Review 1 duplicate copy');
     assert.equal(cleanupActionPanel.skillButton, 'Review 4 installed skills');
-    assert.equal(cleanupActionPanel.packageButton, 'Review 1 project package');
     assert.equal(cleanupActionPanel.managedExtrasButton, 'Review 1 removal');
     await pageValue(window, "document.querySelector('#cleanup-manage-skills-button').click()");
     await waitFor(window, () => document.querySelector('#setup-manager-inventory')?.open === true, 'installed skills inventory reveal');
@@ -465,12 +461,6 @@ async function run() {
     assert.equal(await pageValue(window, "document.querySelector('#backup-selected-skill-button').hidden"), false, 'a discovered skill must offer a clear safe backup action');
     await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').click()");
     await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === false, 'single skill preview dismissal');
-    await pageValue(window, "document.querySelector('.manager-item-project-package button').click()");
-    await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'applyProjectPackageRemoval'), 'reviewed project package removal control');
-    assert.deepEqual((await pageValue(window, 'window.__duplicateUiCalls')).find((call) => call.method === 'applyProjectPackageRemoval')?.payload, {
-      reviewId: 'project-package-removal-review',
-      confirmation: 'REMOVE PROJECT PACKAGE',
-    });
     await pageValue(window, "document.querySelector('#cleanup-review-managed-extras-button').click()");
     await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'applyManagedExtrasRemoval'), 'reviewed CCTI-managed extras removal control');
     assert.deepEqual((await pageValue(window, 'window.__duplicateUiCalls')).find((call) => call.method === 'applyManagedExtrasRemoval')?.payload, {
@@ -529,7 +519,7 @@ async function run() {
     assert.match(backupPreview.files, /\/fixture-home\/\.setup-my-claude\/disabled-skills\/revenue-systems-backup\/SKILL\.md/);
     assert.match(backupPreview.files, /SHA-256 a{64}/);
     assert.equal(backupPreview.backVisible, true);
-    assert.equal(backupPreview.confirmCalls, 2, 'the duplicate preview should not add a confirmation before its final action');
+    assert.equal(backupPreview.confirmCalls, 1, 'the duplicate preview should not add a confirmation before its final action');
     assert.equal(await pageValue(window, "document.activeElement?.id"), 'duplicate-backup-preview-heading', 'the file preview heading should receive focus when the preview phase opens');
 
     await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').click()");

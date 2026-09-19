@@ -2227,12 +2227,6 @@ async function applyManagedExtrasRemoval({ reviewId, confirmation }) {
   }
 }
 
-async function chooseSetupProject() {
-  const result = await dialog.showOpenDialog(mainWindow, { title: 'Choose a project to check', properties: ['openDirectory'] });
-  if (result.canceled || result.filePaths.length === 0) return { canceled: true };
-  return { canceled: false, projectPath: path.resolve(result.filePaths[0]) };
-}
-
 async function chooseCustomSource() {
   const result = await dialog.showOpenDialog(mainWindow, { title: 'Choose your skill or plugin folder', properties: ['openDirectory'] });
   if (result.canceled || result.filePaths.length === 0) return { canceled: true };
@@ -2772,12 +2766,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('claude:run', async (_event, payload) => launchClaudeCode(payload || {}));
   ipcMain.handle('claude:review-removal', knownClaudeRemovalPlan);
   ipcMain.handle('claude:apply-removal', async (_event, payload) => applyKnownClaudeRemoval(payload || {}));
-  ipcMain.handle('setup-manager:choose-project', chooseSetupProject);
   ipcMain.handle('setup-manager:discover', async (_event, { projectPath } = {}) => {
     try {
       return await discoverClaudeSetup(projectPath);
-    } catch (error) {
-      return { ok: false, error: `CCTI could not check the selected project: ${error.message}`, findings: [], duplicates: [], discoveryId: '' };
+    } catch {
+      return { ok: false, error: 'Check unavailable. Try again.', findings: [], duplicates: [], discoveryId: '' };
     }
   });
   ipcMain.handle('setup-manager:choose-custom-source', chooseCustomSource);
