@@ -79,9 +79,29 @@ jobs:
       - name: Verify fixed adapter contracts
         run: npm run terminal-adapters:check
 
-      - name: Execute CCTI adapters against verified fixture
+      - name: Build packaged Windows CCTI fixture
+        run: npm run dist:win:zip
+
+      - name: Extract packaged CCTI application source
+        id: packaged-ccti
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Get-ChildItem ..\releases\test-builds -Filter '*-win-x64.zip' | Select-Object -First 1
+          if (-not $archive) { throw 'The Windows ZIP build did not produce an x64 archive.' }
+          $extractRoot = Join-Path $env:RUNNER_TEMP 'ccti-windows-terminal-packaged'
+          Expand-Archive -Path $archive.FullName -DestinationPath $extractRoot -Force
+          $asar = Get-ChildItem $extractRoot -Recurse -Filter app.asar | Select-Object -First 1
+          if (-not $asar) { throw 'The packaged Windows ZIP did not contain resources\app.asar.' }
+          $appSource = Join-Path $env:RUNNER_TEMP 'ccti-windows-terminal-app-source'
+          & node .\node_modules\@electron\asar\bin\asar.js extract $asar.FullName $appSource
+          if (-not (Test-Path (Join-Path $appSource 'src\main.js'))) { throw 'Extracted packaged app.asar did not contain src\main.js.' }
+          "app-source=$appSource" | Add-Content $env:GITHUB_OUTPUT
+
+      - name: Execute packaged CCTI adapters against verified fixture
         env:
           CCTI_TERMINAL_EVIDENCE_PATH: ${{ runner.temp }}\ccti-windows-terminal-adapter-evidence.json
+          CCTI_TERMINAL_APP_SOURCE: ${{ steps.packaged-ccti.outputs.app-source }}
         run: node ../scripts/test-windows-terminal-adapter-runner.js
 
       - name: Clean disposable terminal fixture processes

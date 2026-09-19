@@ -10,6 +10,10 @@ const { spawnSync } = require('node:child_process');
 if (process.platform !== 'win32') throw new Error('This test must run on a Windows host.');
 
 const root = path.resolve(__dirname, '..');
+const appSource = process.env.CCTI_TERMINAL_APP_SOURCE
+  ? path.resolve(process.env.CCTI_TERMINAL_APP_SOURCE)
+  : path.join(root, 'desktop');
+const mainProcessSource = path.join(appSource, 'src', 'main.js');
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ccti-windows-terminal-adapter-'));
 const home = path.join(fixtureRoot, 'home');
 const appData = path.join(fixtureRoot, 'appdata');
@@ -151,6 +155,7 @@ async function waitForMarker(label, timeoutMs = 15000) {
 
 async function run() {
   try {
+    assert.ok(fs.existsSync(mainProcessSource), `CCTI main-process source is unavailable at ${mainProcessSource}.`);
     process.env.APPDATA = appData;
     process.env.LOCALAPPDATA = localAppData;
     process.env.CCTI_TERMINAL_MARKER = marker;
@@ -185,7 +190,7 @@ async function run() {
     global.fetch = async () => ({ ok: false, status: 503, json: async () => [] });
     global.setInterval = () => ({ unref() {} });
 
-    require(path.join(root, 'desktop', 'src', 'main.js'));
+    require(mainProcessSource);
     await readyPromise;
 
     const getPreference = handlers.get('terminal:get-preference');
@@ -205,7 +210,12 @@ async function run() {
     }
     assert.deepEqual(availableIds, ['default', 'windows-terminal'], 'fresh Windows runner must expose PowerShell and Windows Terminal choices.');
 
-    const evidence = { ok: true, platform: 'win32', adapters: [] };
+    const evidence = {
+      ok: true,
+      platform: 'win32',
+      applicationSource: process.env.CCTI_TERMINAL_APP_SOURCE ? '<packaged-app-asar>' : '<source-tree>',
+      adapters: [],
+    };
     for (const expected of [
       { id: 'default', label: 'PowerShell' },
       { id: 'windows-terminal', label: 'Windows Terminal' },

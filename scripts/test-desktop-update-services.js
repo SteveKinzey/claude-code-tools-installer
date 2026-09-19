@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const tempRoot = path.join(os.tmpdir(), 'ccti-update-services-test');
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ccti-update-services-test-'));
+const corruptedZipPath = path.join(tempRoot, 'corrupt-signed-update.zip');
 const handlers = new Map();
 const sentEvents = [];
 const openedUrls = [];
@@ -30,7 +32,7 @@ const autoUpdaterStub = {
     updaterListeners.get('download-progress')?.({ percent: 47.6 });
     incompleteDownloadAttempts += 1;
     if (incompleteDownloadAttempts === 1) {
-      const error = new Error('Downloaded update file is incomplete.');
+      const error = new Error(`Corrupt update ZIP rejected: ${path.basename(corruptedZipPath)} has an invalid ZIP signature.`);
       updaterListeners.get('error')?.(error);
       throw error;
     }
@@ -96,6 +98,8 @@ global.fetch = async (url) => {
 
 async function run() {
   try {
+    fs.writeFileSync(corruptedZipPath, 'this is not a ZIP archive\n', 'utf8');
+    assert.notEqual(fs.readFileSync(corruptedZipPath).subarray(0, 2).toString('utf8'), 'PK', 'the first update download fixture must be a corrupted ZIP file');
     require(path.join(root, 'desktop', 'src', 'main.js'));
     await readyCallback();
     const getStatus = handlers.get('updates:get-status');
@@ -122,6 +126,7 @@ async function run() {
     assert.equal(incomplete.state, 'available');
     assert.equal(incomplete.canDownload, true);
     assert.equal(incomplete.canInstall, false);
+    assert.ok(fs.existsSync(corruptedZipPath), 'the corrupted ZIP fixture must be present when the updater error is handled');
     assert.match(incomplete.message, /did not complete or verify/i);
     assert.match(incomplete.message, /current CCTI app was not changed/i);
     assert.match(incomplete.message, /retry/i);
@@ -146,12 +151,13 @@ async function run() {
     assert.deepEqual(opened, { ok: true });
     assert.deepEqual(openedUrls, ['https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.11']);
     assert.equal((await getStatus()).state, 'downloaded');
-    console.log('Desktop update behavior passed: source-only releases are skipped, an incomplete signed update leaves the current app unchanged and retryable, and restart-to-install stays explicit after a verified retry.');
+    console.log('Desktop update behavior passed: source-only releases are skipped, a corrupted update ZIP leaves the current app unchanged and retryable, and restart-to-install stays explicit after a verified retry.');
   } finally {
     Module._load = originalLoad;
     global.fetch = originalFetch;
     global.setInterval = originalSetInterval;
     Object.defineProperty(process, 'platform', originalPlatformDescriptor);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 }
 run().catch((error) => {
