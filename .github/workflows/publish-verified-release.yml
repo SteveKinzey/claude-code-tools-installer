@@ -1,0 +1,128 @@
+name: Publish verified cross-platform CCTI release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag whose macOS and Linux assets are staged on a draft release"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify staged assets and publish release
+    if: github.ref_type == 'tag' && github.ref_name == inputs.tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out immutable release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - id: release
+        name: Validate release tag and package version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          tag="$INPUT_TAG"
+          [[ "$REF_TYPE" == 'tag' && "$REF_NAME" == "$tag" ]] || {
+            echo "Dispatch this workflow from the exact selected release tag." >&2
+            exit 2
+          }
+          [[ "$tag" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}$ ]] || {
+            echo "Use a dated tag such as v2026.09.22." >&2
+            exit 2
+          }
+          package_version="$(git show "$tag:desktop/package.json" | node -e 'let body = ""; process.stdin.on("data", (chunk) => { body += chunk; }); process.stdin.on("end", () => { const v = JSON.parse(body).version.split(".").map(Number); if (v.length !== 3 || v.some((part) => !Number.isInteger(part) || part < 0)) process.exit(2); process.stdout.write("v" + String(v[0]).padStart(4, "0") + "." + String(v[1]).padStart(2, "0") + "." + String(v[2]).padStart(2, "0")); });')"
+          [[ "$tag" == "$package_version" ]] || {
+            echo "Release tag $tag must match desktop/package.json version $package_version." >&2
+            exit 2
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.12.0'
+          package-manager-cache: false
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Verify Linux assets staged on draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          release_json="$(gh release view "$TAG" --json databaseId,isDraft,assets)"
+          release_database_id="$(node -e 'const release = JSON.parse(process.argv[1]); if (!release.isDraft) throw new Error("Release is already public; refusing to modify it."); if (!/^\d+$/.test(String(release.databaseId))) throw new Error("Draft release is missing a numeric databaseId."); process.stdout.write(String(release.databaseId));' "$release_json")"
+          [[ "$release_database_id" =~ ^[0-9]+$ ]] || exit 2
+          download_dir="$RUNNER_TEMP/ccti-release-$TAG"
+          mkdir -p "$download_dir"
+          gh release download "$TAG" --dir "$download_dir" \
+            --pattern '*linux-x64.tar.gz' \
+            --pattern '*linux-x64.tar.gz.sha256' \
+            --pattern '*linux-x64.tar.gz.sigstore.json' \
+            --pattern 'claude-code-tools-installer-macos-*.sha256'
+          mapfile -t archives < <(find "$download_dir" -maxdepth 1 -type f -name '*linux-x64.tar.gz' -print | sort)
+          [[ "${#archives[@]}" -eq 1 ]] || { echo "Expected exactly one staged Linux archive." >&2; exit 1; }
+          archive="${archives[0]}"
+          node scripts/verify-linux-release-archive.js "$archive" "${archive}.sha256" "${archive}.sigstore.json"
+          cosign verify-blob "$archive" \
+            --bundle "${archive}.sigstore.json" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-linux-signed.yml@refs/tags/${TAG}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-github-workflow-repository "$GITHUB_REPOSITORY" \
+            --certificate-github-workflow-ref "refs/tags/${TAG}"
+          node - "$release_json" "$download_dir" <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const release = JSON.parse(process.argv[2]);
+          const downloadDir = process.argv[3];
+          const assets = new Map(release.assets.map((asset) => [asset.name, asset]));
+          const one = (description, filter) => {
+            const matches = release.assets.filter(filter);
+            if (matches.length !== 1) throw new Error(`Expected exactly one ${description}; found ${matches.length}.`);
+            return matches[0];
+          };
+          const dmg = one('macOS DMG', (asset) => /-mac-arm64\.dmg$/i.test(asset.name));
+          const zip = one('macOS native update ZIP', (asset) => /-mac-arm64\.zip$/i.test(asset.name));
+          const metadata = one('latest-mac.yml', (asset) => asset.name === 'latest-mac.yml');
+          for (const asset of [dmg, zip, metadata]) {
+            if (asset.state !== 'uploaded' || !/^sha256:[a-f0-9]{64}$/i.test(asset.digest || '')) throw new Error(`Invalid staged macOS asset: ${asset.name}`);
+          }
+          const sidecars = fs.readdirSync(downloadDir).filter((file) => file.endsWith('.sha256'));
+          const expectedTargets = new Set([dmg.name, zip.name]);
+          for (const sidecar of sidecars) {
+            const [digest, target] = fs.readFileSync(path.join(downloadDir, sidecar), 'utf8').trim().split(/\s{2,}/);
+            if (!expectedTargets.has(target)) continue;
+            const asset = assets.get(target);
+            if (!asset || asset.digest.toLowerCase() !== `sha256:${digest}`.toLowerCase()) throw new Error(`Checksum sidecar ${sidecar} does not match ${target}.`);
+            expectedTargets.delete(target);
+          }
+          if (expectedTargets.size) throw new Error(`Missing valid macOS checksum sidecars for: ${[...expectedTargets].join(', ')}`);
+          NODE
+          echo "release_database_id=$release_database_id" >> "$GITHUB_ENV"
+
+      - name: Publish verified draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/$release_database_id" -f draft=false >/dev/null
+          gh release view "${{ steps.release.outputs.tag }}" --json isDraft,isPrerelease,url --jq 'select(.isDraft == false and .isPrerelease == false) | .url'

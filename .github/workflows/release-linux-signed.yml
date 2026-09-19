@@ -1,0 +1,224 @@
+name: Build, sign, and stage Linux CCTI release archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, such as v2026.09.22"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: linux-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign, and stage Linux archive
+    if: github.ref_type == 'tag' && github.ref_name == inputs.tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+
+    steps:
+      - name: Check out immutable release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - id: release
+        name: Validate release tag and package version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          tag="$INPUT_TAG"
+          [[ "$REF_TYPE" == 'tag' && "$REF_NAME" == "$tag" ]] || {
+            echo "Dispatch this workflow from the exact selected release tag." >&2
+            exit 2
+          }
+          [[ "$tag" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}$ ]] || {
+            echo "Use a dated tag such as v2026.09.22." >&2
+            exit 2
+          }
+          git -C "$GITHUB_WORKSPACE" rev-parse --verify --quiet "${tag}^{commit}" >/dev/null || {
+            echo "Release tag was not found: $tag" >&2
+            exit 2
+          }
+          package_version="$(git -C "$GITHUB_WORKSPACE" show "$tag:desktop/package.json" | node -e 'let body = ""; process.stdin.on("data", (chunk) => { body += chunk; }); process.stdin.on("end", () => { const v = JSON.parse(body).version.split(".").map(Number); if (v.length !== 3 || v.some((part) => !Number.isInteger(part) || part < 0)) process.exit(2); process.stdout.write("v" + String(v[0]).padStart(4, "0") + "." + String(v[1]).padStart(2, "0") + "." + String(v[2]).padStart(2, "0")); });')"
+          [[ "$tag" == "$package_version" ]] || {
+            echo "Release tag $tag must match desktop/package.json version $package_version." >&2
+            exit 2
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git -C "$GITHUB_WORKSPACE" rev-parse "${tag}^{commit}")" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.12.0'
+          package-manager-cache: false
+
+      - name: Install Linux terminal smoke-test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends dbus-x11 xterm xvfb
+
+      - name: Install and validate desktop dependencies
+        run: |
+          npm ci
+          bash ../scripts/run-release-desktop-check.sh
+
+      - name: Build immutable Linux archive
+        run: |
+          rm -f ../releases/test-builds/*-linux-x64.tar.gz \
+            ../releases/test-builds/*-linux-x64.tar.gz.sha256 \
+            ../releases/test-builds/*-linux-x64.tar.gz.sigstore.json
+          npm run dist:linux
+
+      - id: artifact
+        name: Inspect exactly one packaged Linux archive
+        run: |
+          mapfile -t archives < <(find ../releases/test-builds -maxdepth 1 -type f -name '*-linux-x64.tar.gz' -print | sort)
+          [[ "${#archives[@]}" -eq 1 ]] || {
+            echo "Expected exactly one Linux x64 archive; found ${#archives[@]}." >&2
+            exit 1
+          }
+          archive="${archives[0]}"
+          tar -tzf "$archive" | grep -Eq '/resources/app\.asar$' || {
+            echo "Linux archive does not contain resources/app.asar." >&2
+            exit 1
+          }
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$archive")" >> "$GITHUB_OUTPUT"
+
+      - id: packaged
+        name: Extract packaged app source for Linux adapter smoke test
+        env:
+          ARCHIVE: ${{ steps.artifact.outputs.archive }}
+        run: |
+          extract_root="$RUNNER_TEMP/ccti-linux-release-archive"
+          app_source="$RUNNER_TEMP/ccti-linux-release-app-source"
+          rm -rf "$extract_root" "$app_source"
+          mkdir -p "$extract_root"
+          tar -xzf "$ARCHIVE" -C "$extract_root"
+          asar="$(find "$extract_root" -type f -path '*/resources/app.asar' -print -quit)"
+          test -n "$asar"
+          node ./node_modules/@electron/asar/bin/asar.js extract "$asar" "$app_source"
+          test -f "$app_source/src/main.js"
+          echo "app_source=$app_source" >> "$GITHUB_OUTPUT"
+
+      - name: Run packaged Linux terminal adapter smoke test
+        env:
+          APP_SOURCE: ${{ steps.packaged.outputs.app_source }}
+        run: timeout 90s xvfb-run -a dbus-run-session -- node ../scripts/test-packaged-linux-terminal-adapter.js "$APP_SOURCE"
+
+      - name: Create Linux checksum sidecar
+        env:
+          ARCHIVE: ${{ steps.artifact.outputs.archive }}
+        run: |
+          digest="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+          printf '%s  %s\n' "$digest" "$(basename "$ARCHIVE")" > "${ARCHIVE}.sha256"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Keylessly sign and verify Linux archive
+        env:
+          ARCHIVE: ${{ steps.artifact.outputs.archive }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          bundle="${ARCHIVE}.sigstore.json"
+          cosign sign-blob "$ARCHIVE" --bundle "$bundle" --yes
+          node ../scripts/verify-linux-release-archive.js "$ARCHIVE" "${ARCHIVE}.sha256" "$bundle"
+          cosign verify-blob "$ARCHIVE" \
+            --bundle "$bundle" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-linux-signed.yml@refs/tags/${TAG}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-github-workflow-repository "$GITHUB_REPOSITORY" \
+            --certificate-github-workflow-ref "refs/tags/${TAG}"
+
+      - name: Stage signed Linux assets on a draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_COMMIT: ${{ steps.release.outputs.commit }}
+          ARCHIVE: ${{ steps.artifact.outputs.archive }}
+        run: |
+          if gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx false; then
+            echo "Refusing to modify an already-public release. Create a new release tag for a corrected artifact." >&2
+            exit 2
+          fi
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --target "$SOURCE_COMMIT" --title "$TAG" --generate-notes --draft
+          release_database_id="$(gh release view "$TAG" --json databaseId --jq '.databaseId')"
+          [[ "$release_database_id" =~ ^[0-9]+$ ]] || {
+            echo "Draft release is missing a numeric databaseId." >&2
+            exit 2
+          }
+          upload_draft_asset() {
+            local artifact="$1"
+            local asset_name asset_database_id
+            asset_name="$(basename "$artifact")"
+            asset_database_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_database_id/assets?per_page=100" --paginate --jq ".[] | select(.name == \"$asset_name\") | .id" | head -n 1)"
+            if [[ -n "$asset_database_id" ]]; then
+              [[ "$asset_database_id" =~ ^[0-9]+$ ]] || { echo "Existing asset is missing a numeric ID: $asset_name" >&2; return 1; }
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_database_id"
+              sleep 3
+            fi
+            gh release upload "$TAG" "$artifact"
+          }
+          upload_draft_asset "$ARCHIVE"
+          upload_draft_asset "${ARCHIVE}.sha256"
+          upload_draft_asset "${ARCHIVE}.sigstore.json"
+
+      - name: Verify draft Linux asset inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          ARCHIVE: ${{ steps.artifact.outputs.archive }}
+        run: |
+          release_json="$(gh release view "$TAG" --json isDraft,assets)"
+          node - "$release_json" "$ARCHIVE" <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const release = JSON.parse(process.argv[2]);
+          const archive = process.argv[3];
+          if (!release.isDraft) throw new Error('Release must remain a draft until shared cross-platform verification succeeds.');
+          const required = [archive, `${archive}.sha256`, `${archive}.sigstore.json`];
+          const assets = new Map(release.assets.map((asset) => [asset.name, asset]));
+          for (const file of required) {
+            const asset = assets.get(path.basename(file));
+            if (!asset || asset.state !== 'uploaded' || !/^sha256:[a-f0-9]{64}$/i.test(asset.digest || '')) {
+              throw new Error(`Draft release is missing a verified uploaded asset: ${path.basename(file)}`);
+            }
+          }
+          const checksum = fs.readFileSync(`${archive}.sha256`, 'utf8').trim().split(/\s{2,}/);
+          const archiveAsset = assets.get(path.basename(archive));
+          if (checksum.length !== 2 || checksum[1] !== path.basename(archive) || archiveAsset.digest.toLowerCase() !== `sha256:${checksum[0]}`.toLowerCase()) {
+            throw new Error('Linux checksum sidecar does not match the uploaded Linux archive.');
+          }
+          JSON.parse(fs.readFileSync(`${archive}.sigstore.json`, 'utf8'));
+          NODE
+
+      - name: Upload Linux release evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: claude-code-tools-installer-linux-${{ steps.release.outputs.tag || github.sha }}
+          path: |
+            releases/test-builds/*-linux-x64.tar.gz
+            releases/test-builds/*-linux-x64.tar.gz.sha256
+            releases/test-builds/*-linux-x64.tar.gz.sigstore.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -290,7 +290,7 @@ jobs:
             upload_release_asset "$artifact"
           done
 
-      - name: Verify draft release inventory before publication
+      - name: Verify draft macOS asset inventory before cross-platform handoff
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
@@ -327,17 +327,17 @@ jobs:
           }
           NODE
 
-      - name: Publish the verified draft release
+      - name: Leave verified macOS assets on the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
         run: |
-          release_database_id="$(gh release view "$TAG" --json databaseId --jq '.databaseId')"
-          [[ "$release_database_id" =~ ^[0-9]+$ ]] || {
-            echo "Draft release is missing a numeric databaseId." >&2
+          is_draft="$(gh release view "$TAG" --json isDraft --jq '.isDraft')"
+          [[ "$is_draft" == true ]] || {
+            echo "Release must remain a draft until Linux assets and cross-platform verification succeed." >&2
             exit 2
           }
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_database_id}" -f draft=false >/dev/null
+          echo "macOS assets are staged on draft release $TAG. Run Publish verified cross-platform CCTI release from the same tag after Linux signing completes."
 
       - name: Upload release evidence
         if: always()
