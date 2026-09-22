@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -33,6 +34,7 @@ assert.match(windowsWorkflow, /contents: read/, 'the blocked Windows workflow mu
 assert.match(windowsWorkflow, /Windows portable ZIP release blocked/, 'the Windows workflow must state the fail-closed boundary');
 assert.match(publisherWorkflow, /-f draft=false -f make_latest=true/, 'the shared publisher must advance GitHub\'s latest-release pointer when publishing a verified release.');
 assert.match(publisherWorkflow, /releases\/latest" --jq '\.tag_name'/, 'the shared publisher must verify that GitHub\'s latest-release pointer resolves to the published tag.');
+execFileSync('bash', [path.join(root, 'scripts', 'test-publish-latest-pointer-workflow.sh'), root], { stdio: 'inherit' });
 assert.match(sourceBuilder, /git archive --format=zip/, 'source bundles must derive from the complete committed tree');
 assert.match(sourceBuilder, /git diff --quiet && git diff --cached --quiet/, 'source bundles must reject an uncommitted worktree');
 assert.match(sourceBuilder, /source-only archives/, 'source bundles must not be described as platform artifacts');
