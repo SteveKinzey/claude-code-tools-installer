@@ -38,6 +38,7 @@ assert.doesNotMatch(windowsWorkflow, /dist:win:zip/i, 'the unsigned Windows work
 assert.match(windowsWorkflow, /contents: read/, 'the blocked Windows workflow must not retain release write permission');
 assert.match(windowsWorkflow, /Windows portable ZIP release blocked/, 'the Windows workflow must state the fail-closed boundary');
 assert.match(publisherWorkflow, /-f draft=false -f make_latest=true/, 'the shared publisher must advance GitHub\'s latest-release pointer when publishing a verified release.');
+assert.match(publisherWorkflow, /X-GitHub-Api-Version: 2026-03-10/, 'the shared publisher must use the documented GitHub API version when assigning the latest release pointer.');
 assert.match(publisherWorkflow, /releases\/latest" --jq '\.tag_name'/, 'the shared publisher must verify that GitHub\'s latest-release pointer resolves to the published tag.');
 execFileSync('bash', [path.join(root, 'scripts', 'test-publish-latest-pointer-workflow.sh'), root], { stdio: 'inherit' });
 assert.match(sourceBuilder, /git archive --format=zip/, 'source bundles must derive from the complete committed tree');

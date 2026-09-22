@@ -13,7 +13,7 @@ mock_bin="$temp_root/bin"
 mkdir -p "$mock_bin"
 
 awk '
-  /^[[:space:]]*gh api --method PATCH .*make_latest=true/ { active = 1 }
+  /^[[:space:]]*gh api .*--method PATCH .*make_latest=true/ { active = 1 }
   active {
     sub(/^          /, "")
     gsub(/\$\{\{ steps\.release\.outputs\.tag \}\}/, "$TAG")
@@ -24,6 +24,10 @@ awk '
 
 grep -Fq 'make_latest=true' "$temp_root/publish-block.sh" || {
   echo "Simulation setup failed: the workflow does not request make_latest=true." >&2
+  exit 2
+}
+grep -Fq 'X-GitHub-Api-Version: 2026-03-10' "$temp_root/publish-block.sh" || {
+  echo "Simulation setup failed: the workflow does not pin the documented GitHub API version." >&2
   exit 2
 }
 grep -Fq 'releases/latest' "$temp_root/publish-block.sh" || {
@@ -40,6 +44,7 @@ printf '%s\n' "$*" >> "$MOCK_LOG_FILE"
 
 if [[ "$1" == 'api' && "$*" == *'--method PATCH'* ]]; then
   [[ "$*" == *'make_latest=true'* ]] || { echo 'PATCH omitted make_latest=true' >&2; exit 41; }
+  [[ "$*" == *'X-GitHub-Api-Version: 2026-03-10'* ]] || { echo 'PATCH omitted the required GitHub API version header' >&2; exit 43; }
   printf '{"ok":true}\n'
   exit 0
 fi
@@ -101,6 +106,10 @@ run_case() {
   }
   grep -Fq 'make_latest=true' "$log_file" || {
     echo "$label simulation did not send make_latest=true." >&2
+    exit 1
+  }
+  grep -Fq 'X-GitHub-Api-Version: 2026-03-10' "$log_file" || {
+    echo "$label simulation did not send the GitHub API version header." >&2
     exit 1
   }
 
