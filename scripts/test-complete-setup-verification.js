@@ -57,8 +57,8 @@ function spawnStub(command, args = [], options = {}) {
   }
   if (command === path.join(home, '.local', 'bin', 'claude')) {
     if (args[0] === '--version') finish(child, { stdout: '2.1.276 (Claude Code)\n' });
-    else if (args[0] === 'mcp' && args[1] === 'list') finish(child, { stdout: 'repomix\nplaywright\n' });
-    else if (args[0] === 'plugin' && args[1] === 'list') finish(child, { stdout: `${[...pluginIds].join('\n')}\n` });
+    else if (args[0] === "mcp" && args[1] === "list") finish(child, { stdout: "repomix: local command\nplaywright: local command\n" });
+    else if (args[0] === "plugin" && args[1] === "list") finish(child, { stdout: "Installed plugins:\n  ❯ " + [...pluginIds].join("\n  ❯ ") + "\n" });
     else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') finish(child, { stdout: `${[...marketplaces].join('\n')}\n` });
     else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') {
       marketplaces.add(String(args[3] || ''));
@@ -170,7 +170,9 @@ async function run() {
     assert.deepEqual(installerSpawn.args.slice(-2), ['--skill-scope', 'global'], 'Global setup must state its noninteractive skill scope to the trusted adapter');
     assert.equal(installerSpawn.options.cwd, home, 'Global setup must keep the installer working directory at the user home folder');
     assert.ok(spawns.some((entry) => entry.args[0] === 'plugin' && entry.args[1] === 'install' && entry.args[2] === 'superpowers@superpowers-marketplace'), 'Complete setup must install Superpowers in CCTI');
-    assert.ok(spawns.some((entry) => entry.args[0] === 'plugin' && entry.args[1] === 'install' && entry.args[2] === 'claude-hud'), 'Complete setup must install Claude HUD in CCTI');
+
+    const pluginInstalls = spawns.filter((entry) => entry.args[0] === 'plugin' && entry.args[1] === 'install');
+    assert.ok(pluginInstalls.length >= 2 && pluginInstalls.every((entry) => entry.args.includes('--yes')), 'Every CCTI plugin install must include Claude CLI noninteractive acceptance after the in-app review confirmation.');
     assert.ok(marketplaces.has('anthropics/skills'), 'Complete setup must add the Anthropic Skills marketplace in CCTI');
 
     const verification = await verifySetup(null, { skillScope: 'global' });

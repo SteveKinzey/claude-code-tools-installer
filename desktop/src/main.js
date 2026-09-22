@@ -56,17 +56,17 @@ let updateStatus = {
   canInstall: false,
 };
 const reviewedPluginPlans = {
-  superpowers: [['plugin', 'marketplace', 'add', 'obra/superpowers-marketplace'], ['plugin', 'install', 'superpowers@superpowers-marketplace', '--scope', 'user']],
-  ecc: [['plugin', 'marketplace', 'add', 'https://github.com/affaan-m/ECC'], ['plugin', 'install', 'ecc@ecc', '--scope', 'user']],
+  superpowers: [['plugin', 'marketplace', 'add', 'obra/superpowers-marketplace'], ['plugin', 'install', 'superpowers@superpowers-marketplace', '--scope', 'user', '--yes']],
+  ecc: [['plugin', 'marketplace', 'add', 'https://github.com/affaan-m/ECC'], ['plugin', 'install', 'ecc@ecc', '--scope', 'user', '--yes']],
   'anthropic-skills': [['plugin', 'marketplace', 'add', 'anthropics/skills']],
-  'wshobson-agents': [['plugin', 'marketplace', 'add', 'https://github.com/wshobson/agents'], ['plugin', 'install', 'claude-code-essentials', '--scope', 'user']],
+  'wshobson-agents': [['plugin', 'marketplace', 'add', 'https://github.com/wshobson/agents'], ['plugin', 'install', 'claude-code-essentials', '--scope', 'user', '--yes']],
   'claude-plugins-official': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official']],
-  'frontend-design': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'frontend-design@claude-plugins-official', '--scope', 'user']],
-  'code-review': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'code-review@claude-plugins-official', '--scope', 'user']],
-  context7: [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'context7@claude-plugins-official', '--scope', 'user']],
-  'skill-creator': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'skill-creator@claude-plugins-official', '--scope', 'user']],
-  convex: [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'convex@claude-plugins-official', '--scope', 'user']],
-  'claude-hud': [['plugin', 'marketplace', 'add', 'jarrodwatts/claude-hud'], ['plugin', 'install', 'claude-hud', '--scope', 'user']],
+  'frontend-design': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'frontend-design@claude-plugins-official', '--scope', 'user', '--yes']],
+  'code-review': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'code-review@claude-plugins-official', '--scope', 'user', '--yes']],
+  context7: [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'context7@claude-plugins-official', '--scope', 'user', '--yes']],
+  'skill-creator': [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'skill-creator@claude-plugins-official', '--scope', 'user', '--yes']],
+  convex: [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'convex@claude-plugins-official', '--scope', 'user', '--yes']],
+  'claude-hud': [['plugin', 'marketplace', 'add', 'jarrodwatts/claude-hud'], ['plugin', 'install', 'claude-hud', '--scope', 'user', '--yes']],
 };
 const completeSetupPluginIds = ['superpowers', 'anthropic-skills', 'claude-hud'];
 
@@ -762,10 +762,14 @@ function normalizedPluginId(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function outputEntryId(line) {
+  return String(line || "").trim().replace(/^[❯•*+-]\s+/, "").split(/[\s:]/)[0];
+}
+
 function pluginIdsFromList(stdout) {
-  return String(stdout || '')
+  return String(stdout || "")
     .split(/\r?\n/)
-    .map((line) => line.trim().split(/\s+/)[0])
+    .map(outputEntryId)
     .filter(Boolean)
     .map(normalizedPluginId);
 }
@@ -803,7 +807,7 @@ async function configuredMcpNames() {
   try {
     const result = await runProcess(claude.path || 'claude', ['mcp', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
     return result.code === 0
-      ? new Set(String(result.stdout || '').split(/\r?\n/).map((line) => line.trim().split(/\s+/)[0]).filter(Boolean))
+      ? new Set(String(result.stdout || "").split(/\r?\n/).map(outputEntryId).filter(Boolean))
       : new Set();
   } catch {
     return new Set();
