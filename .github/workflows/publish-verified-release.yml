@@ -124,5 +124,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/$release_database_id" -f draft=false >/dev/null
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/$release_database_id" -f draft=false -f make_latest=true >/dev/null
+          for attempt in 1 2 3 4 5 6; do
+            latest_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name')"
+            [[ "$latest_tag" == "${{ steps.release.outputs.tag }}" ]] && break
+            [[ "$attempt" -lt 6 ]] && sleep 5
+          done
+          [[ "$latest_tag" == "${{ steps.release.outputs.tag }}" ]] || {
+            echo "GitHub latest release pointer is $latest_tag; expected ${{ steps.release.outputs.tag }}." >&2
+            exit 2
+          }
           gh release view "${{ steps.release.outputs.tag }}" --json isDraft,isPrerelease,url --jq 'select(.isDraft == false and .isPrerelease == false) | .url'

@@ -6,6 +6,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const macWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml'), 'utf8');
 const windowsWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-windows-portable-zip.yml'), 'utf8');
+const publisherWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'publish-verified-release.yml'), 'utf8');
 const sourceBuilder = fs.readFileSync(path.join(root, 'scripts', 'build-source-releases.sh'), 'utf8');
 const releaseDesktopCheck = fs.readFileSync(path.join(root, 'scripts', 'run-release-desktop-check.sh'), 'utf8');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
@@ -30,6 +31,8 @@ assert.doesNotMatch(windowsWorkflow, /gh release upload/i, 'the unsigned Windows
 assert.doesNotMatch(windowsWorkflow, /dist:win:zip/i, 'the unsigned Windows workflow must not build a publishable portable ZIP');
 assert.match(windowsWorkflow, /contents: read/, 'the blocked Windows workflow must not retain release write permission');
 assert.match(windowsWorkflow, /Windows portable ZIP release blocked/, 'the Windows workflow must state the fail-closed boundary');
+assert.match(publisherWorkflow, /-f draft=false -f make_latest=true/, 'the shared publisher must advance GitHub\'s latest-release pointer when publishing a verified release.');
+assert.match(publisherWorkflow, /releases\/latest" --jq '\.tag_name'/, 'the shared publisher must verify that GitHub\'s latest-release pointer resolves to the published tag.');
 assert.match(sourceBuilder, /git archive --format=zip/, 'source bundles must derive from the complete committed tree');
 assert.match(sourceBuilder, /git diff --quiet && git diff --cached --quiet/, 'source bundles must reject an uncommitted worktree');
 assert.match(sourceBuilder, /source-only archives/, 'source bundles must not be described as platform artifacts');
