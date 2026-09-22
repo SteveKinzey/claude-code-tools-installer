@@ -63,6 +63,7 @@ h3 { margin: 0; font-size: 1rem; }
 .setup-verification h3 { margin-bottom: 6px; color: #c9f1ed; font-size: .98rem; }
 .setup-verification p:not(.eyebrow) { margin: 0; color: #b6d2d9; font-size: .84rem; line-height: 1.5; }
 .setup-verification-actions { display: grid; justify-items: start; gap: 9px; }
+.setup-verification-buttons { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .setup-verification-actions > p { min-height: 1.4em; color: #bce3da !important; }
 .setup-verification-results { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; padding-top: 14px; border-top: 1px solid #2d5961; }
 .setup-verification-result { min-height: 110px; padding: 12px; border: 1px solid #35616a; border-radius: 8px; background: #0a1826; }

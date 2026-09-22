@@ -69,11 +69,6 @@
             <span class="setup-option-copy">Use the Claude Code already on this computer, then choose exactly which tools to add.</span>
             <span class="setup-option-action">Use existing installation</span>
           </button>
-          <button id="complete-setup-button" class="setup-option" type="button" aria-pressed="false">
-            <span class="setup-option-title">Install Claude Code + recommended tools</span>
-            <span class="setup-option-copy">Installs Claude Code, recommended tools, and supported plugins inside CCTI. You do not need to type or paste terminal commands.</span>
-            <span class="setup-option-action">Review and run setup</span>
-          </button>
           <button id="browse-button" class="setup-option" type="button" aria-pressed="false">
             <span class="setup-option-title">Browse tools — no changes</span>
             <span class="setup-option-copy">Look through every option without installing or changing anything.</span>
@@ -102,7 +97,10 @@
             <p>Check Claude Code, the recommended tools, plugins, and connections from CCTI. This reads local setup only. It does not open Terminal or change anything.</p>
           </div>
           <div class="setup-verification-actions">
-            <button id="verify-setup-button" class="button button-secondary" type="button">Verify setup</button>
+            <div class="setup-verification-buttons">
+              <button id="complete-setup-button" class="button button-primary" type="button" aria-pressed="false">Complete setup</button>
+              <button id="verify-setup-button" class="button button-secondary" type="button">Verify setup</button>
+            </div>
             <p id="setup-verification-summary" role="status" aria-live="polite">Run this check after Complete setup or whenever you want a clear answer.</p>
           </div>
           <div id="setup-verification-results" class="setup-verification-results" aria-live="polite" hidden></div>
