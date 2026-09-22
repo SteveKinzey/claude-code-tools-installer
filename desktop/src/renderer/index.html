@@ -71,7 +71,7 @@
           </button>
           <button id="complete-setup-button" class="setup-option" type="button" aria-pressed="false">
             <span class="setup-option-title">Install Claude Code + recommended tools</span>
-            <span class="setup-option-copy">Installs Claude Code plus the recommended tool set. Review this option before choosing it.</span>
+            <span class="setup-option-copy">Installs Claude Code, recommended tools, and supported plugins inside CCTI. You do not need to type or paste terminal commands.</span>
             <span class="setup-option-action">Review and run setup</span>
           </button>
           <button id="browse-button" class="setup-option" type="button" aria-pressed="false">
@@ -95,6 +95,18 @@
             <span class="setup-option-action">Review permanent deletion</span>
           </button>
         </div>
+        <section class="setup-verification" aria-labelledby="setup-verification-heading">
+          <div>
+            <p class="eyebrow">SETUP CHECK</p>
+            <h3 id="setup-verification-heading">Verify what is ready</h3>
+            <p>Check Claude Code, the recommended tools, plugins, and connections from CCTI. This reads local setup only. It does not open Terminal or change anything.</p>
+          </div>
+          <div class="setup-verification-actions">
+            <button id="verify-setup-button" class="button button-secondary" type="button">Verify setup</button>
+            <p id="setup-verification-summary" role="status" aria-live="polite">Run this check after Complete setup or whenever you want a clear answer.</p>
+          </div>
+          <div id="setup-verification-results" class="setup-verification-results" aria-live="polite" hidden></div>
+        </section>
         <div class="terminal-preference" aria-labelledby="terminal-preference-label">
           <div>
             <p class="eyebrow">TERMINAL PREFERENCE</p>
@@ -326,7 +338,7 @@
 
       <section id="completion-panel" class="completion-panel is-hidden" aria-labelledby="completion-heading">
         <h2 id="completion-heading">Setup complete</h2>
-        <p>CCTI has finished the supported steps in this plan. Supported plugins and prerequisites run inside the app. If an item needs your sign-in, key, license, or a platform that does not support it yet, CCTI explains that clearly before it makes any change.</p>
+        <p>CCTI has finished the supported steps in this plan. Supported plugins and prerequisites run inside the app. Select Verify setup for a clear local readiness result. If an item needs your sign-in, key, license, or a platform that does not support it yet, CCTI explains that clearly before it makes any change.</p>
         <section class="anonymous-success" aria-labelledby="anonymous-success-heading">
           <h3 id="anonymous-success-heading">Optional private completion count</h3>
           <p>You may choose to add one anonymous count after a setup action ends without an error. The only data sent is the action category—no name, email, device ID, folder path, tool list, log, or event ID. It is not an install count or proof that Claude Code will keep working.</p>

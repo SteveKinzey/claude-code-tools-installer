@@ -46,6 +46,9 @@ const recheckClaudeButton = document.querySelector('#recheck-claude-button');
 const browseButton = document.querySelector('#browse-button');
 const runClaudeButton = document.querySelector('#run-claude-button');
 const removeClaudeButton = document.querySelector('#remove-claude-button');
+const verifySetupButton = document.querySelector('#verify-setup-button');
+const setupVerificationSummaryElement = document.querySelector('#setup-verification-summary');
+const setupVerificationResultsElement = document.querySelector('#setup-verification-results');
 const terminalPreferenceSelectElement = document.querySelector('#terminal-preference-select');
 const testTerminalPreferenceButton = document.querySelector('#test-terminal-preference-button');
 const terminalPreferenceNoteElement = document.querySelector('#terminal-preference-note');
@@ -437,6 +440,44 @@ function updateSummary() {
 
   installButton.disabled = state.running || selected.length === 0 || !state.claudeApproved;
   installButton.textContent = document.querySelector('#dry-run').checked ? 'Preview selected changes' : 'Install selected tools';
+}
+
+function renderSetupVerification(result) {
+  setupVerificationResultsElement.replaceChildren();
+  const checks = Array.isArray(result?.checks) ? result.checks : [];
+  setupVerificationSummaryElement.textContent = result?.summary || 'CCTI could not read the setup result. Try Verify setup again.';
+  setupVerificationResultsElement.hidden = checks.length === 0;
+  for (const check of checks) {
+    const card = document.createElement('article');
+    card.className = `setup-verification-result is-${check.state || 'attention'}`;
+    const heading = document.createElement('h4');
+    const label = check.state === 'ready' ? 'Ready' : check.state === 'unavailable' ? 'Not available on this platform' : 'Needs attention';
+    heading.textContent = `${check.label} · ${label}`;
+    const copy = document.createElement('p');
+    copy.textContent = check.message || 'No status detail is available.';
+    card.append(heading, copy);
+    setupVerificationResultsElement.append(card);
+  }
+}
+
+async function verifySetup() {
+  const originalLabel = verifySetupButton.textContent;
+  verifySetupButton.disabled = true;
+  verifySetupButton.textContent = 'Verifying…';
+  setupVerificationSummaryElement.textContent = 'Checking your CCTI setup locally. Nothing is being changed.';
+  try {
+    const result = await window.installer.verifySetup();
+    if (!result?.ok) throw new Error(result?.error || 'CCTI could not verify the setup.');
+    renderSetupVerification(result);
+    runStatusElement.textContent = result.ready ? 'Setup verified' : 'Setup needs attention';
+  } catch (error) {
+    setupVerificationResultsElement.hidden = true;
+    setupVerificationSummaryElement.textContent = `CCTI could not complete the setup check: ${error.message}`;
+    runStatusElement.textContent = 'Setup check needs attention';
+  } finally {
+    verifySetupButton.textContent = originalLabel;
+    verifySetupButton.disabled = state.running;
+  }
 }
 
 function displayUpdateStatus(status) {
@@ -887,7 +928,7 @@ async function runCompleteSetup(fresh = false) {
   if (fresh) {
     const confirmation = window.prompt('Start fresh permanently deletes local Claude Code versions, settings, session history, MCP configuration, the local tool stack, and this app-managed Node.js runtime.\n\nType DELETE CLAUDE DATA to continue.');
     if (confirmation !== 'DELETE CLAUDE DATA') return;
-  } else if (!window.confirm(`Complete setup will automatically install missing prerequisites, Claude Code, and this recommended tool set:\n\n${recommendedNames}\n\nClaude Code will open after installation so you can sign in. Plugin marketplace commands remain in a checklist for your review.`)) {
+  } else if (!window.confirm(`Complete setup will automatically install missing prerequisites, Claude Code, and this recommended tool set:\n\n${recommendedNames}\n\nCCTI installs supported recommended plugins inside the app. You do not need to type or paste terminal commands. Claude Code will open after installation so you can sign in.`)) {
     return;
   }
 
@@ -899,12 +940,13 @@ async function runCompleteSetup(fresh = false) {
   startFreshButton.disabled = true;
   const result = await window.installer.runCompleteSetup({ fresh });
   completeSetupButton.disabled = false;
+  if (result.verification) renderSetupVerification(result.verification);
   if (result.ok) {
     state.claudeInstalled = result.installed;
     claudeStatusTextElement.textContent = `Claude Code is ready${result.version ? ` (${result.version})` : ''}.`;
     bootstrapStatusElement.textContent = 'Complete setup finished';
     bootstrapStatusElement.className = 'status-chip status-ready';
-    setupNoteElement.textContent = 'Complete setup is finished. Claude Code has opened for sign-in; the recommended local tool stack is ready.';
+    setupNoteElement.textContent = result.verification?.summary || 'Complete setup is finished. Claude Code has opened for sign-in; the recommended local tool stack is ready.';
     runStatusElement.textContent = 'Complete setup finished';
     completionPanelElement.classList.remove('is-hidden');
     offerAnonymousSuccessCount('complete_setup');
@@ -913,7 +955,7 @@ async function runCompleteSetup(fresh = false) {
     state.setupMode = '';
     bootstrapStatusElement.textContent = 'Setup needs attention';
     bootstrapStatusElement.className = 'status-chip status-error';
-    setupNoteElement.textContent = 'Complete setup stopped. Read the activity details, resolve the shown prerequisite issue, then run it again.';
+    setupNoteElement.textContent = result.error || 'Complete setup stopped. Read the in-app activity details, then run it again.';
     appendOutput(`${result.error || `Setup stopped with exit code ${result.code}`}.\n`, 'stderr');
     runStatusElement.textContent = 'Needs attention';
   }
@@ -2101,6 +2143,7 @@ recheckClaudeButton.addEventListener('click', async () => {
     recheckClaudeButton.disabled = state.running;
   }
 });
+verifySetupButton.addEventListener('click', verifySetup);
 browseButton.addEventListener('click', () => {
   setSetupSelection('browse', 'You are browsing only. No changes will be made until you choose a Claude Code setup option.');
   runStatusElement.textContent = 'Browsing options only';
@@ -2231,6 +2274,7 @@ window.installer.onState(({ running }) => {
   runClaudeButton.disabled = running || !state.claudeInstalled;
   removeClaudeButton.disabled = running || !state.claudeInstalled;
   recheckClaudeButton.disabled = running;
+  verifySetupButton.disabled = running;
   uninstallAppButton.disabled = running;
   exportInstallationManifestButton.disabled = running;
   openManifestFolderButton.disabled = running;
