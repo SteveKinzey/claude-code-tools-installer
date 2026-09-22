@@ -48,6 +48,7 @@ for (const channel of [
   'claude:review-removal',
   'claude:apply-removal',
   'claude:install-only',
+  'setup:verify',
   'setup:complete',
   'components:get',
   'components:choose-project',
@@ -110,6 +111,17 @@ if (renderer.includes('startBootstrap') || preload.includes('startBootstrap') ||
 }
 if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('claude-only')") || !main.includes("option('-ClaudeOnly', '--claude-only')")) {
   throw new Error('The in-app Claude-only installation path must wait for the official installer and re-check the result.');
+}
+if (!html.includes('id="verify-setup-button"') || !html.includes('id="setup-verification-results"') || !renderer.includes('async function verifySetup()') || !renderer.includes('function renderSetupVerification(result)') || !preload.includes("verifySetup: () => ipcRenderer.invoke('setup:verify')") || !main.includes('async function verifySetupStatus()')) {
+  throw new Error('CCTI must provide a plain-language, read-only in-app setup verification panel.');
+}
+if (!main.includes('completeSetupPluginIds') || !main.includes("option('-AppManagedPlugins', '--app-managed-plugins')") || !main.includes('await installReviewedPlugins(completeSetupPluginIds)')) {
+  throw new Error('Complete setup must install supported recommended plugins in CCTI instead of making users run terminal commands.');
+}
+for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
+  if (!fs.readFileSync(path.join(root, adapter), 'utf8').includes('AppManagedPlugins') && !fs.readFileSync(path.join(root, adapter), 'utf8').includes('APP_MANAGED_PLUGINS')) {
+    throw new Error(`${adapter} must allow CCTI to keep complete-setup plugin installation inside the desktop app.`);
+  }
 }
 if (!html.includes('id="run-claude-button"') || !html.includes('id="remove-claude-button"') || !renderer.includes('async function runClaudeCode()') || !renderer.includes('async function removeClaudeCode()')) {
   throw new Error('The setup screen must provide visible Run Claude Code and preview-first removal actions.');
@@ -208,6 +220,9 @@ if (!html.includes('id="duplicate-skill-dialog"') || !html.includes('aria-modal=
 }
 if (!fs.existsSync(duplicateUiTestPath) || !fs.existsSync(duplicateUiLauncherPath) || !desktopPackage.scripts?.['duplicate-skill-ui:check']?.includes('run-duplicate-skill-ui-test.js') || !desktopPackage.scripts?.check?.includes('duplicate-skill-ui:check')) {
   throw new Error('The complete desktop suite must exercise the rendered duplicate-skill dialog and backup prompt.');
+}
+if (!fs.existsSync(path.join(root, 'scripts', 'test-complete-setup-verification.js')) || !desktopPackage.scripts?.['complete-setup:check']?.includes('test-complete-setup-verification.js') || !desktopPackage.scripts?.check?.includes('complete-setup:check')) {
+  throw new Error('The complete desktop suite must verify the app-managed complete setup and its read-only status check.');
 }
 for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
   if (!fs.readFileSync(path.join(root, adapter), 'utf8').includes('this skill is already available in Claude Code')) {

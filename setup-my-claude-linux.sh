@@ -25,6 +25,7 @@ DEFAULTS=0
 ALL=0
 YES=0
 UNINSTALL=0
+APP_MANAGED_PLUGINS=0
 SELECTED_RAW=""
 CATEGORY_RAW=""
 
@@ -69,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     --fresh-confirmed) FRESH_CONFIRMED=1 ;;
     --no-launch) NO_LAUNCH=1 ;;
     --yes|-y) YES=1 ;;
+    --app-managed-plugins) APP_MANAGED_PLUGINS=1 ;;
     --uninstall) UNINSTALL=1 ;;
     --item|--items) shift; SELECTED_RAW="${1:-}" ;;
     --category|--categories) shift; CATEGORY_RAW="${1:-}" ;;
@@ -124,6 +126,10 @@ record_manifest() {
 
 append_plugin_command() {
   local title="$1" commands="$2" source="$3"
+  if [[ "$APP_MANAGED_PLUGINS" -eq 1 ]]; then
+    log "CCTI will install the reviewed $title plugin action inside the app."
+    return 0
+  fi
   if [[ "$DRY_RUN" -eq 1 ]]; then
     log "Dry run: would queue Claude Code plugin commands for $title"
     return 0

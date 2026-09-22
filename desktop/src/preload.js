@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('installer', {
   reviewClaudeRemoval: () => ipcRenderer.invoke('claude:review-removal'),
   applyClaudeRemoval: (payload) => ipcRenderer.invoke('claude:apply-removal', payload),
   installClaudeOnly: () => ipcRenderer.invoke('claude:install-only'),
+  verifySetup: () => ipcRenderer.invoke('setup:verify'),
   runCompleteSetup: (payload) => ipcRenderer.invoke('setup:complete', payload),
   runInstall: (payload) => ipcRenderer.invoke('install:run', payload),
   chooseComponentProject: () => ipcRenderer.invoke('components:choose-project'),

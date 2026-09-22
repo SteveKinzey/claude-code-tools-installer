@@ -19,7 +19,7 @@ Download only from the linked release record, then compare the published digest 
 The main window is a guided flow with a separate library for project-level Convex packages. The app treats a **Claude Code tool** and a **Convex Component** differently because they install in different places.
 | Area | What you see | What it means |
 |---|---|---|
-| **Step 1 — Set up Claude Code** | A status check with a Complete setup action | The app can provision its managed Node.js runtime, Git if needed, Claude Code, and the recommended local-tool stack without sending users to a web page or requiring terminal commands. |
+| **Step 1 — Set up Claude Code** | A status check, Complete setup action, and Verify setup result | The app can provision its managed Node.js runtime, Git if needed, Claude Code, supported recommended plugins, and the recommended local-tool stack without sending users to a web page or requiring terminal commands. |
 | **Optional checkup — See what you already have** | A read-only list of found skills, add-ons, and saved connections | Use it before or after other setup. You can also check one project folder. It changes nothing while checking. |
 | **Step 2 — Choose your Claude Code tools** | A curated set of 35 workflow choices grouped by purpose | These choices improve your local Claude Code workflow. They are not project packages. |
 | **Convex Components Library** | A separate searchable library of 145 current Convex packages | These packages belong to one specific application folder that you choose. They are never mixed into the local-tool installation queue. |
@@ -35,7 +35,7 @@ Download the package for your computer from [Releases](https://github.com/SteveK
 
 | Your computer | Package | What to do next |
 |---|---|---|
-| **Windows** | Microsoft Store MSIX when published | The portable ZIP release path is intentionally disabled until a signed, publisher-verified workflow is approved. Do not treat a legacy ZIP as the current supported path. |
+| **Windows** | SHA-256-backed Windows package when listed | Open the verified Windows package, launch CCTI, then use the same Step 1 choice. Microsoft Store submission is a separate distribution task, not a requirement for using CCTI. |
 | **macOS** | SHA-256-backed `.dmg` when listed | Open the verified DMG, drag the app to Applications, launch it, then use the same Step 1 choice. |
 | **Linux** | SHA-256-backed application archive when listed | Extract the verified archive, run the desktop app, then use the same Step 1 choice. |
 
@@ -51,11 +51,12 @@ The first screen gives the Claude Code answer before any optional tool choice ap
 |---|---|---|
 | **Yes, install Claude Code** | The check says Claude Code is not installed and you want it | Runs Anthropic’s official installer inside the app, waits until the check can find Claude Code, and adds no extra tools. [1] |
 | **Yes, Claude Code is installed** | The check found a working local installation | Opens the optional tool choices. Nothing is installed by this button. |
-| **Set up Claude Code and recommended tools** | You want Claude Code plus the reviewed starter setup | Installs a verified Node.js 22 LTS runtime and Git when required, runs Anthropic’s official Claude Code installer, applies the recommended eight-tool setup, then opens Claude Code for sign-in. [1] |
+| **Set up Claude Code and recommended tools** | You want Claude Code plus the reviewed starter setup | Installs a verified Node.js 22 LTS runtime and Git when required, runs Anthropic’s official Claude Code installer, applies the recommended eight-tool setup and supported plugins inside CCTI, then opens Claude Code for sign-in. [1] [2] |
+| **Verify setup** | You want a plain-language answer after setup or a retry | Reads the local setup only and reports whether Claude Code, gstack, skills, plugins, commands, and MCP connections are ready. It does not open Terminal or change anything. |
 | **Browse tools first** | You only want to understand the choices | Opens the catalogs but keeps local-tool installation disabled. Nothing changes. |
 | **Start fresh** | A detected Claude Code installation needs a clean rebuild | Requires typing `DELETE CLAUDE DATA`, then removes local CLI versions, settings, session history, MCP configuration, the app-managed tool stack, and its managed Node.js runtime before Complete setup rebuilds them. It does not delete project files. [1] |
 
-The status chip uses simple wording: **Claude Code installed**, **Claude Code not installed**, **Complete setup finished**, or **Setup needs attention**. Detailed output stays in the activity panel instead of blocking the user with terminal messages.
+The status chip uses simple wording: **Claude Code installed**, **Claude Code not installed**, **Complete setup finished**, **Setup verified**, or **Setup needs attention**. Detailed output stays in the activity panel instead of blocking the user with terminal messages.
 
 ## Step 2: Choose Your Claude Code Tools
 
@@ -69,7 +70,7 @@ The first catalog contains **35 curated workflow choices**. These are grouped in
 | **On / Off on an individual card** | On adds that reviewed extra to the app-run plan. Off leaves it out. It does not remove an extra already on the computer. |
 | **Browse Convex Components** | Opens the project-level component library without adding anything to the local-tool plan. |
 
-For supported skills, CLIs, MCP servers, and fixed plugin choices, CCTI runs the reviewed installation action after you review and confirm the plan. It checks and installs each supported prerequisite first; for example, gstack on macOS and Linux receives Node.js, Git, and Bun before its own setup begins. You do not need to open Terminal, PowerShell, or copy a command. Plugin choices run at user scope, so they do not change a shared project. A plugin that needs a sign-in, secret, account approval, license, or unsupported platform stops at that clear in-app boundary; CCTI does not collect or fill credentials for it. Anthropic documents `claude plugin install` as the supported noninteractive plugin command. [2]
+For supported skills, CLIs, MCP servers, and fixed plugin choices, CCTI runs the reviewed installation action after you review and confirm the plan. It checks and installs each supported prerequisite first; for example, gstack on macOS and Linux receives Node.js, Git, and Bun before its own setup begins. You do not need to open Terminal, PowerShell, or copy a command. Plugin choices run at user scope, so they do not change a shared project. A plugin that needs a sign-in, secret, account approval, license, or unsupported platform stops at that clear in-app boundary; CCTI does not collect or fill credentials for it. Anthropic documents `claude plugin install` as the supported noninteractive plugin command. [2] After Complete setup, **Verify setup** reports the actual local state; the gstack CSO container notice is informational and does not mean gstack failed when its skills and browser helper are ready.
 
 ### Curated Tool Catalog
 
@@ -186,7 +187,7 @@ Claude Code Tools Installer includes a dedicated **Uninstall This App** button l
 | Installs only the recommended local stack during Complete setup, or only selected tools during manual setup | Install all catalog entries by default |
 | Keeps Convex packages in a separately confirmed project plan | Install a backend package outside the folder you selected |
 | Previews the exact package command | Run an unreviewed project command |
-| Saves plugin commands and sensitive follow-up steps to a checklist | Paste slash commands or inject credentials silently |
+| Installs fixed supported plugins inside CCTI and keeps unreviewed or credential-sensitive follow-up steps visible | Paste slash commands or inject credentials silently |
 | Offers free site-powered online Compass only after you choose it | Ask for a visitor API key or silently send every question online |
 | Lets you voluntarily count a completed CCTI setup action | Send setup telemetry automatically, or include a name, email, device ID, path, tool list, log, or event ID |
 | Lets you answer one optional post-download question | Store an individual response, a free-text comment, or browser identity with the answer |
@@ -230,7 +231,7 @@ npm run dist:linux
 
 macOS releases must be code-signed and notarized before distribution.
 
-Windows releases use the Microsoft Store MSIX route.
+Windows Store submission is optional distribution work; CCTI’s in-app setup flow remains the same for a supported Windows package.
 
 ### Cross-platform GitHub release staging
 
