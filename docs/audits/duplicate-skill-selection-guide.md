@@ -39,6 +39,14 @@ Use restore only when the original location is empty and the listed backup is th
 3. Select **Restore listed backup copies** and approve the final confirmation.
 4. CCTI restores only to an empty original location and does not overwrite an active skill.
 
+### How CCTI verifies a tracked backup before restoring it
+
+CCTI discovers backup folders only from its bounded backup roots. It ignores symbolic links and malformed backup names. For each candidate it regenerates the full skill manifest, derives the original skill location, and marks the backup restorable only when that destination is empty. If several backups target the same original location, only the newest backup remains restorable; older backups stay preserved but are not restored automatically.
+
+The restore review carries an opaque review ID and the exact backup ID, source, original destination, content hash, and complete file manifest. At apply time, CCTI rejects an expired review, a changed discovery record, an out-of-root backup, a missing backup, a changed file manifest, or an original location that became occupied after preview. A successful restore renames the reviewed backup folder to its original empty location and removes the consumed backup from the current tracked-backup report.
+
+> **Occupied original location:** An ordinary restore stops rather than overwriting an active skill. Restoring into an occupied location requires a separately reviewed replacement flow that first archives the active copy, then restores the preserved backup.
+
 ## Safety Contract
 
 | Safeguard | Enforcement |
