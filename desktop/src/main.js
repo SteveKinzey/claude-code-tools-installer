@@ -30,7 +30,10 @@ const maximumSkillHashBytes = 25 * 1024 * 1024;
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
 const releaseApiEndpoint = 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases?per_page=100';
+const releaseServiceEndpoint = 'https://claudetool.app/api/releases/latest';
 const releaseUrlPrefix = 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/';
+const githubReleaseTimeoutMs = 12_000;
+const releaseServiceTimeoutMs = 8_000;
 const updateCheckIntervalMs = 6 * 60 * 60 * 1000;
 let updateCheckPromise = null;
 let nativeUpdatePromise = null;
@@ -333,6 +336,117 @@ function newestVerifiedRelease(releases) {
   return candidates.sort((left, right) => compareVersions(String(right.tag_name || ''), String(left.tag_name || '')))[0] || null;
 }
 
+function currentReleasePlatform() {
+  if (process.platform === 'darwin') return 'macos';
+  if (process.platform === 'win32') return 'windows';
+  return 'linux';
+}
+
+function isTrustedReleaseDownload(value) {
+  return String(value || '').startsWith(`${releaseUrlPrefix}download/`);
+}
+
+function normalizeReleaseServiceResponse(payload, platform) {
+  const version = String(payload?.version || '').trim();
+  const releaseUrl = String(payload?.releaseUrl || '').trim();
+  if (
+    payload?.platform !== platform
+    || payload?.available !== true
+    || !/^v?\d{4}\.\d{1,2}\.\d{1,2}$/.test(version)
+    || !releaseUrl.startsWith(releaseUrlPrefix)
+  ) return null;
+
+  const assets = (Array.isArray(payload?.assets) ? payload.assets : []).flatMap((asset) => {
+    const name = String(asset?.name || '');
+    const size = Number(asset?.size);
+    const downloadUrl = String(asset?.downloadUrl || '');
+    const digest = String(asset?.sha256 || '').toLowerCase();
+    if (!name || !Number.isFinite(size) || size <= 0 || !isTrustedReleaseDownload(downloadUrl) || !/^[a-f0-9]{64}$/.test(digest)) return [];
+    return [{ name, size, state: 'uploaded', digest: `sha256:${digest}`, browser_download_url: downloadUrl }];
+  });
+  if (!assets.some(isVerifiedDesktopArtifact)) return null;
+
+  return {
+    tag_name: version.startsWith('v') ? version : `v${version}`,
+    html_url: releaseUrl,
+    draft: false,
+    prerelease: false,
+    assets,
+  };
+}
+
+function releaseCheckError(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
+
+function isReleaseTimeout(error) {
+  return error?.name === 'AbortError';
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    return await fetch(url, { ...options, signal: controller?.signal });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function getLatestVerifiedGitHubRelease() {
+  const response = await fetchWithTimeout(releaseApiEndpoint, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'Claude-Code-Tools-Installer',
+    },
+    cache: 'no-store',
+  }, githubReleaseTimeoutMs);
+  if (!response.ok) throw releaseCheckError('github-release-response-unavailable');
+  const release = newestVerifiedRelease(await response.json());
+  if (!release) throw releaseCheckError('github-release-data-unavailable');
+  return release;
+}
+
+async function getLatestVerifiedReleaseFromService() {
+  const platform = currentReleasePlatform();
+  const response = await fetchWithTimeout(`${releaseServiceEndpoint}?platform=${platform}`, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'Claude-Code-Tools-Installer',
+    },
+    cache: 'no-store',
+  }, releaseServiceTimeoutMs);
+  if (!response.ok) throw releaseCheckError('release-service-response-unavailable');
+  const release = normalizeReleaseServiceResponse(await response.json(), platform);
+  if (!release) throw releaseCheckError('release-service-data-unavailable');
+  return release;
+}
+
+async function getLatestVerifiedReleaseWithFallback() {
+  try {
+    return { release: await getLatestVerifiedGitHubRelease(), source: 'github' };
+  } catch (error) {
+    if (!isReleaseTimeout(error)) throw error;
+    try {
+      return { release: await getLatestVerifiedReleaseFromService(), source: 'release-service' };
+    } catch {
+      throw releaseCheckError('github-timeout-and-release-service-unavailable');
+    }
+  }
+}
+
+function updateCheckUnavailableMessage(error) {
+  if (error?.code === 'github-timeout-and-release-service-unavailable') {
+    return 'Update check could not finish because GitHub did not respond within 12 seconds and the CCTI backup release service was also unavailable. Check your internet connection, then try again. No GitHub sign-in is required.';
+  }
+  if (isReleaseTimeout(error)) {
+    return 'Update check could not finish because GitHub did not respond within 12 seconds. Check your internet connection, then try again. No GitHub sign-in is required.';
+  }
+  return 'Update check could not reach the public release service. Check your internet connection, then try again. No GitHub sign-in is required.';
+}
+
 function publishUpdateStatus() {
   emit('updates:status', { ...updateStatus });
 }
@@ -385,32 +499,24 @@ async function checkForUpdates() {
         ...updateStatus,
         state: 'unavailable',
         checkedAt: new Date().toISOString(),
-        message: 'Update check unavailable: this app runtime cannot check GitHub releases.',
+        canDownload: false,
+        canInstall: false,
+        message: 'Update check is unavailable because this app runtime cannot reach public update services. No GitHub sign-in is required.',
       };
       publishUpdateStatus();
       return { ...updateStatus };
     }
 
-    const controller = typeof AbortController === 'function' ? new AbortController() : null;
-    const timeout = setTimeout(() => controller?.abort(), 8000);
     try {
-      const response = await fetch(releaseApiEndpoint, {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          'User-Agent': 'Claude-Code-Tools-Installer',
-        },
-        cache: 'no-store',
-        signal: controller?.signal,
-      });
-      if (!response.ok) throw new Error(response.status === 404 ? 'No public CCTI release is published yet.' : `GitHub returned ${response.status}.`);
-      const releases = await response.json();
-      const release = newestVerifiedRelease(releases);
-      if (!release) throw new Error('No verified public CCTI release is available yet.');
+      const { release, source } = await getLatestVerifiedReleaseWithFallback();
       const latestVersion = String(release?.tag_name || '').replace(/^v/i, '');
       const releaseUrl = String(release?.html_url || '');
       if (!latestVersion || !releaseUrl.startsWith(releaseUrlPrefix)) throw new Error('GitHub returned an incomplete release record.');
 
       const available = isNewerVersion(latestVersion, currentVersion);
+      const releaseSourceNotice = source === 'release-service'
+        ? ' GitHub took longer than 12 seconds to respond, so CCTI verified this result through its backup release service. No GitHub sign-in is required.'
+        : '';
       const artifactDigestSummary = summarizeReleaseArtifactDigests(release);
       const digestAlert = artifactDigestSummary.missing.length
         ? {
@@ -432,11 +538,11 @@ async function checkForUpdates() {
         canInstall: false,
         message: available
           ? canDownload
-            ? `CCTI ${latestVersion} is available. Select Check for Updates to download the signed update now.`
-            : `CCTI ${latestVersion} is available. This build does not support in-app updates; use View Release to update.`
+            ? `CCTI ${latestVersion} is available. Select Check for Updates to download the signed update now.${releaseSourceNotice}`
+            : `CCTI ${latestVersion} is available. This build does not support in-app updates; use View Release to update.${releaseSourceNotice}`
           : compareVersions(latestVersion, currentVersion) === 0
-            ? `CCTI ${currentVersion} is the newest published release.`
-            : `CCTI ${currentVersion} is ahead of the newest verified public release (${latestVersion}). No download action is needed.`,
+            ? `CCTI ${currentVersion} is the newest published release.${releaseSourceNotice}`
+            : `CCTI ${currentVersion} is ahead of the newest verified public release (${latestVersion}). No download action is needed.${releaseSourceNotice}`,
       };
       publishUpdateStatus();
       return { ...updateStatus };
@@ -446,12 +552,12 @@ async function checkForUpdates() {
         state: 'unavailable',
         currentVersion,
         checkedAt: new Date().toISOString(),
-        message: `Update check unavailable: ${error.name === 'AbortError' ? 'GitHub did not respond in time.' : error.message}`,
+        canDownload: false,
+        canInstall: false,
+        message: updateCheckUnavailableMessage(error),
       };
       publishUpdateStatus();
       return { ...updateStatus };
-    } finally {
-      clearTimeout(timeout);
     }
   })();
 

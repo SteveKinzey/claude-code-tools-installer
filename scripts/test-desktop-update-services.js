@@ -18,6 +18,7 @@ let updaterChecks = 0;
 let updaterDownloads = 0;
 let updaterInstalls = 0;
 let incompleteDownloadAttempts = 0;
+let releaseServiceFallbackCalls = 0;
 
 const autoUpdaterStub = {
   autoDownload: true,
@@ -98,6 +99,8 @@ global.fetch = async (url) => {
 
 async function run() {
   try {
+    const desktopMainSource = fs.readFileSync(path.join(root, 'desktop', 'src', 'main.js'), 'utf8');
+    assert.match(desktopMainSource, /const githubReleaseTimeoutMs = 12_000;/, 'the public GitHub release request must allow 12 seconds before its fallback starts');
     fs.writeFileSync(corruptedZipPath, 'this is not a ZIP archive\n', 'utf8');
     assert.notEqual(fs.readFileSync(corruptedZipPath).subarray(0, 2).toString('utf8'), 'PK', 'the first update download fixture must be a corrupted ZIP file');
     require(path.join(root, 'desktop', 'src', 'main.js'));
@@ -151,7 +154,52 @@ async function run() {
     assert.deepEqual(opened, { ok: true });
     assert.deepEqual(openedUrls, ['https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.11']);
     assert.equal((await getStatus()).state, 'downloaded');
-    console.log('Desktop update behavior passed: source-only releases are skipped, a corrupted update ZIP leaves the current app unchanged and retryable, and restart-to-install stays explicit after a verified retry.');
+
+    global.fetch = async (url) => {
+      if (url === 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases?per_page=100') {
+        const error = new Error('GitHub request aborted by timeout');
+        error.name = 'AbortError';
+        throw error;
+      }
+      assert.equal(url, 'https://claudetool.app/api/releases/latest?platform=macos');
+      releaseServiceFallbackCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          platform: 'macos',
+          available: true,
+          version: 'v2026.09.13',
+          releaseUrl: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.13',
+          assets: [{
+            name: 'Claude-Code-Tools-Installer-2026.9.13-mac-arm64.dmg',
+            downloadUrl: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/download/v2026.09.13/Claude-Code-Tools-Installer-2026.9.13-mac-arm64.dmg',
+            size: 2048,
+            sha256: 'c'.repeat(64),
+          }],
+        }),
+      };
+    };
+    const fallbackStatus = await check();
+    assert.equal(releaseServiceFallbackCalls, 1, 'a GitHub timeout must fall back to the public CCTI release service');
+    assert.equal(fallbackStatus.state, 'available');
+    assert.equal(fallbackStatus.latestVersion, '2026.09.13');
+    assert.match(fallbackStatus.message, /backup release service/i);
+    assert.match(fallbackStatus.message, /No GitHub sign-in is required/i);
+
+    global.fetch = async () => {
+      const error = new Error('release lookup timed out');
+      error.name = 'AbortError';
+      throw error;
+    };
+    const unavailableStatus = await check();
+    assert.equal(unavailableStatus.state, 'unavailable');
+    assert.equal(unavailableStatus.canDownload, false);
+    assert.equal(unavailableStatus.canInstall, false);
+    assert.match(unavailableStatus.message, /GitHub did not respond within 12 seconds/i);
+    assert.match(unavailableStatus.message, /Check your internet connection/i);
+    assert.match(unavailableStatus.message, /No GitHub sign-in is required/i);
+    console.log('Desktop update behavior passed: source-only releases are skipped, a corrupted update ZIP leaves the current app unchanged and retryable, GitHub timeouts use the verified public CCTI release fallback, and network errors explain that no GitHub sign-in is required.');
   } finally {
     Module._load = originalLoad;
     global.fetch = originalFetch;
