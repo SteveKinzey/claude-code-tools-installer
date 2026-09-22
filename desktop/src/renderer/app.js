@@ -7,6 +7,8 @@ const state = {
   componentDetailId: '',
   projectPath: '',
   running: false,
+  completeSetupRunning: false,
+  completeSetupRunningLabel: '',
   componentRunning: false,
   claudeInstalled: false,
   claudeApproved: false,
@@ -38,6 +40,8 @@ const bootstrapStatusElement = document.querySelector('#bootstrap-status');
 const claudeStatusTextElement = document.querySelector('#claude-status-text');
 const setupNoteElement = document.querySelector('#setup-note');
 const completeSetupButton = document.querySelector('#complete-setup-button');
+const completeSetupButtonLabel = document.querySelector('#complete-setup-button-label');
+const completeSetupSpinner = document.querySelector('#complete-setup-spinner');
 const startFreshButton = document.querySelector('#start-fresh-button');
 const useExistingButton = document.querySelector('#use-existing-button');
 const installClaudeButton = document.querySelector('#install-claude-button');
@@ -406,14 +410,29 @@ function revealCatalog() {
   catalogWorkflowElement.classList.remove('is-hidden');
 }
 
+function syncCompleteSetupButton() {
+  const isCompleteSetupRunning = state.completeSetupRunning;
+  completeSetupButton.disabled = state.running || isCompleteSetupRunning;
+  completeSetupButton.setAttribute('aria-busy', String(isCompleteSetupRunning));
+  completeSetupButton.classList.toggle('is-loading', isCompleteSetupRunning);
+  completeSetupSpinner.hidden = !isCompleteSetupRunning;
+  completeSetupButtonLabel.textContent = isCompleteSetupRunning
+    ? state.completeSetupRunningLabel
+    : 'Complete setup';
+}
+
+function setCompleteSetupRunning(isRunning, label = '') {
+  state.completeSetupRunning = isRunning;
+  state.completeSetupRunningLabel = isRunning ? label : '';
+  syncCompleteSetupButton();
+}
+
 function setSetupSelection(mode, note) {
   state.setupMode = mode;
   state.claudeApproved = mode === 'existing' || mode === 'complete';
   setupNoteElement.textContent = note;
-  completeSetupButton.classList.toggle('is-selected', mode === 'complete');
   useExistingButton.classList.toggle('is-selected', mode === 'existing');
   browseButton.classList.toggle('is-selected', mode === 'browse');
-  completeSetupButton.setAttribute('aria-pressed', String(mode === 'complete'));
   useExistingButton.setAttribute('aria-pressed', String(mode === 'existing'));
   browseButton.setAttribute('aria-pressed', String(mode === 'browse'));
   revealCatalog();
@@ -464,6 +483,7 @@ function renderSetupVerification(result) {
 async function verifySetup() {
   const originalLabel = verifySetupButton.textContent;
   verifySetupButton.disabled = true;
+  verifySetupButton.setAttribute('aria-busy', 'true');
   verifySetupButton.textContent = 'Verifying…';
   setupVerificationSummaryElement.textContent = 'Checking your CCTI setup locally. Nothing is being changed.';
   try {
@@ -478,6 +498,7 @@ async function verifySetup() {
   } finally {
     verifySetupButton.textContent = originalLabel;
     verifySetupButton.disabled = state.running;
+    verifySetupButton.setAttribute('aria-busy', 'false');
   }
 }
 
@@ -937,10 +958,20 @@ async function runCompleteSetup(fresh = false) {
   appendOutput(`${fresh ? 'Starting clean reinstall' : 'Starting complete setup'}…\n`);
   setSetupSelection('complete', fresh ? 'Removing local Claude Code data, then rebuilding a clean recommended setup.' : 'Installing prerequisites, Claude Code, and the recommended tool stack.');
   runStatusElement.textContent = fresh ? 'Starting fresh' : 'Complete setup running';
-  completeSetupButton.disabled = true;
+  setupVerificationSummaryElement.textContent = fresh
+    ? 'Start fresh is running. CCTI is rebuilding the recommended setup locally.'
+    : 'Complete setup is running. CCTI is installing prerequisites, Claude Code, and recommended tools locally.';
+  setCompleteSetupRunning(true, fresh ? 'Starting fresh…' : 'Completing setup…');
   startFreshButton.disabled = true;
-  const result = await window.installer.runCompleteSetup({ fresh });
-  completeSetupButton.disabled = false;
+  let result;
+  try {
+    result = await window.installer.runCompleteSetup({ fresh });
+    if (!result) throw new Error('Complete setup did not return a result.');
+  } catch (error) {
+    result = { ok: false, error: error.message || 'Complete setup could not be completed.' };
+  } finally {
+    setCompleteSetupRunning(false);
+  }
   if (result.verification) renderSetupVerification(result.verification);
   if (result.ok) {
     state.claudeInstalled = result.installed;
@@ -2285,7 +2316,7 @@ window.installer.onState(({ running }) => {
     runStatusElement.classList.remove('is-loading');
     runStatusElement.setAttribute('aria-busy', 'false');
   }
-  completeSetupButton.disabled = running;
+  syncCompleteSetupButton();
   startFreshButton.disabled = running || !state.claudeInstalled;
   installClaudeButton.disabled = running || state.claudeInstalled;
   runClaudeButton.disabled = running || !state.claudeInstalled;

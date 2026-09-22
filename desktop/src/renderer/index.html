@@ -98,8 +98,11 @@
           </div>
           <div class="setup-verification-actions">
             <div class="setup-verification-buttons">
-              <button id="complete-setup-button" class="button button-primary" type="button" aria-pressed="false">Complete setup</button>
-              <button id="verify-setup-button" class="button button-secondary" type="button">Verify setup</button>
+              <button id="complete-setup-button" class="button button-primary" type="button" aria-busy="false" aria-describedby="setup-verification-summary">
+                <span id="complete-setup-spinner" class="complete-setup-spinner" aria-hidden="true" hidden></span>
+                <span id="complete-setup-button-label">Complete setup</span>
+              </button>
+              <button id="verify-setup-button" class="button button-secondary" type="button" aria-busy="false" aria-describedby="setup-verification-summary">Verify setup</button>
             </div>
             <p id="setup-verification-summary" role="status" aria-live="polite">Run this check after Complete setup or whenever you want a clear answer.</p>
           </div>
