@@ -17,6 +17,7 @@ const state = {
   skillBackupRestoreReview: null,
   skillBackupReplacementReview: null,
   selectedSkillCleanupReview: null,
+  selectedSkillCleanupOrigin: null,
   duplicateDialogInvoker: null,
   customAddOnReview: null,
   compass: { online: false, history: [], opened: false },
@@ -1409,6 +1410,7 @@ function clearDuplicateBackupPreview() {
   state.skillBackupRestoreReview = null;
   state.skillBackupReplacementReview = null;
   state.selectedSkillCleanupReview = null;
+  state.selectedSkillCleanupOrigin = null;
   duplicateBackupPreviewElement.hidden = true;
   duplicateBackupPreviewSummaryElement.textContent = '';
   duplicateBackupPreviewListElement.replaceChildren();
@@ -1528,6 +1530,15 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
       const isNewest = index === orderedItems.length - 1;
       label.textContent = `${canBackUp && duplicate.match === 'content-hash' ? (isNewest ? 'Keep newest discovered copy by date' : 'Available for backup review') : (index === 0 ? 'Older local copy by date' : 'Another local copy')} · ${item.scope} · ${localSkillDate(item)}\n${item.path}`;
       location.append(label);
+      if (canBackUp && duplicate.match === 'content-hash' && ['Just you', 'This project'].includes(item.scope)) {
+        const singleButton = document.createElement('button');
+        singleButton.type = 'button';
+        singleButton.className = 'button button-ghost';
+        singleButton.textContent = 'Move this copy to backup';
+        singleButton.setAttribute('aria-label', `Review moving ${item.name} at ${item.path} to backup`);
+        singleButton.addEventListener('click', () => reviewSingleSkillCleanup(item, { origin: 'duplicate-dialog' }));
+        location.append(singleButton);
+      }
       group.append(location);
     });
     duplicateSkillDialogListElement.append(group);
@@ -1788,7 +1799,7 @@ async function chooseManagerProject() {
   await scanSetup();
 }
 
-async function reviewSingleSkillCleanup(finding) {
+async function reviewSingleSkillCleanup(finding, { origin = 'inventory' } = {}) {
   const discoveryId = state.managerReport?.discoveryId;
   const review = await window.installer.reviewCleanup({ discoveryId, findingId: finding.id });
   if (!review.ok) {
@@ -1796,6 +1807,7 @@ async function reviewSingleSkillCleanup(finding) {
     return;
   }
   if (document.activeElement instanceof HTMLElement) state.duplicateDialogInvoker = document.activeElement;
+  state.selectedSkillCleanupOrigin = origin;
   duplicateSkillDialogListElement.replaceChildren();
   if (!duplicateSkillDialogElement.open) duplicateSkillDialogElement.showModal();
   showDuplicateBackupPreview(review, { mode: 'single-skill' });
@@ -2172,7 +2184,12 @@ restoreListedSkillBackupsButton.addEventListener('click', restoreAllSkillBackups
 restoreAllSkillBackupsButton.addEventListener('click', restoreAllSkillBackups);
 cancelDeduplicatePreviewButton.addEventListener('click', () => {
   if (state.selectedSkillCleanupReview) {
+    const origin = state.selectedSkillCleanupOrigin;
     clearDuplicateBackupPreview();
+    if (origin === 'duplicate-dialog') {
+      openDuplicateSkillDialog(state.managerReport?.duplicates || [], { preserveInvoker: true });
+      return;
+    }
     duplicateSkillDialogElement.close();
     return;
   }

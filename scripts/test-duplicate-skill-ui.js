@@ -494,6 +494,7 @@ async function run() {
           disabled: document.querySelector('#deduplicate-all-skills-button').disabled,
         },
         locations: [...dialog.querySelectorAll('.duplicate-skill-dialog-location > span')].map((item) => item.textContent),
+        copyButtons: [...dialog.querySelectorAll('.duplicate-skill-dialog-location button')].map((item) => item.textContent),
         nameOverlap: {
           summary: document.querySelector('#duplicate-review-summary').textContent,
           text: [...document.querySelectorAll('.duplicate-group.is-information')].map((item) => item.textContent).join('\\n'),
@@ -510,6 +511,7 @@ async function run() {
     assert.match(scanDialog.locations[0], /^Available for backup review · Just you/);
     assert.match(scanDialog.locations[0], /\/fixture-home\/\.claude\/skills\/revenue-systems/);
     assert.match(scanDialog.locations[1], /^Keep newest discovered copy by date · This project/);
+    assert.deepEqual(scanDialog.copyButtons, ['Move this copy to backup', 'Move this copy to backup'], 'every actionable duplicate copy should offer a granular backup review button');
     assert.match(scanDialog.nameOverlap.summary, /1 same-name overlap is informational only/i);
     assert.match(scanDialog.nameOverlap.text, /claude\.ai/i);
     assert.match(scanDialog.nameOverlap.text, /will not offer a backup move or deletion/i);
