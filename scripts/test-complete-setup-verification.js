@@ -187,7 +187,12 @@ async function run() {
     const verification = await verifySetup(null, { skillScope: 'global' });
     assert.equal(verification.ok, true);
     assert.equal(verification.ready, true, 'The setup verification button must identify a completed recommended setup without a terminal command');
-    assert.ok(verification.checks.every((check) => check.state === 'ready'), 'All recommended setup checks must report a plain ready state in this fixture');
+    assert.ok(verification.checks.every((check) => check.state === 'ready' || check.state === 'unavailable'), 'Every setup check must be ready or explicitly unavailable in this fixture.');
+    if (isWindows) {
+      assert.deepEqual(verification.checks.find((check) => check.id === 'gstack')?.state, 'unavailable', 'Windows must report gstack as explicitly unavailable rather than as an actionable setup gap.');
+    } else {
+      assert.ok(verification.checks.every((check) => check.state === 'ready'), 'Non-Windows fixtures must report all recommended setup checks as ready.');
+    }
 
     await Promise.all([
       writeProjectFixture('.claude/skills/design-taste-frontend/SKILL.md', '# project taste\n'),
