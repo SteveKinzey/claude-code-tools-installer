@@ -804,14 +804,16 @@ async function setupCommandReady(command, args = ['--version']) {
 async function configuredMcpNames() {
   const claude = await claudeStatus();
   if (!claude.installed) return new Set();
-  try {
-    const result = await runProcess(claude.path || 'claude', ['mcp', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
-    return result.code === 0
-      ? new Set(String(result.stdout || "").split(/\r?\n/).map(outputEntryId).filter(Boolean))
-      : new Set();
-  } catch {
-    return new Set();
-  }
+  const names = ['repomix', 'playwright'];
+  const results = await Promise.all(names.map(async (name) => {
+    try {
+      const result = await runProcess(claude.path || 'claude', ['mcp', 'get', name], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
+      return result.code === 0 ? name : '';
+    } catch {
+      return '';
+    }
+  }));
+  return new Set(results.filter(Boolean));
 }
 
 async function configuredMarketplaceText() {

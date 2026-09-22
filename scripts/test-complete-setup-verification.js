@@ -65,7 +65,7 @@ function spawnStub(command, args = [], options = {}) {
   }
   if (command === fakeClaudePath) {
     if (args[0] === '--version') finish(child, { stdout: '2.1.276 (Claude Code)\n' });
-    else if (args[0] === "mcp" && args[1] === "list") finish(child, { stdout: "repomix: local command\nplaywright: local command\n" });
+    else if (args[0] === 'mcp' && args[1] === 'get' && ['repomix', 'playwright'].includes(args[2])) finish(child, { stdout: `${args[2]}: local command\n` });
     else if (args[0] === "plugin" && args[1] === "list") finish(child, { stdout: "Installed plugins:\n  ❯ " + [...pluginIds].join("\n  ❯ ") + "\n" });
     else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') finish(child, { stdout: `${[...marketplaces].join('\n')}\n` });
     else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') {
@@ -193,6 +193,9 @@ async function run() {
     } else {
       assert.ok(verification.checks.every((check) => check.state === 'ready'), 'Non-Windows fixtures must report all recommended setup checks as ready.');
     }
+    assert.ok(spawns.some((entry) => entry.args[0] === 'mcp' && entry.args[1] === 'get' && entry.args[2] === 'repomix'), 'Setup verification must directly query the Repomix registration.');
+    assert.ok(spawns.some((entry) => entry.args[0] === 'mcp' && entry.args[1] === 'get' && entry.args[2] === 'playwright'), 'Setup verification must directly query the Playwright registration.');
+    assert.equal(spawns.some((entry) => entry.args[0] === 'mcp' && entry.args[1] === 'list'), false, 'Setup verification must not health-check unrelated MCP servers.');
 
     await Promise.all([
       writeProjectFixture('.claude/skills/design-taste-frontend/SKILL.md', '# project taste\n'),
