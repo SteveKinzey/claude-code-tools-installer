@@ -7,9 +7,17 @@ const os = require('node:os');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
+const isWindows = process.platform === 'win32';
 const tempRoot = path.join(os.tmpdir(), `ccti-complete-setup-${process.pid}`);
 const home = path.join(tempRoot, 'home');
 const project = path.join(tempRoot, 'project');
+const fakeClaudePath = path.join(home, '.local', 'bin', isWindows ? 'claude.exe' : 'claude');
+const commandLocator = isWindows ? 'where.exe' : 'which';
+const installerCommand = isWindows ? 'pwsh.exe' : 'bash';
+const completeFlag = isWindows ? '-Complete' : '--complete';
+const noLaunchFlag = isWindows ? '-NoLaunch' : '--no-launch';
+const appManagedPluginsFlag = isWindows ? '-AppManagedPlugins' : '--app-managed-plugins';
+const skillScopeFlag = isWindows ? '-SkillScope' : '--skill-scope';
 const handlers = new Map();
 const spawns = [];
 const pluginIds = new Set();
@@ -38,9 +46,9 @@ function spawnStub(command, args = [], options = {}) {
   const child = childProcess();
   spawns.push({ command, args: [...args], options: { ...options } });
   const requested = args[0] || '';
-  if (command === 'which') {
+  if (command === commandLocator) {
     const locations = {
-      claude: path.join(home, '.local', 'bin', 'claude'),
+      claude: fakeClaudePath,
       bun: path.join(home, '.bun', 'bin', 'bun'),
       repomix: path.join(home, '.npm-global', 'bin', 'repomix'),
     };
@@ -55,7 +63,7 @@ function spawnStub(command, args = [], options = {}) {
     finish(child, { stdout: 'repomix 1.0.0\n' });
     return child;
   }
-  if (command === path.join(home, '.local', 'bin', 'claude')) {
+  if (command === fakeClaudePath) {
     if (args[0] === '--version') finish(child, { stdout: '2.1.276 (Claude Code)\n' });
     else if (args[0] === "mcp" && args[1] === "list") finish(child, { stdout: "repomix: local command\nplaywright: local command\n" });
     else if (args[0] === "plugin" && args[1] === "list") finish(child, { stdout: "Installed plugins:\n  ❯ " + [...pluginIds].join("\n  ❯ ") + "\n" });
@@ -69,7 +77,7 @@ function spawnStub(command, args = [], options = {}) {
     } else finish(child, { code: 1, stderr: 'Unexpected Claude command\n' });
     return child;
   }
-  if (command === 'bash' && args.includes('--complete')) {
+  if (command === installerCommand && args.includes(completeFlag)) {
     finish(child, { stdout: 'Installer completed\n' });
     return child;
   }
@@ -129,7 +137,7 @@ async function run() {
       fs.mkdir(project, { recursive: true }),
     ]);
     await Promise.all([
-      writeFixture('.local/bin/claude'),
+      fs.mkdir(path.dirname(fakeClaudePath), { recursive: true }).then(() => fs.writeFile(fakeClaudePath, '')),
       writeFixture('.bun/bin/bun'),
       writeFixture('.npm-global/bin/repomix'),
       writeFixture('.claude/skills/gstack/setup'),
@@ -164,11 +172,11 @@ async function run() {
     assert.equal(setupResult.skillScope, 'global');
     assert.equal(setupResult.projectPath, '');
 
-    const installerSpawn = spawns.find((entry) => entry.command === 'bash' && entry.args.includes('--complete'));
+    const installerSpawn = spawns.find((entry) => entry.command === installerCommand && entry.args.includes(completeFlag));
     assert.ok(installerSpawn, 'Complete setup must use the trusted installer adapter');
-    assert.ok(installerSpawn.args.includes('--no-launch'), 'Complete setup must not open macOS Terminal and bypass the saved terminal preference.');
-    assert.ok(installerSpawn.args.includes('--app-managed-plugins'), 'Complete setup must tell the adapter that plugin installation stays inside CCTI');
-    assert.deepEqual(installerSpawn.args.slice(-2), ['--skill-scope', 'global'], 'Global setup must state its noninteractive skill scope to the trusted adapter');
+    assert.ok(installerSpawn.args.includes(noLaunchFlag), 'Complete setup must not open a terminal and bypass the saved terminal preference.');
+    assert.ok(installerSpawn.args.includes(appManagedPluginsFlag), 'Complete setup must tell the adapter that plugin installation stays inside CCTI');
+    assert.deepEqual(installerSpawn.args.slice(-2), [skillScopeFlag, 'global'], 'Global setup must state its noninteractive skill scope to the trusted adapter');
     assert.equal(installerSpawn.options.cwd, home, 'Global setup must keep the installer working directory at the user home folder');
     assert.ok(spawns.some((entry) => entry.args[0] === 'plugin' && entry.args[1] === 'install' && entry.args[2] === 'superpowers@superpowers-marketplace'), 'Complete setup must install Superpowers in CCTI');
 
@@ -189,8 +197,8 @@ async function run() {
     assert.equal(projectResult.ok, true, 'Project scope must also verify the selected project skills before reporting setup success');
     assert.equal(projectResult.skillScope, 'project', 'Project scope must be preserved in the complete-setup result');
     assert.equal(projectResult.projectPath, project, 'Project scope must report the reviewed project folder');
-    const projectInstallerSpawn = spawns.filter((entry) => entry.command === 'bash' && entry.args.includes('--complete')).at(-1);
-    assert.deepEqual(projectInstallerSpawn.args.slice(-2), ['--skill-scope', 'project'], 'Project setup must state its noninteractive skill scope to the trusted adapter');
+    const projectInstallerSpawn = spawns.filter((entry) => entry.command === installerCommand && entry.args.includes(completeFlag)).at(-1);
+    assert.deepEqual(projectInstallerSpawn.args.slice(-2), [skillScopeFlag, 'project'], 'Project setup must state its noninteractive skill scope to the trusted adapter');
     assert.equal(projectInstallerSpawn.options.cwd, project, 'Project setup must run skills commands from the selected project folder');
 
     const invalidScope = await completeSetup(null, { fresh: false, skillScope: 'project', projectPath: path.join(tempRoot, 'missing-project') });
