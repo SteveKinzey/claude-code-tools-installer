@@ -470,6 +470,33 @@ async function run() {
   const protectedBackup = occupiedBackupReport.findings.find((item) => item.type === 'skill-backup' && item.path === occupiedBackupPath);
   assert.ok(protectedBackup, 'recognized CCTI backup folders should be listed after a checkup');
   assert.equal(protectedBackup.restorable, false, 'a backup must not be restorable when the original direct skill folder is occupied');
+
+  const archiveActiveFailureReview = await reviewSkillBackupReplacement(null, { discoveryId: occupiedBackupReport.discoveryId, backupId: protectedBackup.id });
+  assert.equal(archiveActiveFailureReview.ok, true, 'a checked occupied backup should produce a replacement review before failure injection');
+  const originalRename = fsp.rename;
+  let archiveActiveFailureInjected = false;
+  fsp.rename = async (source, destination) => {
+    if (source === archiveActiveFailureReview.moves[0].source && destination === archiveActiveFailureReview.moves[0].destination) {
+      archiveActiveFailureInjected = true;
+      const error = new Error('Injected archive-active rename failure.');
+      error.code = 'EIO';
+      throw error;
+    }
+    return originalRename(source, destination);
+  };
+  let archiveActiveFailureResult;
+  try {
+    archiveActiveFailureResult = await applySkillBackupReplacement(null, { reviewId: archiveActiveFailureReview.reviewId });
+  } finally {
+    fsp.rename = originalRename;
+  }
+  assert.equal(archiveActiveFailureInjected, true, 'the fixture must fail exactly the archive-active rename');
+  assert.equal(archiveActiveFailureResult.ok, false, 'an archive-active failure must stop the replacement');
+  assert.match(archiveActiveFailureResult.error, /could not complete the reviewed replacement/i);
+  await assert.rejects(fsp.access(archiveActiveFailureReview.moves[0].destination), 'a failed archive-active move must not leave a new active-skill backup folder');
+  assert.match(await fsp.readFile(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'), 'utf8'), /Bulk duplicate/);
+  assert.match(await fsp.readFile(path.join(occupiedBackupPath, 'SKILL.md'), 'utf8'), /Preserved duplicate/);
+
   const protectedRestore = await reviewAllSkillBackups(null, { discoveryId: occupiedBackupReport.discoveryId });
   assert.equal(protectedRestore.ok, false, 'the restore action must refuse to overwrite an active skill folder');
   await fsp.access(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
