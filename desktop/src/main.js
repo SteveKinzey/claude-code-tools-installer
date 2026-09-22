@@ -62,6 +62,7 @@ const reviewedPluginPlans = {
   convex: [['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], ['plugin', 'install', 'convex@claude-plugins-official', '--scope', 'user']],
   'claude-hud': [['plugin', 'marketplace', 'add', 'jarrodwatts/claude-hud'], ['plugin', 'install', 'claude-hud', '--scope', 'user']],
 };
+const completeSetupPluginIds = ['superpowers', 'anthropic-skills', 'claude-hud'];
 
 function setupManagerDir() {
   return path.join(app.getPath('home'), '.setup-my-claude');
@@ -185,6 +186,7 @@ function installerResource(...segments) {
 function claudeProcessEnv() {
   const home = app.getPath('home');
   const nativeBin = process.platform === 'win32' ? '' : path.join(home, '.local', 'bin');
+  const bunBin = process.platform === 'win32' ? '' : path.join(home, '.bun', 'bin');
   const managedNodeBin = process.platform === 'win32'
     ? path.join(setupManagerDir(), 'node-runtime')
     : path.join(setupManagerDir(), 'node-runtime', 'bin');
@@ -205,7 +207,7 @@ function claudeProcessEnv() {
       path.join(home, '.cargo', 'bin'),
       ];
   const inheritedPath = process.env.PATH || process.env.Path || '';
-  const resolvedPath = [...new Set([nativeBin, managedNodeBin, ...commonPaths, inheritedPath].filter(Boolean).join(path.delimiter).split(path.delimiter).filter(Boolean))].join(path.delimiter);
+  const resolvedPath = [...new Set([nativeBin, bunBin, managedNodeBin, ...commonPaths, inheritedPath].filter(Boolean).join(path.delimiter).split(path.delimiter).filter(Boolean))].join(path.delimiter);
   return {
     ...process.env,
     PATH: resolvedPath,
@@ -649,6 +651,111 @@ async function installedClaudePluginIds() {
   } catch {
     return [];
   }
+}
+
+async function setupCommandReady(command, args = ['--version']) {
+  try {
+    const result = await runProcess(command, args, { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
+    const version = String(result.stdout || result.stderr || '').trim().replace(/\s+/g, ' ');
+    return { ready: result.code === 0 && version.length > 0, version };
+  } catch {
+    return { ready: false, version: '' };
+  }
+}
+
+async function configuredMcpNames() {
+  const claude = await claudeStatus();
+  if (!claude.installed) return new Set();
+  try {
+    const result = await runProcess(claude.path || 'claude', ['mcp', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
+    return result.code === 0
+      ? new Set(String(result.stdout || '').split(/\r?\n/).map((line) => line.trim().split(/\s+/)[0]).filter(Boolean))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+async function configuredMarketplaceText() {
+  const claude = await claudeStatus();
+  if (!claude.installed) return '';
+  try {
+    const result = await runProcess(claude.path || 'claude', ['plugin', 'marketplace', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
+    return result.code === 0 ? String(result.stdout || '').toLowerCase() : '';
+  } catch {
+    return '';
+  }
+}
+
+async function verifySetupStatus() {
+  const home = app.getPath('home');
+  const [claude, bun, repomix, mcpNames, marketplaceText, pluginIds] = await Promise.all([
+    claudeStatus(),
+    setupCommandReady('bun'),
+    setupCommandReady('repomix'),
+    configuredMcpNames(),
+    configuredMarketplaceText(),
+    installedClaudePluginIds(),
+  ]);
+  const checks = [];
+  const add = (id, label, ready, message, state = ready ? 'ready' : 'attention') => checks.push({ id, label, state, message });
+
+  add('claude-code', 'Claude Code', claude.installed,
+    claude.installed ? `Ready${claude.version ? ` · ${claude.version}` : ''}` : 'Not ready. Select Complete setup to retry the official Claude Code installer.');
+  add('bun', 'Bun', bun.ready,
+    bun.ready ? `Ready${bun.version ? ` · ${bun.version}` : ''}` : 'Not ready. Select Complete setup to prepare Bun for gstack.');
+
+  const gstackRoot = path.join(home, '.claude', 'skills', 'gstack');
+  if (process.platform === 'win32') {
+    add('gstack', 'gstack', false, 'gstack’s upstream setup is not available on Windows yet. CCTI did not treat it as installed.', 'unavailable');
+  } else {
+    const [setupPresent, versionPresent, browserPresent, healthPresent] = await Promise.all([
+      pathExists(path.join(gstackRoot, 'setup')),
+      pathExists(path.join(gstackRoot, 'VERSION')),
+      pathExists(path.join(gstackRoot, 'browse', 'dist', 'browse')),
+      pathExists(path.join(home, '.claude', 'skills', 'health', 'SKILL.md')),
+    ]);
+    const ready = setupPresent && versionPresent && browserPresent && healthPresent;
+    add('gstack', 'gstack', ready,
+      ready
+        ? 'Ready. gstack skills and its browser helper are installed. The optional CSO container feature is not required.'
+        : 'Needs attention. Select Complete setup to finish gstack. The optional CSO container notice is not an installation failure.');
+  }
+
+  const [tasteSkill, planningSkill] = await Promise.all([
+    pathExists(path.join(home, '.claude', 'skills', 'design-taste-frontend', 'SKILL.md')),
+    pathExists(path.join(home, '.claude', 'skills', 'planning-with-files', 'SKILL.md')),
+  ]);
+  add('taste-skill', 'taste-skill', tasteSkill,
+    tasteSkill ? 'Ready. The design-taste skill is available in Claude Code.' : 'Not found. Select Complete setup to install it.');
+  add('planning-with-files', 'Planning with Files', planningSkill,
+    planningSkill ? 'Ready. The planning skill is available in Claude Code.' : 'Not found. Select Complete setup to install it.');
+  add('repomix', 'Repomix', repomix.ready && mcpNames.has('repomix'),
+    repomix.ready && mcpNames.has('repomix')
+      ? 'Ready. The Repomix command and Claude Code connection are available.'
+      : 'Needs attention. Repomix needs both its command and its Claude Code connection. Select Complete setup to repair them.');
+  add('playwright-mcp', 'Playwright connection', mcpNames.has('playwright'),
+    mcpNames.has('playwright') ? 'Ready. Claude Code can use the Playwright connection.' : 'Not found. Select Complete setup to add it.');
+  add('superpowers', 'Superpowers plugin', pluginIsInstalled(pluginIds, 'superpowers@superpowers-marketplace'),
+    pluginIsInstalled(pluginIds, 'superpowers@superpowers-marketplace') ? 'Ready. The Superpowers plugin is enabled for your Claude Code setup.' : 'Not found. Select Complete setup to add it inside CCTI.');
+  const anthropicSkillsMarketplace = marketplaceText.includes('anthropics/skills');
+  add('anthropic-skills', 'Anthropic Skills marketplace', anthropicSkillsMarketplace,
+    anthropicSkillsMarketplace
+      ? 'Ready. Choose individual Anthropic skills later only when you need them.'
+      : 'Not found. Select Complete setup to add the Anthropic Skills marketplace inside CCTI.');
+  add('claude-hud', 'Claude HUD plugin', pluginIsInstalled(pluginIds, 'claude-hud'),
+    pluginIsInstalled(pluginIds, 'claude-hud') ? 'Ready. Claude HUD is enabled for your Claude Code setup.' : 'Not found. Select Complete setup to add it inside CCTI.');
+
+  const attention = checks.filter((check) => check.state === 'attention');
+  const unavailable = checks.filter((check) => check.state === 'unavailable');
+  return {
+    ok: true,
+    ready: attention.length === 0,
+    checks,
+    summary: attention.length === 0
+      ? `CCTI verified ${checks.filter((check) => check.state === 'ready').length} setup items. Everything CCTI can install on this computer is ready.${unavailable.length ? ` ${unavailable.length} optional item is unavailable on this platform.` : ''}`
+      : `CCTI verified ${checks.length - attention.length} of ${checks.length} setup items. ${attention.length} item${attention.length === 1 ? '' : 's'} need${attention.length === 1 ? 's' : ''} attention. Select Complete setup to retry; no terminal commands are required.`,
+  };
 }
 
 async function installReviewedPlugins(selectedIds) {
@@ -1429,7 +1536,7 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false) {
   } else if (mode === 'claude-only') {
     args.push(option('-NoLaunch', '--no-launch'), option('-ClaudeOnly', '--claude-only'), option('-Yes', '--yes'));
   } else if (mode === 'complete' || mode === 'fresh-complete') {
-    args.push(option('-Complete', '--complete'));
+    args.push(option('-Complete', '--complete'), option('-AppManagedPlugins', '--app-managed-plugins'));
     if (mode === 'fresh-complete') args.push(option('-Fresh', '--fresh'), option('-FreshConfirmed', '--fresh-confirmed'));
   } else {
     args.push(option('-NoLaunch', '--no-launch'), option('-Yes', '--yes'));
@@ -2816,6 +2923,8 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('setup:verify', async () => verifySetupStatus());
+
   ipcMain.handle('setup:complete', async (_event, { fresh }) => {
     if (activeInstall) return { ok: false, error: 'An installation is already running.' };
     activeInstall = true;
@@ -2823,14 +2932,24 @@ app.whenReady().then(async () => {
     try {
       const result = await spawnInstaller(fresh ? 'fresh-complete' : 'complete');
       const after = await claudeStatus();
+      if (result.code === 0 && after.installed) {
+        emit('installer:output', { stream: 'stdout', text: '[CCTI] Installing supported recommended plugins inside the app…\n' });
+        await installReviewedPlugins(completeSetupPluginIds);
+      }
+      const verification = result.code === 0 && after.installed ? await verifySetupStatus() : null;
       return {
-        ok: result.code === 0 && after.installed,
+        ok: result.code === 0 && after.installed && verification?.ready,
         code: result.code,
         installed: after.installed,
         version: after.version,
-        error: result.code === 0 && !after.installed
-          ? 'The installer finished, but CCTI could not verify Claude Code. Open Diagnostics or run the Claude Code check again before continuing.'
-          : '',
+        verification,
+        error: result.code !== 0
+          ? `Complete setup stopped with exit code ${result.code}. Review the in-app activity details, then select Complete setup to retry.`
+          : !after.installed
+            ? 'The installer finished, but CCTI could not verify Claude Code. Select Check installation again or Run Diagnostics inside CCTI before continuing.'
+            : verification?.ready
+              ? ''
+              : verification?.summary || 'CCTI could not verify every recommended setup item. Select Complete setup to retry; no terminal commands are required.',
       };
     } catch (error) {
       return { ok: false, error: error.message, installed: false, version: '' };

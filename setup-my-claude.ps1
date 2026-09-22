@@ -10,6 +10,7 @@ param(
   [switch]$FreshConfirmed,
   [switch]$NoLaunch,
   [switch]$Yes,
+  [switch]$AppManagedPlugins,
   [switch]$Uninstall,
   [Alias("Items")]
   [string]$Item = "",
@@ -120,6 +121,10 @@ function Add-PluginCommand {
     [string]$Commands,
     [string]$Source
   )
+  if ($AppManagedPlugins) {
+    Write-Log "CCTI will install the reviewed $Title plugin action inside the app."
+    return
+  }
   if ($DryRun) {
     Write-Log "Dry run: would queue Claude Code plugin commands for $Title"
     return

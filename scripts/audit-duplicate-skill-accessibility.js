@@ -85,6 +85,7 @@ function injectedBridge() {
       getTerminalPreference: async () => ({ ok: true, selectedId: 'default', options: [{ id: 'default', label: 'Default Terminal', available: true }, { id: 'iterm2', label: 'iTerm2', available: true }], message: 'Claude Code will open in Default Terminal.' }),
       setTerminalPreference: async () => ({ ok: true, selectedId: 'default', options: [{ id: 'default', label: 'Default Terminal', available: true }, { id: 'iterm2', label: 'iTerm2', available: true }], message: 'CCTI will open Claude Code in Default Terminal.' }),
       getClaudeStatus: async () => ({ installed: true, version: 'test', path: '/fixture-home/.local/bin/claude' }),
+      verifySetup: async () => ({ ok: true, ready: true, summary: 'CCTI verified the fixture setup.', checks: [] }),
       discoverSetup: async () => { scanCount += 1; return scanCount === 1 ? discoveryReport : backupReport; },
       reviewAllDuplicates: async () => ({
         ok: true,

@@ -155,6 +155,7 @@ function injectedBridge() {
       setTerminalPreference: async (payload) => { record('setTerminalPreference', payload); terminalId = payload.terminalId; return { ok: true, selectedId: terminalId, options: terminalOptions, message: 'CCTI will open Claude Code in ' + (terminalId === 'iterm2' ? 'iTerm2' : 'Default Terminal') + '.' }; },
       testTerminalPreference: async () => { record('testTerminalPreference'); return { ok: true, message: 'Opened iTerm2 with the CCTI terminal launch test.' }; },
       getClaudeStatus: async () => ({ installed: true, version: 'test', path: '/fixture-home/.local/bin/claude' }),
+      verifySetup: async () => ({ ok: true, ready: true, summary: 'CCTI verified the fixture setup.', checks: [] }),
       discoverSetup: async (payload) => { record('discoverSetup', payload); scanCount += 1; return scanCount === 1 ? discoveryReport : scanCount === 2 ? backedUpReport : restoredReport; },
       reviewCleanup: async (payload) => {
         record('reviewCleanup', payload);
