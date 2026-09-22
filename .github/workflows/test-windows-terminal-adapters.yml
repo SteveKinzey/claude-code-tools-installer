@@ -11,6 +11,7 @@ on:
       - 'desktop/package-lock.json'
       - 'scripts/test-terminal-adapters.js'
       - 'scripts/test-windows-terminal-adapter-runner.js'
+      - 'scripts/test-complete-setup-verification.js'
       - '.github/workflows/test-windows-terminal-adapters.yml'
 
 permissions:
