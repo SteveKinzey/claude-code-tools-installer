@@ -415,19 +415,37 @@ export async function recordAnonymousWindowsReleaseDownload(input: AnonymousWind
   if (!db) throw new Error("Anonymous download totals are temporarily unavailable");
 
   const now = new Date();
-  await db.insert(anonymousWindowsReleaseDownloadDaily).values({
-    day: now.toISOString().slice(0, 10),
-    releaseVersion: input.releaseVersion,
-    architecture: input.architecture,
-    artifact: input.artifact,
-    clicks: 1,
-    updatedAt: now,
-  }).onDuplicateKeyUpdate({
-    set: {
-      clicks: sql`${anonymousWindowsReleaseDownloadDaily.clicks} + 1`,
+  const day = now.toISOString().slice(0, 10);
+  await db.transaction(async (tx) => {
+    // Keep the existing platform aggregate and its extraction-alert denominator
+    // in lockstep with the release-attributed click.
+    await tx.insert(anonymousPlatformDownloadDaily).values({
+      day,
+      macos: 0,
+      windows: 1,
+      linux: 0,
       updatedAt: now,
-    },
+    }).onDuplicateKeyUpdate({
+      set: {
+        windows: sql`${anonymousPlatformDownloadDaily.windows} + 1`,
+        updatedAt: now,
+      },
+    });
+    await tx.insert(anonymousWindowsReleaseDownloadDaily).values({
+      day,
+      releaseVersion: input.releaseVersion,
+      architecture: input.architecture,
+      artifact: input.artifact,
+      clicks: 1,
+      updatedAt: now,
+    }).onDuplicateKeyUpdate({
+      set: {
+        clicks: sql`${anonymousWindowsReleaseDownloadDaily.clicks} + 1`,
+        updatedAt: now,
+      },
+    });
   });
+  await recordWindowsExtractionAlertIfThresholdExceeded(db, day, now);
 }
 ```
 
@@ -442,17 +460,40 @@ reportWindowsReleaseDownload: publicProcedure.input(z.object({
   artifact: z.enum(["portable_zip", "signed_nsis"]),
 })).mutation(async ({ input }) => {
   enforceAnonymousSignalRateLimit();
-  await Promise.all([
-    recordAnonymousPlatformDownload("windows"),
-    recordAnonymousWindowsReleaseDownload(input),
-  ]);
+  await recordAnonymousWindowsReleaseDownload(input);
   return { recorded: true } as const;
 }),
 ```
 
-Retain the generic `anonymous_platform_download_daily.windows` increment. It preserves existing platform trend reporting and the Windows extraction-issue rate denominator. The new table only adds release-level attribution.
+The helper, not the route, atomically increments the generic `anonymous_platform_download_daily.windows` counter and the new release-level row. This preserves existing platform trend reporting and the Windows extraction-issue rate denominator without a partial-write state.
 
-### E. CTA wiring
+### E. Release catalog and Windows UI prerequisites
+
+The existing CCTI site deliberately accepts only one exact portable-ZIP filename in both `server/releaseCatalog.ts` and `client/src/lib/platformReleaseMetadata.ts`. A signed `.exe` will otherwise be filtered out before the download CTA or telemetry code can run. Update both allowlists before enabling the signed channel.
+
+```ts
+const WINDOWS_PORTABLE_ZIP = /^Claude\.Code\.Tools\.Installer-\d{4}\.\d{1,2}\.\d{1,2}-windows-portable-x64\.zip$/i;
+const WINDOWS_SIGNED_NSIS = /^Claude-Code-Tools-Installer-\d{4}\.\d{1,2}\.\d{1,2}-win-x64\.exe$/i;
+
+function windowsArtifactKind(fileName: string): "portable_zip" | "signed_nsis" | null {
+  if (WINDOWS_PORTABLE_ZIP.test(fileName)) return "portable_zip";
+  if (WINDOWS_SIGNED_NSIS.test(fileName)) return "signed_nsis";
+  return null;
+}
+```
+
+Use that helper in the server release-platform pattern and client release selection. Do **not** accept arbitrary `.exe` uploads. Only the immutable, expected signed installer naming convention is eligible.
+
+Branch the Windows guide on this same artifact kind:
+
+| Artifact | Download page behavior | Product wording |
+|---|---|---|
+| `portable_zip` | Keep the extraction animation, extraction checklist, ZIP checksum, and optional PowerShell extractor. | “Extract first. Then run CCTI.” |
+| `signed_nsis` | Hide ZIP extraction content. Show “Download → open installer → approve your chosen install location → open CCTI,” plus signature/checksum verification. | “Signed Windows installer.” |
+
+Update `architectureMetadata` so a Windows x64 artifact is labelled **Windows x64**, not **Intel x64**. Update the bundled fallback catalog only after the signed release is public and its filename, bytes, and SHA-256 digest have been independently verified.
+
+### F. CTA wiring
 
 Extend `PlatformDownloadGuide` with a dedicated prop for release-level Windows telemetry. Do not transmit user-agent or detected device architecture.
 
@@ -513,7 +554,7 @@ Update the download-card disclosure from “one anonymous daily platform total�
 
 > This Windows download link records one anonymous daily click for the shown release and artifact type. It does not retain your IP address, browser details, device ID, local path, or an individual event record.
 
-### F. Regression tests
+### G. Regression tests
 
 Add tests that assert:
 
@@ -523,6 +564,8 @@ Add tests that assert:
 4. The primary Windows CTA calls only `reportWindowsReleaseDownload` after session de-duplication.
 5. A ZIP reports `portable_zip`; a signed `.exe` reports `signed_nsis`.
 6. No browser string, URL, path, cookie value, or user identity reaches the tRPC payload or table.
+7. Only the exact reviewed ZIP and signed NSIS filenames become Windows release assets; a generic executable is rejected.
+8. A signed installer renders installer steps, while a portable ZIP retains extraction steps.
 
 ## Release Acceptance Gate
 
