@@ -37,7 +37,9 @@ assert.doesNotMatch(windowsWorkflow, /gh release upload/i, 'the unsigned Windows
 assert.doesNotMatch(windowsWorkflow, /dist:win:zip/i, 'the unsigned Windows workflow must not build a publishable portable ZIP');
 assert.match(windowsWorkflow, /contents: read/, 'the blocked Windows workflow must not retain release write permission');
 assert.match(windowsWorkflow, /Windows portable ZIP release blocked/, 'the Windows workflow must state the fail-closed boundary');
-assert.match(publisherWorkflow, /-f draft=false -f make_latest=true/, 'the shared publisher must advance GitHub\'s latest-release pointer when publishing a verified release.');
+assert.match(publisherWorkflow, /-f draft=false -f make_latest=false/, 'the shared publisher must make the verified draft public before requesting latest-pointer promotion.');
+assert.match(publisherWorkflow, /-f make_latest=true/, 'the shared publisher must advance GitHub\'s latest-release pointer after publication.');
+assert.match(publisherWorkflow, /GitHub may ignore make_latest when a draft is published in the same PATCH/, 'the shared publisher must document the two-step GitHub latest-pointer promotion boundary.');
 assert.match(publisherWorkflow, /X-GitHub-Api-Version: 2026-03-10/, 'the shared publisher must use the documented GitHub API version when assigning the latest release pointer.');
 assert.match(publisherWorkflow, /releases\/latest" --jq '\.tag_name'/, 'the shared publisher must verify that GitHub\'s latest-release pointer resolves to the published tag.');
 execFileSync('bash', [path.join(root, 'scripts', 'test-publish-latest-pointer-workflow.sh'), root], { stdio: 'inherit' });
