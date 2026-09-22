@@ -517,6 +517,24 @@ async function run() {
     assert.match(scanDialog.nameOverlap.text, /will not offer a backup move or deletion/i);
     assert.equal(scanDialog.nameOverlap.actionCount, 0, 'A name overlap must never expose a removal or backup action.');
 
+    await pageValue(window, "document.querySelector('.duplicate-skill-dialog-location button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === false && document.querySelector('#duplicate-skill-dialog-heading')?.textContent === 'Move this skill to a backup', 'single duplicate copy preview');
+    const selectivePreview = await pageValue(window, `(() => ({
+      previewTitle: document.querySelector('#duplicate-backup-preview-heading').textContent,
+      files: document.querySelector('#duplicate-backup-preview-list').textContent,
+      singleButtonHidden: document.querySelector('#backup-selected-skill-button').hidden,
+      lastReview: window.__duplicateUiCalls.filter((call) => call.method === 'reviewCleanup').at(-1)?.payload,
+    }))()`);
+    assert.equal(selectivePreview.previewTitle, 'Files that will move to backup');
+    assert.match(selectivePreview.files, /\/fixture-home\/\.claude\/skills\/revenue-systems\/SKILL\.md/);
+    assert.equal(selectivePreview.singleButtonHidden, false, 'a selected duplicate copy must expose its reviewed backup action');
+    assert.deepEqual(selectivePreview.lastReview, {
+      discoveryId: 'duplicate-ui-fixture',
+      findingId: 'skill:/fixture-home/.claude/skills/revenue-systems',
+    });
+    await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').click()");
+    await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === true && document.querySelector('#duplicate-backup-preview')?.hidden === true && document.querySelectorAll('.duplicate-skill-dialog-location button').length === 2, 'return to duplicate copy selection');
+
     await pageValue(window, "document.querySelector('#deduplicate-all-skills-button').click()");
     await waitFor(window, () => document.querySelector('#duplicate-backup-preview')?.hidden === false && document.activeElement?.id === 'duplicate-backup-preview-heading', 'exact backup file preview');
     const backupPreview = await pageValue(window, `(() => ({
