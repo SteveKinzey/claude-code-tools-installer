@@ -157,8 +157,17 @@ assert.doesNotMatch(storeWindowsTestWorkflow, /inputs\.(identity_name|publisher|
 assert.match(storeWindowsTestWorkflow, /npm run msix:prepare/, 'Store MSIX test workflow must prepare the guarded Store configuration.');
 assert.match(storeWindowsTestWorkflow, /npm run dist:win:store:x64/, 'Store MSIX test workflow must build an x64 Store package.');
 assert.match(storeWindowsTestWorkflow, /npm run dist:win:store:arm64/, 'Store MSIX test workflow must build an ARM64 Store package.');
-assert.match(storeWindowsTestWorkflow, /Add-AppxPackage/, 'Store MSIX test workflow must validate package installation.');
-assert.match(storeWindowsTestWorkflow, /Remove-AppxPackage/, 'Store MSIX test workflow must validate package removal.');
+const perUserMsixHelper = fs.readFileSync(path.join(root, 'scripts', 'test-signed-per-user-msix.ps1'), 'utf8');
+assert.match(storeWindowsTestWorkflow, /Run current-user install, AUMID launch, and uninstall lifecycle/, 'Store MSIX workflow must invoke the lifecycle gate explicitly.');
+assert.match(perUserMsixHelper, /Add-AppxPackage/, 'Per-user MSIX lifecycle must validate package installation.');
+assert.match(perUserMsixHelper, /Remove-AppxPackage/, 'Per-user MSIX lifecycle must validate package removal.');
+assert.match(storeWindowsTestWorkflow, /test-signed-per-user-msix\.ps1/, 'Store MSIX lifecycle must call the isolated current-user test helper.');
+assert.doesNotMatch(storeWindowsTestWorkflow, /Cert:\\LocalMachine|HKLM:|AllowAllTrustedApps|AllowDevelopmentWithoutDevLicense|icacls|WindowsApps|Start-Process -FilePath/, 'Store MSIX lifecycle must not use machine-wide trust, registry changes, ACL changes, or direct executable fallbacks.');
+assert.match(perUserMsixHelper, /Cert:\\CurrentUser\\My/, 'Per-user MSIX lifecycle must create temporary signing material in CurrentUser\\My.');
+assert.match(perUserMsixHelper, /Cert:\\CurrentUser\\TrustedPeople/, 'Per-user MSIX lifecycle must trust only the temporary certificate under CurrentUser\\TrustedPeople.');
+assert.match(perUserMsixHelper, /shell:AppsFolder/, 'Per-user MSIX lifecycle must launch through the registered AUMID.');
+assert.match(perUserMsixHelper, /Remove-AppxPackage/, 'Per-user MSIX lifecycle must remove its registered test package.');
+assert.doesNotMatch(perUserMsixHelper, /Cert:\\LocalMachine|HKLM:|AllowAllTrustedApps|AllowDevelopmentWithoutDevLicense|icacls|WindowsApps|Start-Process -FilePath/, 'Per-user MSIX helper must not bypass policy, alter machine trust, change ACLs, or launch an executable directly.');
 assert.ok(!workflows.some((workflowPath) => /build-windows-signed-/i.test(path.basename(workflowPath))), 'Obsolete alternate Windows distribution workflows must not be present.');
 
 console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}, Dependabot policy, pull-request dependency review, CodeQL scanning, and Microsoft Store MSIX clean-install verification.`);

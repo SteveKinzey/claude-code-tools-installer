@@ -93,7 +93,8 @@ jobs:
           npm run dist:win:store:x64
           npm run dist:win:store:arm64
 
-      - name: Bundle, install, launch, and uninstall
+
+      - name: Bundle and verify the isolated test candidate
         env:
           CCTI_APPX_IDENTITY_NAME: ${{ inputs.test_mode && 'CCTI.LocalValidation' || secrets.CCTI_APPX_IDENTITY_NAME }}
           CCTI_APPX_PUBLISHER: ${{ inputs.test_mode && 'CN=CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER }}
@@ -107,10 +108,7 @@ jobs:
           $makeAppx = Get-ChildItem -Path (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Filter 'MakeAppx.exe' -File -Recurse |
             Sort-Object FullName -Descending |
             Select-Object -First 1
-          $signTool = Get-ChildItem -Path (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Filter 'signtool.exe' -File -Recurse |
-            Sort-Object FullName -Descending |
-            Select-Object -First 1
-          if (-not $makeAppx -or -not $signTool) { throw 'Windows App SDK packaging tools were not found on the runner.' }
+          if (-not $makeAppx) { throw 'MakeAppx.exe was not found on the Windows runner.' }
 
           $staging = Join-Path $env:RUNNER_TEMP 'ccti-clean-install-bundle-input'
           $bundle = Join-Path $env:RUNNER_TEMP 'claude-code-tools-installer-clean-install-test.msixbundle'
@@ -118,63 +116,19 @@ jobs:
           Copy-Item -Path $appx.FullName -Destination $staging -Force
           & $makeAppx.FullName bundle /d $staging /p $bundle /o
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bundle)) { throw 'MakeAppx did not create the temporary test bundle.' }
+          Copy-Item -Path $bundle -Destination (Join-Path $env:RUNNER_TEMP 'ccti-clean-install-input.msixbundle') -Force
 
-          # Fresh, one-run development certificate. It is not uploaded, reused, or used for Store submission.
-          $certificate = New-SelfSignedCertificate `
-            -Subject $env:CCTI_APPX_PUBLISHER `
-            -Type CodeSigningCert `
-            -CertStoreLocation 'Cert:\CurrentUser\My' `
-            -KeyAlgorithm RSA `
-            -KeyLength 2048 `
-            -HashAlgorithm SHA256 `
-            -NotAfter (Get-Date).AddDays(1)
-          if ($certificate.Subject -ne $env:CCTI_APPX_PUBLISHER) { throw 'Temporary certificate subject does not match the exact Partner Center publisher.' }
-
-          & $signTool.FullName sign /fd SHA256 /sha1 $certificate.Thumbprint $bundle
-          if ($LASTEXITCODE -ne 0) { throw 'SignTool could not sign the temporary MSIX bundle.' }
-          $certificateFile = Join-Path $env:RUNNER_TEMP 'ccti-clean-install-test.cer'
-          Export-Certificate -Cert $certificate -FilePath $certificateFile | Out-Null
-          Import-Certificate -FilePath $certificateFile -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople' | Out-Null
-          Import-Certificate -FilePath $certificateFile -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
-          & $signTool.FullName verify /pa /v $bundle
-          if ($LASTEXITCODE -ne 0) { throw 'SignTool verification failed for the temporary MSIX bundle.' }
-
-          New-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Force | Out-Null
-          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name 'AllowAllTrustedApps' -Value 1 -Type DWord
-          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name 'AllowDevelopmentWithoutDevLicense' -Value 1 -Type DWord
-
-          Add-AppxPackage -Path $bundle
-          $registered = Get-AppxPackage -Name $env:CCTI_APPX_IDENTITY_NAME
-          if (-not $registered) { throw 'The temporary MSIX bundle was not registered after installation.' }
-          $expectedExecutable = Join-Path $registered.InstallLocation 'app\Claude Code Tools Installer.exe'
-          if (-not (Test-Path $expectedExecutable)) { throw "Installed application executable not found: $expectedExecutable" }
-
-          [xml]$manifest = Get-AppxPackageManifest -Package $registered.PackageFullName
-          $appId = $manifest.Package.Applications.Application.Id
-          $aumid = "$($registered.PackageFamilyName)!$appId"
-          Write-Host "Installed AUMID: $aumid"
-
-          Start-Process "shell:AppsFolder\$aumid"
-          Start-Sleep -Seconds 5
-          $running = Get-Process -Name 'Claude Code Tools Installer' -ErrorAction SilentlyContinue
-          if ($running) {
-            Write-Host "Process running via AUMID launch (PID $($running[0].Id))."
-            $running | Stop-Process -Force -ErrorAction SilentlyContinue
-          } else {
-            Write-Host "AUMID launch did not start in non-interactive CI session; verifying binary execution via granted ACL..."
-            & icacls $registered.InstallLocation /grant 'Users:(OI)(CI)RX' /q
-            $process = Start-Process -FilePath $expectedExecutable -PassThru
-            Start-Sleep -Seconds 5
-            $process.Refresh()
-            if ($process.HasExited) { throw "Installed desktop process exited immediately (exit code $($process.ExitCode))." }
-            Write-Host "Process running directly (PID $($process.Id))."
-            Stop-Process -Id $process.Id -Force
-          }
-
-          Remove-AppxPackage -Package $registered.PackageFullName
-          if (Get-AppxPackage -Name $env:CCTI_APPX_IDENTITY_NAME) { throw 'Package remains registered after uninstall.' }
-          Write-Host 'Clean Windows install, process-start, and uninstall lifecycle passed.'
-
+      - name: Run current-user install, AUMID launch, and uninstall lifecycle
+        env:
+          CCTI_APPX_IDENTITY_NAME: ${{ inputs.test_mode && 'CCTI.LocalValidation' || secrets.CCTI_APPX_IDENTITY_NAME }}
+          CCTI_APPX_PUBLISHER: ${{ inputs.test_mode && 'CN=CCTI Local Validation' || secrets.CCTI_APPX_PUBLISHER }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ../scripts/test-signed-per-user-msix.ps1 `
+            -UnsignedBundle (Join-Path $env:RUNNER_TEMP 'ccti-clean-install-input.msixbundle') `
+            -IdentityName $env:CCTI_APPX_IDENTITY_NAME `
+            -Publisher $env:CCTI_APPX_PUBLISHER `
+            -ProcessName 'Claude Code Tools Installer'
       - name: Remove generated Store configuration
         if: always()
         run: Remove-Item -Force 'build/appx-store.resolved.json' -ErrorAction SilentlyContinue
