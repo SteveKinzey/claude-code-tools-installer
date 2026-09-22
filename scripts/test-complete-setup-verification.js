@@ -17,6 +17,7 @@ const marketplaces = new Set();
 let openDialogResult = { canceled: true, filePaths: [] };
 let saveDialogResult = { canceled: true, filePath: '' };
 let readyCallback;
+let hangNextCompleteSetup = false;
 
 function childProcess() {
   const child = new EventEmitter();
@@ -57,7 +58,7 @@ function spawnStub(command, args = [], options = {}) {
   }
   if (command === path.join(home, '.local', 'bin', 'claude')) {
     if (args[0] === '--version') finish(child, { stdout: '2.1.276 (Claude Code)\n' });
-    else if (args[0] === "mcp" && args[1] === "list") finish(child, { stdout: "repomix: local command\nplaywright: local command\n" });
+    else if (args[0] === 'mcp' && args[1] === 'get' && ['repomix', 'playwright'].includes(args[2])) finish(child, { stdout: `${args[2]}: local command\n` });
     else if (args[0] === "plugin" && args[1] === "list") finish(child, { stdout: "Installed plugins:\n  ❯ " + [...pluginIds].join("\n  ❯ ") + "\n" });
     else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') finish(child, { stdout: `${[...marketplaces].join('\n')}\n` });
     else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') {
@@ -70,6 +71,10 @@ function spawnStub(command, args = [], options = {}) {
     return child;
   }
   if (command === 'bash' && args.includes('--complete')) {
+    if (hangNextCompleteSetup) {
+      hangNextCompleteSetup = false;
+      return child;
+    }
     finish(child, { stdout: 'Installer completed\n' });
     return child;
   }
@@ -179,6 +184,9 @@ async function run() {
     assert.equal(verification.ok, true);
     assert.equal(verification.ready, true, 'The setup verification button must identify a completed recommended setup without a terminal command');
     assert.ok(verification.checks.every((check) => check.state === 'ready'), 'All recommended setup checks must report a plain ready state in this fixture');
+    assert.ok(spawns.some((entry) => entry.args[0] === 'mcp' && entry.args[1] === 'get' && entry.args[2] === 'repomix'), 'Setup verification must directly query the Repomix registration.');
+    assert.ok(spawns.some((entry) => entry.args[0] === 'mcp' && entry.args[1] === 'get' && entry.args[2] === 'playwright'), 'Setup verification must directly query the Playwright registration.');
+    assert.equal(spawns.some((entry) => entry.args[0] === 'mcp' && entry.args[1] === 'list'), false, 'Setup verification must not health-check unrelated MCP servers.');
 
     await Promise.all([
       writeProjectFixture('.claude/skills/design-taste-frontend/SKILL.md', '# project taste\n'),
@@ -195,6 +203,21 @@ async function run() {
     const invalidScope = await completeSetup(null, { fresh: false, skillScope: 'project', projectPath: path.join(tempRoot, 'missing-project') });
     assert.equal(invalidScope.ok, false, 'Project setup must reject an unreviewed or missing project folder before starting the installer');
     assert.match(invalidScope.error, /choose a valid project folder/i);
+
+    const originalSetTimeout = global.setTimeout;
+    global.setTimeout = (callback, delay, ...args) => originalSetTimeout(callback, Math.min(delay, 5), ...args);
+    try {
+      hangNextCompleteSetup = true;
+      const timeoutResult = await completeSetup(null, { fresh: false, skillScope: 'global' });
+      assert.equal(timeoutResult.ok, false, 'A hung Complete setup child must not leave CCTI in a running state.');
+      assert.equal(timeoutResult.timedOut, undefined, 'The IPC response should preserve the documented setup response surface.');
+      assert.equal(timeoutResult.code, -1, 'A hung Complete setup child must return a deterministic timeout code.');
+      assert.match(timeoutResult.error, /timed out after 10 minutes/i, 'CCTI must explain that it stopped waiting without removing existing configuration.');
+      const retryAfterTimeout = await completeSetup(null, { fresh: false, skillScope: 'global' });
+      assert.notEqual(retryAfterTimeout.error, 'An installation is already running.', 'A timed-out Complete setup must clear its lock and permit a retry.');
+    } finally {
+      global.setTimeout = originalSetTimeout;
+    }
 
     console.log('Complete setup verification passed: supported plugins install inside CCTI, skill scope stays explicit, and the read-only readiness check reports every recommended item.');
   } finally {

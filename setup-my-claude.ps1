@@ -444,8 +444,10 @@ function Test-McpExists {
     return $false
   }
   try {
-    $list = & claude mcp list 2>$null
-    return ($list | ForEach-Object { ($_ -split "\s+")[0] }) -contains $Name
+    # `mcp list` health-checks every configured server and can fail because of an
+    # unrelated connection. Query this one registration so an existing server is a no-op.
+    & claude mcp get $Name *> $null
+    return $LASTEXITCODE -eq 0
   }
   catch {
     return $false

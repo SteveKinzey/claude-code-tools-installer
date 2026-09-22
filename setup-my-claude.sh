@@ -469,7 +469,9 @@ mcp_exists() {
     log "Dry run: would check whether MCP server '$name' already exists; no Claude Code command will run"
     return 1
   fi
-  claude mcp list 2>/dev/null | awk '{print $1}' | grep -Fxq "$name"
+  # `mcp list` health-checks every configured server and can fail because of an
+  # unrelated connection. Query this one registration so an existing server is a no-op.
+  claude mcp get "$name" >/dev/null 2>&1
 }
 
 clone_or_update() {

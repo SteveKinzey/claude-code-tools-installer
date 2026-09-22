@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag whose macOS and Linux assets are staged on a draft release"
+        description: "Existing release tag whose macOS, Linux, and signed Windows assets are staged on a draft release"
         required: true
         type: string
 
@@ -73,7 +73,10 @@ jobs:
             --pattern '*linux-x64.tar.gz' \
             --pattern '*linux-x64.tar.gz.sha256' \
             --pattern '*linux-x64.tar.gz.sigstore.json' \
-            --pattern 'claude-code-tools-installer-macos-*.sha256'
+            --pattern 'claude-code-tools-installer-macos-*.sha256' \
+            --pattern '*-win-x64.exe' \
+            --pattern '*-win-x64.exe.sha256' \
+            --pattern 'latest.yml'
           mapfile -t archives < <(find "$download_dir" -maxdepth 1 -type f -name '*linux-x64.tar.gz' -print | sort)
           [[ "${#archives[@]}" -eq 1 ]] || { echo "Expected exactly one staged Linux archive." >&2; exit 1; }
           archive="${archives[0]}"
@@ -111,6 +114,24 @@ jobs:
             expectedTargets.delete(target);
           }
           if (expectedTargets.size) throw new Error(`Missing valid macOS checksum sidecars for: ${[...expectedTargets].join(', ')}`);
+          const windowsInstaller = one('signed Windows x64 installer', (asset) => /-win-x64\.exe$/i.test(asset.name));
+          const windowsChecksum = `${windowsInstaller.name}.sha256`;
+          const windowsChecksumPath = path.join(downloadDir, windowsChecksum);
+          const windowsMetadataPath = path.join(downloadDir, 'latest.yml');
+          if (windowsInstaller.state !== 'uploaded' || !/^sha256:[a-f0-9]{64}$/i.test(windowsInstaller.digest || '')) {
+            throw new Error(`Invalid staged Windows installer: ${windowsInstaller.name}`);
+          }
+          if (!fs.existsSync(windowsChecksumPath) || !fs.existsSync(windowsMetadataPath)) {
+            throw new Error('Windows signed installer is missing its checksum or latest.yml metadata.');
+          }
+          const [windowsDigest, windowsTarget] = fs.readFileSync(windowsChecksumPath, 'utf8').trim().split(/\s{2,}/);
+          if (windowsTarget !== windowsInstaller.name || windowsInstaller.digest.toLowerCase() !== `sha256:${windowsDigest}`.toLowerCase()) {
+            throw new Error('Windows checksum sidecar does not match the staged signed installer.');
+          }
+          const windowsMetadata = fs.readFileSync(windowsMetadataPath, 'utf8');
+          if (!windowsMetadata.includes(windowsInstaller.name) || !windowsMetadata.includes('sha512:')) {
+            throw new Error('Windows latest.yml does not reference the signed installer with an updater digest.');
+          }
           NODE
           echo "release_database_id=$release_database_id" >> "$GITHUB_ENV"
 
