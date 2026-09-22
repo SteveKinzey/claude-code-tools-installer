@@ -13,13 +13,12 @@ mock_bin="$temp_root/bin"
 mkdir -p "$mock_bin"
 
 awk '
-  /^[[:space:]]*gh api .*--method PATCH .*make_latest=true/ { active = 1 }
+  /^[[:space:]]*# GitHub may ignore make_latest/ { active = 1 }
   active {
     sub(/^          /, "")
     gsub(/\$\{\{ steps\.release\.outputs\.tag \}\}/, "$TAG")
     print
   }
-  active && /^[[:space:]]*gh release view .*isDraft,isPrerelease,url/ { exit }
 ' "$workflow" > "$temp_root/publish-block.sh"
 
 grep -Fq 'make_latest=true' "$temp_root/publish-block.sh" || {
@@ -43,8 +42,13 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$MOCK_LOG_FILE"
 
 if [[ "$1" == 'api' && "$*" == *'--method PATCH'* ]]; then
-  [[ "$*" == *'make_latest=true'* ]] || { echo 'PATCH omitted make_latest=true' >&2; exit 41; }
   [[ "$*" == *'X-GitHub-Api-Version: 2026-03-10'* ]] || { echo 'PATCH omitted the required GitHub API version header' >&2; exit 43; }
+  if [[ "$*" == *'draft=false'* ]]; then
+    [[ "$*" == *'make_latest=false'* ]] || { echo 'publication PATCH must not combine draft=false with make_latest=true' >&2; exit 41; }
+    printf '{"ok":true}\n'
+    exit 0
+  fi
+  [[ "$*" == *'make_latest=true'* ]] || { echo 'latest-pointer PATCH omitted make_latest=true' >&2; exit 42; }
   printf '{"ok":true}\n'
   exit 0
 fi
@@ -104,8 +108,18 @@ run_case() {
     cat "$stderr_file" >&2
     exit 1
   }
+  grep -Fq 'draft=false -f make_latest=false' "$log_file" || {
+    echo "$label simulation did not publish the draft before latest-pointer promotion." >&2
+    exit 1
+  }
   grep -Fq 'make_latest=true' "$log_file" || {
     echo "$label simulation did not send make_latest=true." >&2
+    exit 1
+  }
+  first_publish_line="$(grep -n -m1 -F 'draft=false -f make_latest=false' "$log_file" | cut -d: -f1)"
+  first_promote_line="$(grep -n -m1 -F 'make_latest=true' "$log_file" | cut -d: -f1)"
+  (( first_publish_line < first_promote_line )) || {
+    echo "$label simulation promoted latest before publication." >&2
     exit 1
   }
   grep -Fq 'X-GitHub-Api-Version: 2026-03-10' "$log_file" || {
