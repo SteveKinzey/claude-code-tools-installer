@@ -1684,7 +1684,7 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false, { skillScope = '
   } else if (mode === 'claude-only') {
     args.push(option('-NoLaunch', '--no-launch'), option('-ClaudeOnly', '--claude-only'), option('-Yes', '--yes'));
   } else if (mode === 'complete' || mode === 'fresh-complete') {
-    args.push(option('-Complete', '--complete'), option('-AppManagedPlugins', '--app-managed-plugins'));
+    args.push(option('-NoLaunch', '--no-launch'), option('-Complete', '--complete'), option('-AppManagedPlugins', '--app-managed-plugins'));
     args.push(option('-SkillScope', '--skill-scope'), skillScope === 'project' ? 'project' : 'global');
     if (mode === 'fresh-complete') args.push(option('-Fresh', '--fresh'), option('-FreshConfirmed', '--fresh-confirmed'));
   } else {

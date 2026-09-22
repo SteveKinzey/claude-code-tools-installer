@@ -166,6 +166,7 @@ async function run() {
 
     const installerSpawn = spawns.find((entry) => entry.command === 'bash' && entry.args.includes('--complete'));
     assert.ok(installerSpawn, 'Complete setup must use the trusted installer adapter');
+    assert.ok(installerSpawn.args.includes('--no-launch'), 'Complete setup must not open macOS Terminal and bypass the saved terminal preference.');
     assert.ok(installerSpawn.args.includes('--app-managed-plugins'), 'Complete setup must tell the adapter that plugin installation stays inside CCTI');
     assert.deepEqual(installerSpawn.args.slice(-2), ['--skill-scope', 'global'], 'Global setup must state its noninteractive skill scope to the trusted adapter');
     assert.equal(installerSpawn.options.cwd, home, 'Global setup must keep the installer working directory at the user home folder');
