@@ -539,8 +539,25 @@ install_mcp() {
     log "Existing MCP server detected: $name"
     return 0
   fi
-  run_cmd claude mcp add "$name" "$@"
-  record_manifest "mcp" "$name" "" "$item"
+  local add_status=0
+  if run_cmd claude mcp add "$name" "$@"; then
+    if mcp_exists "$name"; then
+      record_manifest "mcp" "$name" "" "$item"
+      log "MCP server added and verified: $name"
+      return 0
+    fi
+    log "CCTI added MCP server '$name', but the named verification did not succeed."
+    return 1
+  else
+    add_status=$?
+  fi
+  # A competing Claude session can create the same registration between the
+  # direct lookup and add. Recheck the exact server and keep it if it now exists.
+  if mcp_exists "$name"; then
+    log "MCP server '$name' was already registered while CCTI was setting it up; keeping the existing connection."
+    return 0
+  fi
+  return "$add_status"
 }
 
 install_mcp_after_dashdash() {
@@ -550,8 +567,24 @@ install_mcp_after_dashdash() {
     log "Existing MCP server detected: $name"
     return 0
   fi
-  run_cmd claude mcp add "$name" -- "$@"
-  record_manifest "mcp" "$name" "" "$item"
+  local add_status=0
+  if run_cmd claude mcp add "$name" -- "$@"; then
+    if mcp_exists "$name"; then
+      record_manifest "mcp" "$name" "" "$item"
+      log "MCP server added and verified: $name"
+      return 0
+    fi
+    log "CCTI added MCP server '$name', but the named verification did not succeed."
+    return 1
+  else
+    add_status=$?
+  fi
+  # Do not remove or overwrite a user server after a duplicate-name race.
+  if mcp_exists "$name"; then
+    log "MCP server '$name' was already registered while CCTI was setting it up; keeping the existing connection."
+    return 0
+  fi
+  return "$add_status"
 }
 
 install_item() {

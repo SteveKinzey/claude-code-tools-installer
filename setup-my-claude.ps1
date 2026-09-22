@@ -531,6 +531,24 @@ function Install-Mcp {
     return
   }
   Invoke-Logged claude (@("mcp", "add", $Name) + $Arguments)
+  $addExitCode = $LASTEXITCODE
+  if (-not $DryRun -and $addExitCode -eq 0) {
+    if (Test-McpExists $Name) {
+      Add-Manifest "mcp" $Name "" $ItemId
+      Write-Log "MCP server added and verified: $Name"
+      return
+    }
+    throw "CCTI added MCP server '$Name', but the named verification did not succeed."
+  }
+  if (-not $DryRun -and $addExitCode -ne 0) {
+    # A competing Claude session can create the same registration between the
+    # direct lookup and add. Recheck the exact server and preserve it if present.
+    if (Test-McpExists $Name) {
+      Write-Log "MCP server '$Name' was already registered while CCTI was setting it up; keeping the existing connection."
+      return
+    }
+    throw "CCTI could not add MCP server '$Name' (exit code $addExitCode), and it is still not registered."
+  }
   Add-Manifest "mcp" $Name "" $ItemId
 }
 
@@ -545,6 +563,24 @@ function Install-McpAfterDashDash {
     return
   }
   Invoke-Logged claude (@("mcp", "add", $Name, "--") + $Arguments)
+  $addExitCode = $LASTEXITCODE
+  if (-not $DryRun -and $addExitCode -eq 0) {
+    if (Test-McpExists $Name) {
+      Add-Manifest "mcp" $Name "" $ItemId
+      Write-Log "MCP server added and verified: $Name"
+      return
+    }
+    throw "CCTI added MCP server '$Name', but the named verification did not succeed."
+  }
+  if (-not $DryRun -and $addExitCode -ne 0) {
+    # Preserve a registration that appeared during setup instead of failing on
+    # an "already exists" response or replacing user configuration.
+    if (Test-McpExists $Name) {
+      Write-Log "MCP server '$Name' was already registered while CCTI was setting it up; keeping the existing connection."
+      return
+    }
+    throw "CCTI could not add MCP server '$Name' (exit code $addExitCode), and it is still not registered."
+  }
   Add-Manifest "mcp" $Name "" $ItemId
 }
 
