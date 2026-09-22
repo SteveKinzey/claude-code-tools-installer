@@ -274,17 +274,18 @@ async function run() {
       announcement: document.querySelector('#setup-verification-summary').textContent,
       runCall: window.__setupVerificationFixture.calls.find((call) => call.method === 'runCompleteSetup'),
     }))()`);
-    assert.deepEqual(runningCompleteSetup, {
+    const { spinnerAnimation, ...runningCompleteSetupState } = runningCompleteSetup;
+    assert.deepEqual(runningCompleteSetupState, {
       disabled: true,
       busy: 'true',
       loading: true,
       label: 'Completing setup…',
       spinnerHidden: false,
       spinnerAriaHidden: 'true',
-      spinnerAnimation: 'ccti-spin',
       announcement: 'Complete setup is running. CCTI is installing prerequisites, Claude Code, and recommended tools locally.',
       runCall: { method: 'runCompleteSetup', payload: { fresh: false, skillScope: 'global', projectPath: '' } },
     }, 'Complete setup must expose a visible spinner, an explicit busy label, and a polite in-progress announcement.');
+    assert.ok(['ccti-spin', 'none'].includes(spinnerAnimation), 'Complete setup must animate its spinner unless the operating system requests reduced motion.');
 
     const completeResult = {
       ok: true,
