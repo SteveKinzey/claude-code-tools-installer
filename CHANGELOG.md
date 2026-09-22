@@ -2,6 +2,29 @@
 
 All notable changes are documented in this file. Version tags use the calendar-based format `vYYYY.MM.DD`.
 
+## v2026.09.22 — Complete setup verification and cross-platform release delivery
+
+> **Release status:** Prepared for a signed, notarized macOS release and a keylessly signed Linux archive. A source commit is not a downloadable desktop release until the GitHub Release contains the matching verified assets and integrity evidence.
+
+### Terminal-free setup clarity
+
+- Added the Step 1 **Verify setup** panel. It reads known local status for Claude Code, Bun, gstack, installed skills, Repomix, MCP connections, supported plugins, and the Anthropic Skills marketplace without opening Terminal or changing configuration.
+- Complete setup now installs its supported recommended plugins inside CCTI rather than leaving a plugin-command checklist for users to run manually.
+- Classified gstack’s optional CSO image notice as informational. CCTI now reports gstack ready when its actual setup, version, browser-helper, and health-skill markers are present.
+- Preserved a truthful Windows boundary: gstack upstream setup remains unavailable on Windows until its source supports that platform.
+- Clarified that Microsoft Store MSIX submission is separate from the CCTI app’s setup experience. No MSIX package, Partner Center submission, or Windows distribution change is part of this release.
+
+### Cross-platform release delivery
+
+- Adds manual staging and shared-publish gates for one draft GitHub Release containing notarized macOS updater assets and a versioned Linux x64 archive.
+- The Linux artifact requires a conventional SHA-256 sidecar and a keyless Sigstore bundle bound to the exact tag and GitHub Actions workflow before publication.
+- Preserves the Windows delivery boundary: CI and Store-path validation do not create or attach a standalone signed Windows binary.
+
+### Validation
+
+- Full desktop suite passed, including the new app-managed Complete setup and read-only verification regression test.
+- `npm audit --audit-level=high` reported zero vulnerabilities.
+
 ## v2026.09.21 — Native macOS updater release
 
 > **Release status:** [`v2026.09.21`](https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.21) is a public macOS release at immutable commit `f2d6a551338341b44641d45ceb0399dade5b26c4`. It includes a notarized arm64 DMG, native update ZIP, `latest-mac.yml`, and detached SHA-256 files. Windows evidence is CI validation for the tagged commit; Linux evidence is a locally packaged, adapter-tested archive only. Neither is a public Windows or Linux binary for this tag.
