@@ -73,11 +73,21 @@ const projectPackage = {
   description: 'Project package · 0.14.0.',
 };
 
+const longPluginPath = '/fixture-home/.claude/plugins/synced/5b4d7fbe-5e6a-473a-91b3-6794b50af7d_552b50b7-59d8-42a6-b087-898165128950/operations';
+const longPluginPathItem = {
+  id: 'plugin:/fixture-home/.claude/plugins/synced/operations',
+  type: 'plugin',
+  name: `Path: ${longPluginPath}`,
+  scope: 'Claude Code',
+  path: 'Claude Code',
+  description: 'Reported by Claude Code.',
+};
+
 const discoveryReport = {
   discoveryId: 'duplicate-ui-fixture',
   checkedAt: '2026-09-12T12:00:00.000Z',
   projectPath: '/fixture-project',
-  findings: [...duplicateItems, ...nameOverlapItems, projectPackage],
+  findings: [...duplicateItems, ...nameOverlapItems, projectPackage, longPluginPathItem],
   managedExtras: { actionCount: 1, manualCount: 1, ignored: 0, error: '' },
   duplicates: [
     {
@@ -144,6 +154,10 @@ function injectedBridge() {
       return message.includes('PROJECT PACKAGE') ? 'REMOVE PROJECT PACKAGE' : message.includes('CCTI EXTRAS') ? 'REMOVE CCTI EXTRAS' : '';
     };
     const record = (method, payload) => window.__duplicateUiCalls.push({ method, payload });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (value) => record('copyPath', value) },
+    });
     window.installer = {
       getCatalog: async () => [],
       getCatalogDetails: async () => ({ items: [] }),
@@ -459,6 +473,29 @@ async function run() {
     assert.equal(cleanupActionPanel.skillButton, 'Review 4 installed skills');
     assert.equal(cleanupActionPanel.packageButton, 'Review 1 project package');
     assert.equal(cleanupActionPanel.managedExtrasButton, 'Review 1 removal');
+
+    const longPathCopyControl = await pageValue(window, `(() => {
+      const card = [...document.querySelectorAll('.manager-item-plugin')]
+        .find((item) => item.querySelector('h3')?.textContent.includes('5b4d7fbe-5e6a'));
+      const button = card?.querySelector('.manager-path-copy');
+      return {
+        title: card?.querySelector('h3')?.textContent,
+        buttonText: button?.textContent,
+        accessibleName: button?.getAttribute('aria-label'),
+        cardFits: card ? card.scrollWidth <= card.clientWidth : false,
+        titleFits: card?.querySelector('h3') ? card.querySelector('h3').scrollWidth <= card.querySelector('h3').clientWidth : false,
+      };
+    })()`);
+    assert.equal(longPathCopyControl.title, `Path: ${longPluginPath}`);
+    assert.equal(longPathCopyControl.buttonText, 'Copy path');
+    assert.equal(longPathCopyControl.accessibleName, 'Copy this add-on path');
+    assert.equal(longPathCopyControl.cardFits, true, 'a long plugin path card must remain within its grid track');
+    assert.equal(longPathCopyControl.titleFits, true, 'a long plugin path heading must wrap within its card');
+    await pageValue(window, "document.querySelector('.manager-path-copy').click()");
+    await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'copyPath'), 'long plugin path copy action');
+    assert.equal((await pageValue(window, "window.__duplicateUiCalls.find((call) => call.method === 'copyPath')?.payload")), longPluginPath);
+    assert.equal(await pageValue(window, "document.querySelector('.manager-path-copy').textContent"), 'Copied');
+
     await pageValue(window, "document.querySelector('#cleanup-manage-skills-button').click()");
     await waitFor(window, () => document.querySelector('#setup-manager-inventory')?.open === true, 'installed skills inventory reveal');
     await pageValue(window, "document.querySelector('.manager-item-skill button').click()");

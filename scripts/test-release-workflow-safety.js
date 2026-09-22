@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const macWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml'), 'utf8');
 const windowsWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-windows-portable-zip.yml'), 'utf8');
 const publisherWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'publish-verified-release.yml'), 'utf8');
+const linuxWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-linux-signed.yml'), 'utf8');
 const sourceBuilder = fs.readFileSync(path.join(root, 'scripts', 'build-source-releases.sh'), 'utf8');
 const releaseDesktopCheck = fs.readFileSync(path.join(root, 'scripts', 'run-release-desktop-check.sh'), 'utf8');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
@@ -22,6 +23,10 @@ assert.match(macWorkflow, /Refusing to modify an already-public release/, 'macOS
 assert.match(macWorkflow, /checkout "\$TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS releases must package the desktop runtime from the immutable tag.');
 assert.doesNotMatch(macWorkflow, /checkout "\$TAG" -- desktop scripts/, 'macOS releases must retain current release-policy validators rather than restoring stale tag scripts.');
 assert.match(macWorkflow, /bash \.\.\/scripts\/run-release-desktop-check\.sh/, 'macOS releases must use the resilient release-specific audit gate.');
+for (const [name, workflow] of [['macOS', macWorkflow], ['Linux', linuxWorkflow], ['publisher', publisherWorkflow]]) {
+  assert.match(workflow, /release-identity\.js/, `${name} releases must centralize public tag to package version validation.`);
+  assert.match(workflow, /--require-daily-revision/, `${name} releases must require a daily revision identity.`);
+}
 assert.match(macWorkflow, /--json databaseId --jq '\.databaseId'/, 'macOS publication must request GitHub\'s numeric release databaseId for the REST PATCH endpoint');
 assert.match(macWorkflow, /release_database_id.*=~ \^\[0-9\]\+\$/, 'macOS publication must reject a missing or non-numeric release databaseId');
 assert.match(macWorkflow, /releases\/\$release_database_id\/assets/, 'macOS staging must use the numeric GitHub release databaseId for asset inventory.');

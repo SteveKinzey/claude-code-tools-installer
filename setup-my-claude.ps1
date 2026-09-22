@@ -11,6 +11,8 @@ param(
   [switch]$NoLaunch,
   [switch]$Yes,
   [switch]$AppManagedPlugins,
+  [ValidateSet("global", "project")]
+  [string]$SkillScope = "global",
   [switch]$Uninstall,
   [Alias("Items")]
   [string]$Item = "",
@@ -52,6 +54,7 @@ Usage:
   pwsh -File .\setup-my-claude.ps1 -BootstrapOnly          Start or open Claude Code, then exit
   pwsh -File .\setup-my-claude.ps1 -ClaudeOnly             Install Claude Code only and wait until it is ready
   pwsh -File .\setup-my-claude.ps1 -Complete               Install prerequisites, Claude Code, and curated defaults
+  pwsh -File .\setup-my-claude.ps1 -Complete -SkillScope project  Install project-capable skills in the current project folder
   pwsh -File .\setup-my-claude.ps1 -Fresh                  Remove Claude Code and its local data before setup (requires -Complete)
   pwsh -File .\setup-my-claude.ps1 -NoLaunch               Do not open a PowerShell window after preparation
   pwsh -File .\setup-my-claude.ps1 -Uninstall              Roll back items recorded in the manifest
@@ -474,7 +477,19 @@ function Install-Skill {
     [string]$Skill,
     [string]$ItemId
   )
-  $dest = Join-Path $HOME ".claude\skills\$Skill"
+  $skillRoot = if ($SkillScope -eq "project") {
+    Join-Path (Get-Location).Path ".claude\skills"
+  }
+  else {
+    Join-Path $HOME ".claude\skills"
+  }
+  $dest = Join-Path $skillRoot $Skill
+  if ($SkillScope -eq "project") {
+    Write-Log "CCTI selected project scope for '$Skill': $dest"
+  }
+  else {
+    Write-Log "CCTI selected global scope for '$Skill': $dest"
+  }
   if (Test-Path (Join-Path $dest "SKILL.md")) {
     Write-Log "CCTI did not add '$Skill': this skill is already available in Claude Code at $dest."
     return
@@ -483,7 +498,9 @@ function Install-Skill {
     Write-Log "CCTI did not add '$Skill': a folder already uses this Claude Code skill name at $dest. Review it before adding a copy."
     return
   }
-  Invoke-Logged npx @("-y", "skills", "add", $Repo, "--skill", $Skill, "--agent", "claude-code")
+  $skillArguments = @("-y", "skills@latest", "add", $Repo, "--skill", $Skill, "--agent", "claude-code", "--yes")
+  if ($SkillScope -eq "global") { $skillArguments += "--global" }
+  Invoke-Logged npx $skillArguments
   Add-Manifest "skill" $dest "" $ItemId
 }
 

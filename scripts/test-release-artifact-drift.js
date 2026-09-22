@@ -23,6 +23,8 @@ const invalidDigest = fixture("invalid-digest-release.json");
 
 assert.equal(isReleaseTag("v2026.09.12"), true);
 assert.equal(isReleaseTag("2026.9.12"), true);
+assert.equal(isReleaseTag("v2026.09.12.01"), true);
+assert.equal(isReleaseTag("v2026.02.29.01"), false);
 assert.equal(isReleaseTag("release-candidate"), false);
 
 for (const asset of [

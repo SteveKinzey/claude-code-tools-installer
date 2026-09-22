@@ -33,9 +33,8 @@ expect(fs.existsSync(releaseWorkflowPath), 'Missing signed macOS release workflo
 
 if (fs.existsSync(releaseWorkflowPath)) {
   const releaseWorkflow = fs.readFileSync(releaseWorkflowPath, 'utf8');
-  const packageVersionLine = releaseWorkflow.split('\n').find((line) => line.includes('package_version=')) || '';
-  expect(packageVersionLine.includes("node -e '"), 'Release tag validation must quote the Node version normalizer so Bash cannot expand its source.');
-  expect(!packageVersionLine.includes('`v${'), 'Release tag validation must not contain a Bash-expandable JavaScript template literal.');
+  expect(releaseWorkflow.includes('scripts/release-identity.js'), 'Release tag validation must use the centralized release identity validator.');
+  expect(releaseWorkflow.includes('--require-daily-revision'), 'New macOS releases must require a canonical daily revision tag.');
   expect(releaseWorkflow.includes('checkout "$TAG" -- desktop setup-my-claude.sh'), 'Release workflow must restore the tagged desktop runtime before validation.');
   expect(!releaseWorkflow.includes('checkout "$TAG" -- desktop scripts'), 'Release workflow must retain current release-policy validators instead of restoring stale tag scripts.');
   expect(releaseWorkflow.includes('for artifact in "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"; do'), 'Release workflow must upload macOS assets sequentially to avoid GitHub asset-name races.');

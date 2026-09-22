@@ -9,6 +9,7 @@ const state = {
   running: false,
   completeSetupRunning: false,
   completeSetupRunningLabel: '',
+  completeSetupScope: { skillScope: 'global', projectPath: '', mode: 'global' },
   componentRunning: false,
   claudeInstalled: false,
   claudeApproved: false,
@@ -42,6 +43,10 @@ const setupNoteElement = document.querySelector('#setup-note');
 const completeSetupButton = document.querySelector('#complete-setup-button');
 const completeSetupButtonLabel = document.querySelector('#complete-setup-button-label');
 const completeSetupSpinner = document.querySelector('#complete-setup-spinner');
+const completeSetupGlobalScopeButton = document.querySelector('#complete-setup-global-scope-button');
+const completeSetupExistingProjectButton = document.querySelector('#complete-setup-existing-project-button');
+const completeSetupNewProjectButton = document.querySelector('#complete-setup-new-project-button');
+const completeSetupScopeNoteElement = document.querySelector('#complete-setup-scope-note');
 const startFreshButton = document.querySelector('#start-fresh-button');
 const useExistingButton = document.querySelector('#use-existing-button');
 const installClaudeButton = document.querySelector('#install-claude-button');
@@ -425,6 +430,57 @@ function setCompleteSetupRunning(isRunning, label = '') {
   state.completeSetupRunning = isRunning;
   state.completeSetupRunningLabel = isRunning ? label : '';
   syncCompleteSetupButton();
+  syncCompleteSetupScope();
+}
+
+function syncCompleteSetupScope() {
+  const { skillScope, projectPath, mode } = state.completeSetupScope;
+  const buttons = [
+    [completeSetupGlobalScopeButton, mode === 'global'],
+    [completeSetupExistingProjectButton, mode === 'existing-project'],
+    [completeSetupNewProjectButton, mode === 'new-project'],
+  ];
+  for (const [button, selected] of buttons) {
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+    button.disabled = state.running || state.completeSetupRunning;
+  }
+  completeSetupScopeNoteElement.textContent = skillScope === 'project' && projectPath
+    ? `Selected: Project skills in ${projectPath}. CCTI will add only .claude/skills to this folder.`
+    : 'Selected: Global skills. No project folder will be changed.';
+}
+
+function completeSetupScopeDescription() {
+  const { skillScope, projectPath } = state.completeSetupScope;
+  return skillScope === 'project' && projectPath
+    ? `Project skills: taste-skill and Planning with Files will be installed only in:\n${projectPath}\n\nCCTI will not add skills to any other project.`
+    : 'Global skills: taste-skill and Planning with Files will be available across your projects. No project folder will be changed.';
+}
+
+function selectGlobalCompleteSetupScope() {
+  state.completeSetupScope = { skillScope: 'global', projectPath: '', mode: 'global' };
+  syncCompleteSetupScope();
+}
+
+async function chooseCompleteSetupProject(createNew) {
+  completeSetupScopeNoteElement.textContent = createNew
+    ? 'Choose the location and name for the new project folder. CCTI will create that folder before installing project skills.'
+    : 'Choose the project folder where CCTI should install project skills.';
+  const result = await window.installer.chooseCompleteSetupProject({ createNew });
+  if (result?.canceled) {
+    syncCompleteSetupScope();
+    return;
+  }
+  if (!result?.projectPath) {
+    completeSetupScopeNoteElement.textContent = result?.error || 'CCTI could not use that folder. Choose a project folder again or install globally.';
+    return;
+  }
+  state.completeSetupScope = {
+    skillScope: 'project',
+    projectPath: result.projectPath,
+    mode: createNew ? 'new-project' : 'existing-project',
+  };
+  syncCompleteSetupScope();
 }
 
 function setSetupSelection(mode, note) {
@@ -487,7 +543,10 @@ async function verifySetup() {
   verifySetupButton.textContent = 'Verifying…';
   setupVerificationSummaryElement.textContent = 'Checking your CCTI setup locally. Nothing is being changed.';
   try {
-    const result = await window.installer.verifySetup();
+    const result = await window.installer.verifySetup({
+      skillScope: state.completeSetupScope.skillScope,
+      projectPath: state.completeSetupScope.projectPath,
+    });
     if (!result?.ok) throw new Error(result?.error || 'CCTI could not verify the setup.');
     renderSetupVerification(result);
     runStatusElement.textContent = result.ready ? 'Setup verified' : 'Setup needs attention';
@@ -947,10 +1006,11 @@ async function removeClaudeCode() {
 async function runCompleteSetup(fresh = false) {
   const selected = selectedItems();
   const recommendedNames = selected.map((tool) => `• ${tool.name}`).join('\n');
+  const scopeDescription = completeSetupScopeDescription();
   if (fresh) {
     const confirmation = window.prompt('Start fresh permanently deletes local Claude Code versions, settings, session history, MCP configuration, the local tool stack, and this app-managed Node.js runtime.\n\nType DELETE CLAUDE DATA to continue.');
     if (confirmation !== 'DELETE CLAUDE DATA') return;
-  } else if (!window.confirm(`Complete setup will automatically install missing prerequisites, Claude Code, and this recommended tool set:\n\n${recommendedNames}\n\nCCTI installs supported recommended plugins inside the app. You do not need to type or paste terminal commands. Claude Code will open after installation so you can sign in.`)) {
+  } else if (!window.confirm(`Complete setup will automatically install missing prerequisites, Claude Code, and this recommended tool set:\n\n${recommendedNames}\n\n${scopeDescription}\n\nCCTI installs supported recommended plugins inside the app. You do not need to type or paste terminal commands. Claude Code will open after installation so you can sign in.`)) {
     return;
   }
 
@@ -965,7 +1025,11 @@ async function runCompleteSetup(fresh = false) {
   startFreshButton.disabled = true;
   let result;
   try {
-    result = await window.installer.runCompleteSetup({ fresh });
+    result = await window.installer.runCompleteSetup({
+      fresh,
+      skillScope: state.completeSetupScope.skillScope,
+      projectPath: state.completeSetupScope.projectPath,
+    });
     if (!result) throw new Error('Complete setup did not return a result.');
   } catch (error) {
     result = { ok: false, error: error.message || 'Complete setup could not be completed.' };
@@ -974,6 +1038,12 @@ async function runCompleteSetup(fresh = false) {
   }
   if (result.verification) renderSetupVerification(result.verification);
   if (result.ok) {
+    state.completeSetupScope = {
+      skillScope: result.skillScope === 'project' ? 'project' : 'global',
+      projectPath: result.projectPath || '',
+      mode: result.skillScope === 'project' ? state.completeSetupScope.mode : 'global',
+    };
+    syncCompleteSetupScope();
     state.claudeInstalled = result.installed;
     claudeStatusTextElement.textContent = `Claude Code is ready${result.version ? ` (${result.version})` : ''}.`;
     bootstrapStatusElement.textContent = 'Complete setup finished';
@@ -1043,6 +1113,46 @@ async function copyText(value) {
   const copied = document.execCommand('copy');
   field.remove();
   if (!copied) throw new Error('Clipboard access is unavailable.');
+}
+
+function inventoryPathForCopy(item) {
+  const title = String(item?.name || '').trim();
+  if (/^Path:\s+/i.test(title)) return title.replace(/^Path:\s+/i, '').trim();
+  return String(item?.path || '').trim();
+}
+
+function isLongInventoryPath(item, path) {
+  return item?.type === 'plugin' && (path.length >= 64 || /^Path:\s+/i.test(String(item?.name || '')));
+}
+
+function createInventoryPathCopyButton(path) {
+  const button = document.createElement('button');
+  const status = document.createElement('span');
+  const defaultLabel = 'Copy path';
+  button.type = 'button';
+  button.className = 'manager-path-copy';
+  button.textContent = defaultLabel;
+  button.setAttribute('aria-label', 'Copy this add-on path');
+  status.className = 'sr-only';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      await copyText(path);
+      button.textContent = 'Copied';
+      status.textContent = 'Add-on path copied to clipboard.';
+    } catch (error) {
+      button.textContent = 'Copy failed';
+      status.textContent = `Could not copy add-on path: ${error.message}`;
+    } finally {
+      window.setTimeout(() => {
+        button.textContent = defaultLabel;
+        button.disabled = false;
+      }, 1800);
+    }
+  });
+  return { button, status };
 }
 
 async function copyManifestVerificationCommand() {
@@ -1667,8 +1777,19 @@ function renderSetupManager(report) {
   for (const item of items.slice(0, 80)) {
     const card = document.createElement('article');
     card.className = `manager-item manager-item-${item.type}`;
+    const pathForCopy = inventoryPathForCopy(item);
+    const includePathCopy = isLongInventoryPath(item, pathForCopy);
     const title = document.createElement('h3');
     title.textContent = item.name;
+    if (includePathCopy) {
+      const titleRow = document.createElement('div');
+      titleRow.className = 'manager-item-title-row';
+      const { button: pathCopyButton, status: pathCopyStatus } = createInventoryPathCopyButton(pathForCopy);
+      titleRow.append(title, pathCopyButton, pathCopyStatus);
+      card.append(titleRow);
+    } else {
+      card.append(title);
+    }
     const meta = document.createElement('p');
     const kind = item.type === 'skill' ? 'Skill'
       : item.type === 'plugin' ? 'Add-on'
@@ -1686,7 +1807,7 @@ function renderSetupManager(report) {
     const location = document.createElement('p');
     location.className = 'manager-path';
     location.textContent = item.path;
-    card.append(title, meta, copy, location);
+    card.append(meta, copy, location);
     if (item.type === 'skill' && ['Just you', 'This project'].includes(item.scope)) {
       const controls = document.createElement('div');
       controls.className = 'plugin-controls';
@@ -2142,6 +2263,9 @@ function minimizeCompass() {
 }
 
 completeSetupButton.addEventListener('click', () => runCompleteSetup(false));
+completeSetupGlobalScopeButton.addEventListener('click', selectGlobalCompleteSetupScope);
+completeSetupExistingProjectButton.addEventListener('click', () => chooseCompleteSetupProject(false));
+completeSetupNewProjectButton.addEventListener('click', () => chooseCompleteSetupProject(true));
 reportAnonymousSuccessButton.addEventListener('click', reportAnonymousSuccess);
 skipAnonymousSuccessButton.addEventListener('click', skipAnonymousSuccess);
 startFreshButton.addEventListener('click', () => runCompleteSetup(true));
@@ -2317,6 +2441,7 @@ window.installer.onState(({ running }) => {
     runStatusElement.setAttribute('aria-busy', 'false');
   }
   syncCompleteSetupButton();
+  syncCompleteSetupScope();
   startFreshButton.disabled = running || !state.claudeInstalled;
   installClaudeButton.disabled = running || state.claudeInstalled;
   runClaudeButton.disabled = running || !state.claudeInstalled;
@@ -2341,6 +2466,7 @@ window.installer.onComponentState(({ running }) => {
   updateProjectPlan();
 });
 window.installer.onUpdateStatus(displayUpdateStatus);
+syncCompleteSetupScope();
 
 (async () => {
   try {

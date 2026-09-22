@@ -26,6 +26,7 @@ ALL=0
 YES=0
 UNINSTALL=0
 APP_MANAGED_PLUGINS=0
+SKILL_SCOPE="global"
 SELECTED_RAW=""
 CATEGORY_RAW=""
 
@@ -48,6 +49,7 @@ Usage:
   ./setup-my-claude.sh --bootstrap-only Start or open Claude Code, then exit
   ./setup-my-claude.sh --claude-only    Install Claude Code only and wait until it is ready
   ./setup-my-claude.sh --complete      Install prerequisites, Claude Code, and curated defaults
+  ./setup-my-claude.sh --complete --skill-scope project  Install project-capable skills in the current project folder
   ./setup-my-claude.sh --fresh         Remove Claude Code and its local data before setup (requires --complete)
   ./setup-my-claude.sh --no-launch     Do not open a Terminal window after preparation
   ./setup-my-claude.sh --uninstall     Roll back items recorded in the manifest
@@ -71,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --no-launch) NO_LAUNCH=1 ;;
     --yes|-y) YES=1 ;;
     --app-managed-plugins) APP_MANAGED_PLUGINS=1 ;;
+    --skill-scope) shift; SKILL_SCOPE="${1:-}" ;;
     --uninstall) UNINSTALL=1 ;;
     --item|--items) shift; SELECTED_RAW="${1:-}" ;;
     --category|--categories) shift; CATEGORY_RAW="${1:-}" ;;
@@ -86,6 +89,10 @@ if [[ "$FRESH" -eq 1 && "$COMPLETE" -ne 1 ]]; then
 fi
 if [[ "$FRESH" -eq 1 && "$FRESH_CONFIRMED" -ne 1 ]]; then
   echo "--fresh is destructive and requires confirmation from the desktop app." >&2
+  exit 2
+fi
+if [[ "$SKILL_SCOPE" != "global" && "$SKILL_SCOPE" != "project" ]]; then
+  echo "--skill-scope must be global or project." >&2
   exit 2
 fi
 if [[ "$COMPLETE" -eq 1 ]]; then
@@ -480,7 +487,15 @@ clone_or_update() {
 
 install_skill() {
   local repo="$1" skill="$2" item="$3"
-  local dest="${HOME}/.claude/skills/${skill}"
+  local dest scope_args=(--yes)
+  if [[ "$SKILL_SCOPE" == "project" ]]; then
+    dest="${PWD}/.claude/skills/${skill}"
+    log "CCTI selected project scope for '$skill': $dest"
+  else
+    dest="${HOME}/.claude/skills/${skill}"
+    scope_args+=(--global)
+    log "CCTI selected global scope for '$skill': $dest"
+  fi
   if [[ -f "$dest/SKILL.md" ]]; then
     log "CCTI did not add '$skill': this skill is already available in Claude Code at $dest."
     return 0
@@ -488,7 +503,7 @@ install_skill() {
     log "CCTI did not add '$skill': a folder already uses this Claude Code skill name at $dest. Review it before adding a copy."
     return 0
   fi
-  run_cmd npx -y skills add "$repo" --skill "$skill" --agent claude-code
+  run_cmd npx -y skills@latest add "$repo" --skill "$skill" --agent claude-code "${scope_args[@]}"
   record_manifest "skill" "$dest" "" "$item"
 }
 

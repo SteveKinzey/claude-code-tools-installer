@@ -90,6 +90,28 @@
             <span class="setup-option-action">Review permanent deletion</span>
           </button>
         </div>
+        <section class="complete-setup-scope" aria-labelledby="complete-setup-scope-heading">
+          <div>
+            <p class="eyebrow">SKILL INSTALLATION SCOPE</p>
+            <h3 id="complete-setup-scope-heading">Choose where project-capable skills go</h3>
+            <p>gstack, plugins, connections, and command-line tools remain in your Claude Code setup. Choose whether taste-skill and Planning with Files stay global or are committed to one project.</p>
+          </div>
+          <div class="complete-setup-scope-options" role="group" aria-label="Complete setup skill installation scope">
+            <button id="complete-setup-global-scope-button" class="complete-setup-scope-option is-selected" type="button" aria-pressed="true">
+              <span class="complete-setup-scope-title">Install globally</span>
+              <span class="complete-setup-scope-copy">Use these skills across every project. No project folder is changed.</span>
+            </button>
+            <button id="complete-setup-existing-project-button" class="complete-setup-scope-option" type="button" aria-pressed="false">
+              <span class="complete-setup-scope-title">Use an existing project folder</span>
+              <span class="complete-setup-scope-copy">Choose one folder. CCTI installs only that project’s skills there.</span>
+            </button>
+            <button id="complete-setup-new-project-button" class="complete-setup-scope-option" type="button" aria-pressed="false">
+              <span class="complete-setup-scope-title">Create a new project folder</span>
+              <span class="complete-setup-scope-copy">Create a folder in the native picker, then install only that project’s skills there.</span>
+            </button>
+          </div>
+          <p id="complete-setup-scope-note" class="complete-setup-scope-note" role="status" aria-live="polite">Selected: Global skills. No project folder will be changed.</p>
+        </section>
         <section class="setup-verification" aria-labelledby="setup-verification-heading">
           <div>
             <p class="eyebrow">SETUP CHECK</p>

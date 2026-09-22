@@ -171,6 +171,7 @@ async function run() {
       { id: 'catalog', role: null, live: 'polite', busy: null },
       { id: 'component-results', role: null, live: 'polite', busy: null },
       { id: 'component-detail', role: null, live: 'polite', busy: null },
+      { id: 'complete-setup-scope-note', role: 'status', live: 'polite', busy: null },
       { id: 'setup-verification-summary', role: 'status', live: 'polite', busy: null },
       { id: 'setup-verification-results', role: null, live: 'polite', busy: null },
       { id: 'anonymous-success-message', role: null, live: 'polite', busy: null },

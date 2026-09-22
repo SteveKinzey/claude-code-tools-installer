@@ -26,7 +26,7 @@ const autoUpdaterStub = {
   on: (event, callback) => updaterListeners.set(event, callback),
   checkForUpdates: async () => {
     updaterChecks += 1;
-    return { updateInfo: { version: '2026.9.11' } };
+    return { updateInfo: { version: '2026.9.1101' } };
   },
   downloadUpdate: async () => {
     updaterDownloads += 1;
@@ -37,7 +37,7 @@ const autoUpdaterStub = {
       updaterListeners.get('error')?.(error);
       throw error;
     }
-    updaterListeners.get('update-downloaded')?.({ version: '2026.9.11' });
+    updaterListeners.get('update-downloaded')?.({ version: '2026.9.1101' });
   },
   quitAndInstall: () => { updaterInstalls += 1; },
 };
@@ -81,13 +81,13 @@ global.fetch = async (url) => {
     json: async () => [
       {
         // A newer source-only record must never displace a verified executable release.
-        tag_name: 'v2026.09.12',
-        html_url: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.12',
-        assets: [{ name: 'CCTI-v2026.09.12-SHA256SUMS.txt', size: 711, state: 'uploaded', digest: `sha256:${'b'.repeat(64)}` }],
+        tag_name: 'v2026.09.12.01',
+        html_url: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.12.01',
+        assets: [{ name: 'CCTI-v2026.09.12.01-SHA256SUMS.txt', size: 711, state: 'uploaded', digest: `sha256:${'b'.repeat(64)}` }],
       },
       {
-        tag_name: 'v2026.09.11',
-        html_url: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.11',
+        tag_name: 'v2026.09.11.01',
+        html_url: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.11.01',
         assets: [
           { name: 'ccti-macos.dmg', size: 2048, state: 'uploaded', digest: `sha256:${'a'.repeat(64)}` },
           { name: 'ccti-windows.zip', size: 2048, state: 'uploaded' },
@@ -115,7 +115,8 @@ async function run() {
     const status = await check();
     assert.equal(status.state, 'available');
     assert.equal(status.currentVersion, '2026.8.26');
-    assert.equal(status.latestVersion, '2026.09.11');
+    assert.equal(status.latestVersion, '2026.09.11.01');
+    assert.equal(status.latestPackageVersion, '2026.9.1101');
     assert.equal(status.canDownload, true);
     assert.match(status.message, /download the signed update/i);
     assert.deepEqual(status.artifactDigestSummary, { total: 2, verified: 1, missing: ['ccti-windows.zip'] });
@@ -152,7 +153,7 @@ async function run() {
     assert.equal(updaterInstalls, 1, 'restart-and-install must require the explicit renderer action');
     const opened = await openRelease();
     assert.deepEqual(opened, { ok: true });
-    assert.deepEqual(openedUrls, ['https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.11']);
+    assert.deepEqual(openedUrls, ['https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.11.01']);
     assert.equal((await getStatus()).state, 'downloaded');
 
     global.fetch = async (url) => {
@@ -169,11 +170,12 @@ async function run() {
         json: async () => ({
           platform: 'macos',
           available: true,
-          version: 'v2026.09.13',
-          releaseUrl: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.13',
+          version: 'v2026.09.13.00',
+          packageVersion: '2026.9.1300',
+          releaseUrl: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.13.00',
           assets: [{
-            name: 'Claude-Code-Tools-Installer-2026.9.13-mac-arm64.dmg',
-            downloadUrl: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/download/v2026.09.13/Claude-Code-Tools-Installer-2026.9.13-mac-arm64.dmg',
+            name: 'Claude-Code-Tools-Installer-2026.9.1300-mac-arm64.dmg',
+            downloadUrl: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/download/v2026.09.13.00/Claude-Code-Tools-Installer-2026.9.1300-mac-arm64.dmg',
             size: 2048,
             sha256: 'c'.repeat(64),
           }],
@@ -183,7 +185,8 @@ async function run() {
     const fallbackStatus = await check();
     assert.equal(releaseServiceFallbackCalls, 1, 'a GitHub timeout must fall back to the public CCTI release service');
     assert.equal(fallbackStatus.state, 'available');
-    assert.equal(fallbackStatus.latestVersion, '2026.09.13');
+    assert.equal(fallbackStatus.latestVersion, '2026.09.13.00');
+    assert.equal(fallbackStatus.latestPackageVersion, '2026.9.1300');
     assert.match(fallbackStatus.message, /backup release service/i);
     assert.match(fallbackStatus.message, /No GitHub sign-in is required/i);
 

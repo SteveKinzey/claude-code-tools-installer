@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
+const { parseReleaseIdentity } = require('../desktop/src/release-identity');
 
 const root = path.resolve(__dirname, '..');
 const tempRoot = path.join(os.tmpdir(), `ccti-live-update-test-${process.pid}`);
@@ -58,10 +59,12 @@ async function run() {
     const status = await check();
     assert.equal(status.state, 'available');
     assert.equal(status.currentVersion, '2026.9.11');
-    assert.match(status.latestVersion, /^\d+\.\d+\.\d+$/, 'the live update check must expose a three-segment public release version');
-    assert.notEqual(status.latestVersion, status.currentVersion, 'the live update check must discover a newer public release for the older fixture build');
+    const releaseIdentity = parseReleaseIdentity(status.latestVersion);
+    assert.ok(releaseIdentity, 'the live update check must expose a supported public release tag');
+    assert.equal(status.latestPackageVersion, releaseIdentity.packageVersion, 'the live update check must map the public tag to the native updater package version');
+    assert.notEqual(status.latestPackageVersion, status.currentVersion, 'the live update check must discover a newer public release for the older fixture build');
     assert.equal(status.canDownload, process.platform === 'darwin', 'only packaged macOS builds expose the native updater download action');
-    assert.equal(status.releaseUrl, `https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v${status.latestVersion}`);
+    assert.equal(status.releaseUrl, `https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/${releaseIdentity.tag}`);
     assert.ok(status.artifactDigestSummary.verified >= 3, 'the live release must expose verified native artifacts and checksum evidence');
     assert.equal(nativeChecks, 0, 'metadata discovery must never auto-download or invoke the native updater');
     assert.ok(emitted.some((event) => event.channel === 'updates:status' && event.payload.latestVersion === status.latestVersion), 'the renderer must receive the live update availability state');

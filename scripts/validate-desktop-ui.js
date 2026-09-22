@@ -49,6 +49,7 @@ for (const channel of [
   'claude:apply-removal',
   'claude:install-only',
   'setup:verify',
+  'setup:choose-project',
   'setup:complete',
   'components:get',
   'components:choose-project',
@@ -112,15 +113,25 @@ if (renderer.includes('startBootstrap') || preload.includes('startBootstrap') ||
 if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('claude-only')") || !main.includes("option('-ClaudeOnly', '--claude-only')")) {
   throw new Error('The in-app Claude-only installation path must wait for the official installer and re-check the result.');
 }
-if (!html.includes('id="verify-setup-button"') || !html.includes('id="setup-verification-results"') || !renderer.includes('async function verifySetup()') || !renderer.includes('function renderSetupVerification(result)') || !preload.includes("verifySetup: () => ipcRenderer.invoke('setup:verify')") || !main.includes('async function verifySetupStatus()')) {
+if (!html.includes('id="verify-setup-button"') || !html.includes('id="setup-verification-results"') || !renderer.includes('async function verifySetup()') || !renderer.includes('function renderSetupVerification(result)') || !preload.includes("verifySetup: (payload) => ipcRenderer.invoke('setup:verify', payload)") || !main.includes('async function verifySetupStatus(')) {
   throw new Error('CCTI must provide a plain-language, read-only in-app setup verification panel.');
 }
 if (!main.includes('completeSetupPluginIds') || !main.includes("option('-AppManagedPlugins', '--app-managed-plugins')") || !main.includes('await installReviewedPlugins(completeSetupPluginIds)')) {
   throw new Error('Complete setup must install supported recommended plugins in CCTI instead of making users run terminal commands.');
 }
+if (!html.includes('id="complete-setup-global-scope-button"') || !html.includes('id="complete-setup-existing-project-button"') || !html.includes('id="complete-setup-new-project-button"') || !html.includes('id="complete-setup-scope-note"') || !renderer.includes('function syncCompleteSetupScope()') || !renderer.includes('async function chooseCompleteSetupProject(createNew)') || !renderer.includes('chooseCompleteSetupProject({ createNew })') || !preload.includes("chooseCompleteSetupProject: (payload) => ipcRenderer.invoke('setup:choose-project', payload)") || !main.includes("ipcMain.handle('setup:choose-project'") || !main.includes('showSaveDialog(mainWindow') || !main.includes('await fs.mkdir(projectPath)') || !main.includes('async function resolveCompleteSetupScope') || !main.includes("option('-SkillScope', '--skill-scope')")) {
+  throw new Error('Complete setup must present native global, existing-project, and new-project skill-scope choices before the installer runs.');
+}
+if (!renderer.includes("skillScope: state.completeSetupScope.skillScope") || !renderer.includes('completeSetupScopeDescription()') || !main.includes('verifySetupStatus(setupScope)')) {
+  throw new Error('Complete setup must send the selected skill scope to both installation and verification.');
+}
 for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
-  if (!fs.readFileSync(path.join(root, adapter), 'utf8').includes('AppManagedPlugins') && !fs.readFileSync(path.join(root, adapter), 'utf8').includes('APP_MANAGED_PLUGINS')) {
+  const adapterSource = fs.readFileSync(path.join(root, adapter), 'utf8');
+  if (!adapterSource.includes('AppManagedPlugins') && !adapterSource.includes('APP_MANAGED_PLUGINS')) {
     throw new Error(`${adapter} must allow CCTI to keep complete-setup plugin installation inside the desktop app.`);
+  }
+  if (!adapterSource.includes('SkillScope') && !adapterSource.includes('SKILL_SCOPE') || !adapterSource.includes('skills@latest') || !adapterSource.includes('--yes')) {
+    throw new Error(`${adapter} must forward the reviewed global or project skill scope to a noninteractive current skills CLI.`);
   }
 }
 if (!html.includes('id="run-claude-button"') || !html.includes('id="remove-claude-button"') || !renderer.includes('async function runClaudeCode()') || !renderer.includes('async function removeClaudeCode()')) {

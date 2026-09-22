@@ -12,6 +12,8 @@ assert.match(linuxWorkflow, /workflow_dispatch:/, 'Linux signing must require an
 assert.match(linuxWorkflow, /contents:\s*write/, 'Linux signing needs contents: write only to stage draft release assets.');
 assert.match(linuxWorkflow, /id-token:\s*write/, 'Linux signing requires GitHub OIDC for keyless signing.');
 assert.match(linuxWorkflow, /github\.ref_type == 'tag' && github\.ref_name == inputs\.tag/, 'Linux signing must run from the selected immutable tag.');
+assert.match(linuxWorkflow, /release-identity\.js/, 'Linux signing must validate the daily revision tag against package SemVer.');
+assert.match(linuxWorkflow, /--require-daily-revision/, 'Linux signing must reject a legacy tag for a new release.');
 assert.match(linuxWorkflow, /actions\/checkout@[a-f0-9]{40}/, 'Linux signing must pin checkout to a full commit SHA.');
 assert.match(linuxWorkflow, /actions\/setup-node@[a-f0-9]{40}/, 'Linux signing must pin setup-node to a full commit SHA.');
 assert.match(linuxWorkflow, /sigstore\/cosign-installer@[a-f0-9]{40}/, 'Linux signing must pin Cosign installer to a full commit SHA.');
@@ -34,6 +36,7 @@ assert.doesNotMatch(linuxWorkflow, /draft=false|--draft=false|gh release edit .*
 assert.match(publishWorkflow, /workflow_dispatch:/, 'Release publication must be explicitly dispatched.');
 assert.match(publishWorkflow, /contents:\s*write/, 'Release publication requires contents: write.');
 assert.match(publishWorkflow, /github\.ref_type == 'tag' && github\.ref_name == inputs\.tag/, 'Publication must run from the selected immutable tag.');
+assert.match(publishWorkflow, /release-identity\.js/, 'Publication must revalidate the daily revision tag and package version.');
 assert.match(publishWorkflow, /Verify Linux assets staged on draft release/, 'Publication must independently verify staged Linux assets.');
 assert.match(publishWorkflow, /verify-linux-release-archive\.js/, 'Publication must check the uploaded Linux checksum sidecar.');
 assert.match(publishWorkflow, /cosign verify-blob/, 'Publication must re-verify the uploaded Linux Sigstore bundle.');

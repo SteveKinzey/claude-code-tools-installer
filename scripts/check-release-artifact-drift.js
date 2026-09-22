@@ -5,9 +5,10 @@
  * Kept dependency-free so it can run locally and in GitHub Actions.
  */
 const fs = require("node:fs");
+const { parseReleaseIdentity } = require("../desktop/src/release-identity");
 
 const DEFAULT_GRACE_HOURS = 24;
-const RELEASE_TAG = /^v?\d{4}\.\d{1,2}\.\d{1,2}$/;
+const RELEASE_TAG = /^v?\d{4}\.\d{1,2}\.\d{1,2}(?:\.\d{2})?$/;
 const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/i;
 
 function readJson(filePath) {
@@ -15,7 +16,7 @@ function readJson(filePath) {
 }
 
 function isReleaseTag(tag) {
-  return typeof tag === "string" && RELEASE_TAG.test(tag);
+  return typeof tag === "string" && RELEASE_TAG.test(tag) && Boolean(parseReleaseIdentity(tag));
 }
 
 function classifyArtifact(name) {

@@ -9,10 +9,13 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const tempRoot = path.join(os.tmpdir(), `ccti-complete-setup-${process.pid}`);
 const home = path.join(tempRoot, 'home');
+const project = path.join(tempRoot, 'project');
 const handlers = new Map();
 const spawns = [];
 const pluginIds = new Set();
 const marketplaces = new Set();
+let openDialogResult = { canceled: true, filePaths: [] };
+let saveDialogResult = { canceled: true, filePath: '' };
 let readyCallback;
 
 function childProcess() {
@@ -31,9 +34,9 @@ function finish(child, { code = 0, stdout = '', stderr = '' } = {}) {
   });
 }
 
-function spawnStub(command, args = []) {
+function spawnStub(command, args = [], options = {}) {
   const child = childProcess();
-  spawns.push({ command, args: [...args] });
+  spawns.push({ command, args: [...args], options: { ...options } });
   const requested = args[0] || '';
   if (command === 'which') {
     const locations = {
@@ -94,7 +97,7 @@ const electronStub = {
     async loadFile() {}
     isDestroyed() { return false; }
   },
-  dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showSaveDialog: async () => ({ canceled: true, filePath: '' }) },
+  dialog: { showOpenDialog: async () => openDialogResult, showSaveDialog: async () => saveDialogResult },
   Notification: class { static isSupported() { return false; } },
   shell: { openExternal: async () => {} },
   ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
@@ -113,9 +116,18 @@ async function writeFixture(relative, content = '') {
   await fs.writeFile(destination, content);
 }
 
+async function writeProjectFixture(relative, content = '') {
+  const destination = path.join(project, relative);
+  await fs.mkdir(path.dirname(destination), { recursive: true });
+  await fs.writeFile(destination, content);
+}
+
 async function run() {
   try {
-    await fs.mkdir(home, { recursive: true });
+    await Promise.all([
+      fs.mkdir(home, { recursive: true }),
+      fs.mkdir(project, { recursive: true }),
+    ]);
     await Promise.all([
       writeFixture('.local/bin/claude'),
       writeFixture('.bun/bin/bun'),
@@ -133,26 +145,56 @@ async function run() {
 
     const completeSetup = handlers.get('setup:complete');
     const verifySetup = handlers.get('setup:verify');
-    assert.ok(completeSetup && verifySetup, 'Complete setup and the read-only setup verifier must be available through narrow IPC handlers');
+    const chooseProject = handlers.get('setup:choose-project');
+    assert.ok(completeSetup && verifySetup && chooseProject, 'Complete setup, scope picker, and the read-only setup verifier must be available through narrow IPC handlers');
 
-    const setupResult = await completeSetup(null, { fresh: false });
+    openDialogResult = { canceled: false, filePaths: [project] };
+    const existingProject = await chooseProject(null, { createNew: false });
+    assert.equal(existingProject.projectPath, project, 'Existing-project selection must validate a native picker result before returning it to the renderer');
+    const createdProjectPath = path.join(tempRoot, 'created-project');
+    saveDialogResult = { canceled: false, filePath: createdProjectPath };
+    const createdProject = await chooseProject(null, { createNew: true });
+    assert.equal(createdProject.projectPath, createdProjectPath, 'New-project selection must create the exact native-dialog folder before returning it to the renderer');
+    assert.equal((await fs.stat(createdProjectPath)).isDirectory(), true, 'New-project selection must create a directory rather than a placeholder file');
+
+    const setupResult = await completeSetup(null, { fresh: false, skillScope: 'global' });
     assert.equal(setupResult.ok, true, 'Complete setup must only succeed after its in-app verification is ready');
     assert.equal(setupResult.verification.ready, true);
     assert.match(setupResult.verification.summary, /everything ccti can install/i);
+    assert.equal(setupResult.skillScope, 'global');
+    assert.equal(setupResult.projectPath, '');
 
     const installerSpawn = spawns.find((entry) => entry.command === 'bash' && entry.args.includes('--complete'));
     assert.ok(installerSpawn, 'Complete setup must use the trusted installer adapter');
     assert.ok(installerSpawn.args.includes('--app-managed-plugins'), 'Complete setup must tell the adapter that plugin installation stays inside CCTI');
+    assert.deepEqual(installerSpawn.args.slice(-2), ['--skill-scope', 'global'], 'Global setup must state its noninteractive skill scope to the trusted adapter');
+    assert.equal(installerSpawn.options.cwd, home, 'Global setup must keep the installer working directory at the user home folder');
     assert.ok(spawns.some((entry) => entry.args[0] === 'plugin' && entry.args[1] === 'install' && entry.args[2] === 'superpowers@superpowers-marketplace'), 'Complete setup must install Superpowers in CCTI');
     assert.ok(spawns.some((entry) => entry.args[0] === 'plugin' && entry.args[1] === 'install' && entry.args[2] === 'claude-hud'), 'Complete setup must install Claude HUD in CCTI');
     assert.ok(marketplaces.has('anthropics/skills'), 'Complete setup must add the Anthropic Skills marketplace in CCTI');
 
-    const verification = await verifySetup();
+    const verification = await verifySetup(null, { skillScope: 'global' });
     assert.equal(verification.ok, true);
     assert.equal(verification.ready, true, 'The setup verification button must identify a completed recommended setup without a terminal command');
     assert.ok(verification.checks.every((check) => check.state === 'ready'), 'All recommended setup checks must report a plain ready state in this fixture');
 
-    console.log('Complete setup verification passed: supported plugins install inside CCTI and the read-only readiness check reports every recommended item.');
+    await Promise.all([
+      writeProjectFixture('.claude/skills/design-taste-frontend/SKILL.md', '# project taste\n'),
+      writeProjectFixture('.claude/skills/planning-with-files/SKILL.md', '# project planning\n'),
+    ]);
+    const projectResult = await completeSetup(null, { fresh: false, skillScope: 'project', projectPath: project });
+    assert.equal(projectResult.ok, true, 'Project scope must also verify the selected project skills before reporting setup success');
+    assert.equal(projectResult.skillScope, 'project', 'Project scope must be preserved in the complete-setup result');
+    assert.equal(projectResult.projectPath, project, 'Project scope must report the reviewed project folder');
+    const projectInstallerSpawn = spawns.filter((entry) => entry.command === 'bash' && entry.args.includes('--complete')).at(-1);
+    assert.deepEqual(projectInstallerSpawn.args.slice(-2), ['--skill-scope', 'project'], 'Project setup must state its noninteractive skill scope to the trusted adapter');
+    assert.equal(projectInstallerSpawn.options.cwd, project, 'Project setup must run skills commands from the selected project folder');
+
+    const invalidScope = await completeSetup(null, { fresh: false, skillScope: 'project', projectPath: path.join(tempRoot, 'missing-project') });
+    assert.equal(invalidScope.ok, false, 'Project setup must reject an unreviewed or missing project folder before starting the installer');
+    assert.match(invalidScope.error, /choose a valid project folder/i);
+
+    console.log('Complete setup verification passed: supported plugins install inside CCTI, skill scope stays explicit, and the read-only readiness check reports every recommended item.');
   } finally {
     Module._load = originalLoad;
     await fs.rm(tempRoot, { recursive: true, force: true });

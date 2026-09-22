@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing dated release tag to evaluate without publishing
+        description: Existing daily-revision release tag to evaluate without publishing
         required: true
         type: string
 
@@ -26,8 +26,8 @@ jobs:
       - name: Preserve Windows release safety boundary
         shell: pwsh
         run: |
-          if ($env:RELEASE_TAG -notmatch '^v\d{4}\.\d{2}\.\d{2}$') {
-            throw 'Use an existing dated tag such as v2026.09.11.'
+          if ($env:RELEASE_TAG -notmatch '^v\d{4}\.\d{2}\.\d{2}\.\d{2}$') {
+            throw 'Use an existing daily revision tag such as v2026.09.22.01.'
           }
           @"
           ## Windows portable ZIP release blocked

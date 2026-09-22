@@ -17,9 +17,16 @@ const indexPath = path.join(rendererDir, 'index.html');
 const stylesPath = path.join(rendererDir, 'styles.css');
 const fixturePath = path.join(os.tmpdir(), `ccti-setup-verification-${process.pid}.html`);
 const viewports = [
-  { width: 390, height: 844, label: 'narrow' },
-  { width: 768, height: 1024, label: 'tablet' },
-  { width: 1280, height: 720, label: 'desktop' },
+  { width: 320, height: 568, label: 'compact-phone-320' },
+  { width: 375, height: 812, label: 'phone-375' },
+  { width: 390, height: 844, label: 'phone-390' },
+  { width: 412, height: 915, label: 'phone-412' },
+  { width: 600, height: 960, label: 'compact-tablet-600' },
+  { width: 768, height: 1024, label: 'tablet-768' },
+  { width: 820, height: 1180, label: 'tablet-820' },
+  { width: 1024, height: 768, label: 'landscape-tablet-1024' },
+  { width: 1280, height: 720, label: 'desktop-1280' },
+  { width: 1440, height: 900, label: 'desktop-1440' },
 ];
 
 function injectedBridge() {
@@ -55,6 +62,10 @@ function injectedBridge() {
       }),
       setTerminalPreference: async () => ({ ok: true, selectedId: 'default', options: [], message: 'CCTI will open Claude Code in Default Terminal.' }),
       getClaudeStatus: async () => ({ installed: true, version: 'fixture', path: '/fixture-home/.local/bin/claude' }),
+      chooseCompleteSetupProject: async (payload) => {
+        record('chooseCompleteSetupProject', payload);
+        return { canceled: false, projectPath: payload.createNew ? '/fixture/new-project' : '/fixture/existing-project' };
+      },
       runCompleteSetup: (payload) => {
         record('runCompleteSetup', payload);
         return new Promise((resolve) => { resolveCompleteSetup = resolve; });
@@ -203,10 +214,52 @@ async function run() {
       },
     }, 'Relocated Setup Check controls must retain native names and a shared polite live status description.');
 
+    const initialScope = await evaluate(window, `(() => ({
+      globalPressed: document.querySelector('#complete-setup-global-scope-button').getAttribute('aria-pressed'),
+      existingPressed: document.querySelector('#complete-setup-existing-project-button').getAttribute('aria-pressed'),
+      newPressed: document.querySelector('#complete-setup-new-project-button').getAttribute('aria-pressed'),
+      note: document.querySelector('#complete-setup-scope-note').textContent,
+    }))()`);
+    assert.deepEqual(initialScope, {
+      globalPressed: 'true',
+      existingPressed: 'false',
+      newPressed: 'false',
+      note: 'Selected: Global skills. No project folder will be changed.',
+    }, 'Complete setup must default to a visible global skill scope rather than leaving the downstream CLI prompt unresolved.');
+
+    await evaluate(window, "document.querySelector('#complete-setup-existing-project-button').click()");
+    await waitFor(window, () => document.querySelector('#complete-setup-scope-note')?.textContent.includes('/fixture/existing-project'), 'existing-project scope selection');
+    const projectScope = await evaluate(window, `(() => ({
+      globalPressed: document.querySelector('#complete-setup-global-scope-button').getAttribute('aria-pressed'),
+      existingPressed: document.querySelector('#complete-setup-existing-project-button').getAttribute('aria-pressed'),
+      note: document.querySelector('#complete-setup-scope-note').textContent,
+      call: window.__setupVerificationFixture.calls.find((call) => call.method === 'chooseCompleteSetupProject'),
+    }))()`);
+    assert.deepEqual(projectScope, {
+      globalPressed: 'false',
+      existingPressed: 'true',
+      note: 'Selected: Project skills in /fixture/existing-project. CCTI will add only .claude/skills to this folder.',
+      call: { method: 'chooseCompleteSetupProject', payload: { createNew: false } },
+    }, 'Existing-project selection must use the narrow native-picker bridge and announce the exact destination.');
+
+    await evaluate(window, "document.querySelector('#complete-setup-global-scope-button').click()");
+    await waitFor(window, () => document.querySelector('#complete-setup-global-scope-button')?.getAttribute('aria-pressed') === 'true', 'global scope reset');
+
     const responsiveEvidence = [];
     for (const viewport of viewports) {
       responsiveEvidence.push(await measureViewport(window, viewport));
     }
+
+    await evaluate(window, `(() => {
+      const summary = document.querySelector('#setup-verification-summary');
+      const log = [];
+      const observer = new MutationObserver(() => {
+        log.push(summary.textContent.trim());
+      });
+      observer.observe(summary, { childList: true, characterData: true, subtree: true });
+      window.__setupVerificationFixture.liveRegionMutationLog = log;
+      window.__setupVerificationFixture.liveRegionObserver = observer;
+    })()`);
 
     await evaluate(window, "document.querySelector('#complete-setup-button').click()");
     await waitFor(window, () => document.querySelector('#complete-setup-button')?.getAttribute('aria-busy') === 'true', 'Complete setup busy state');
@@ -230,7 +283,7 @@ async function run() {
       spinnerAriaHidden: 'true',
       spinnerAnimation: 'ccti-spin',
       announcement: 'Complete setup is running. CCTI is installing prerequisites, Claude Code, and recommended tools locally.',
-      runCall: { method: 'runCompleteSetup', payload: { fresh: false } },
+      runCall: { method: 'runCompleteSetup', payload: { fresh: false, skillScope: 'global', projectPath: '' } },
     }, 'Complete setup must expose a visible spinner, an explicit busy label, and a polite in-progress announcement.');
 
     const completeResult = {
@@ -299,13 +352,21 @@ async function run() {
       announcement: 'CCTI verified all 10 setup items. Everything is ready.',
     }, 'Verify setup must restore its control and announce the completed check result.');
 
+    const liveRegionMutationLog = await evaluate(window, `(() => {
+      window.__setupVerificationFixture.liveRegionObserver.disconnect();
+      return window.__setupVerificationFixture.liveRegionMutationLog;
+    })()`);
+    assert.deepEqual(liveRegionMutationLog, [
+      'Complete setup is running. CCTI is installing prerequisites, Claude Code, and recommended tools locally.',
+      'CCTI verified 3 of 10 setup items. 7 items need attention. Select Complete setup to retry; no terminal commands are required.',
+      'Checking your CCTI setup locally. Nothing is being changed.',
+      'CCTI verified all 10 setup items. Everything is ready.',
+    ], 'The Setup Check live region must announce each workflow transition in order.');
+
     console.log(JSON.stringify({
       ok: true,
       viewports: responsiveEvidence,
-      screenReaderAnnouncements: {
-        completeSetup: completedSetup.announcement,
-        verifySetup: completedVerifySetup.announcement,
-      },
+      screenReaderAnnouncementLog: liveRegionMutationLog,
     }));
   } finally {
     if (!window.isDestroyed()) window.destroy();

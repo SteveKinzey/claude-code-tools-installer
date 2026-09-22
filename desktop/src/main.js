@@ -4,6 +4,7 @@ const { createHash, randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
+const { comparePackageVersions, parsePackageVersion, parseReleaseIdentity } = require('./release-identity');
 
 let mainWindow;
 let activeInstall = false;
@@ -44,6 +45,8 @@ let updateStatus = {
   state: 'idle',
   currentVersion: '',
   latestVersion: '',
+  latestPackageVersion: '',
+  latestPublicTag: '',
   releaseUrl: '',
   checkedAt: '',
   message: 'Update status has not been checked yet.',
@@ -286,32 +289,13 @@ function runProcess(command, args, options = {}) {
   });
 }
 
-function versionSegments(value) {
-  return String(value || '').replace(/^v/i, '').split(/[.-]/).slice(0, 3).map((part) => {
-    const parsed = Number.parseInt(part, 10);
-    return Number.isFinite(parsed) ? parsed : 0;
-  });
-}
-
 function isNewerVersion(candidate, current) {
-  const candidateParts = versionSegments(candidate);
-  const currentParts = versionSegments(current);
-  for (let index = 0; index < Math.max(candidateParts.length, currentParts.length, 3); index += 1) {
-    const left = candidateParts[index] || 0;
-    const right = currentParts[index] || 0;
-    if (left !== right) return left > right;
-  }
-  return false;
+  const comparison = comparePackageVersions(candidate, current);
+  return comparison !== null && comparison > 0;
 }
 
 function compareVersions(left, right) {
-  const leftParts = versionSegments(left);
-  const rightParts = versionSegments(right);
-  for (let index = 0; index < Math.max(leftParts.length, rightParts.length, 3); index += 1) {
-    const difference = (leftParts[index] || 0) - (rightParts[index] || 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
+  return comparePackageVersions(left, right) ?? 0;
 }
 
 function isVerifiedDesktopArtifact(asset) {
@@ -324,16 +308,20 @@ function isVerifiedDesktopArtifact(asset) {
 }
 
 function isPublicReleaseRecord(release) {
-  const version = String(release?.tag_name || '').replace(/^v/i, '');
+  const releaseIdentity = parseReleaseIdentity(String(release?.tag_name || ''));
   const releaseUrl = String(release?.html_url || '');
-  return Boolean(version) && releaseUrl.startsWith(releaseUrlPrefix) && !release?.draft && !release?.prerelease;
+  return Boolean(releaseIdentity) && releaseUrl.startsWith(releaseUrlPrefix) && !release?.draft && !release?.prerelease;
 }
 
 function newestVerifiedRelease(releases) {
   const candidates = (Array.isArray(releases) ? releases : [])
     .filter(isPublicReleaseRecord)
     .filter((release) => Array.isArray(release.assets) && release.assets.some(isVerifiedDesktopArtifact));
-  return candidates.sort((left, right) => compareVersions(String(right.tag_name || ''), String(left.tag_name || '')))[0] || null;
+  return candidates.sort((left, right) => {
+    const leftIdentity = parseReleaseIdentity(String(left.tag_name || ''));
+    const rightIdentity = parseReleaseIdentity(String(right.tag_name || ''));
+    return compareVersions(rightIdentity?.packageVersion, leftIdentity?.packageVersion);
+  })[0] || null;
 }
 
 function currentReleasePlatform() {
@@ -349,10 +337,12 @@ function isTrustedReleaseDownload(value) {
 function normalizeReleaseServiceResponse(payload, platform) {
   const version = String(payload?.version || '').trim();
   const releaseUrl = String(payload?.releaseUrl || '').trim();
+  const releaseIdentity = parseReleaseIdentity(version);
   if (
     payload?.platform !== platform
     || payload?.available !== true
-    || !/^v?\d{4}\.\d{1,2}\.\d{1,2}$/.test(version)
+    || !releaseIdentity
+    || (payload?.packageVersion !== undefined && String(payload.packageVersion) !== releaseIdentity.packageVersion)
     || !releaseUrl.startsWith(releaseUrlPrefix)
   ) return null;
 
@@ -367,7 +357,7 @@ function normalizeReleaseServiceResponse(payload, platform) {
   if (!assets.some(isVerifiedDesktopArtifact)) return null;
 
   return {
-    tag_name: version.startsWith('v') ? version : `v${version}`,
+    tag_name: releaseIdentity.tag,
     html_url: releaseUrl,
     draft: false,
     prerelease: false,
@@ -461,8 +451,8 @@ function getNativeUpdater() {
 }
 
 function updateReleaseUrlFor(version) {
-  const normalized = String(version || '').replace(/^v/i, '');
-  return normalized ? `${releaseUrlPrefix}tag/v${normalized}` : '';
+  const releaseIdentity = parseReleaseIdentity(String(version || ''));
+  return releaseIdentity ? `${releaseUrlPrefix}tag/${releaseIdentity.tag}` : '';
 }
 
 function incompleteUpdateMessage(version) {
@@ -509,11 +499,13 @@ async function checkForUpdates() {
 
     try {
       const { release, source } = await getLatestVerifiedReleaseWithFallback();
-      const latestVersion = String(release?.tag_name || '').replace(/^v/i, '');
+      const releaseIdentity = parseReleaseIdentity(String(release?.tag_name || ''));
+      const latestVersion = releaseIdentity?.tag.replace(/^v/i, '') || '';
+      const latestPackageVersion = releaseIdentity?.packageVersion || '';
       const releaseUrl = String(release?.html_url || '');
-      if (!latestVersion || !releaseUrl.startsWith(releaseUrlPrefix)) throw new Error('GitHub returned an incomplete release record.');
+      if (!releaseIdentity || !latestPackageVersion || !releaseUrl.startsWith(releaseUrlPrefix)) throw new Error('GitHub returned an incomplete release record.');
 
-      const available = isNewerVersion(latestVersion, currentVersion);
+      const available = isNewerVersion(latestPackageVersion, currentVersion);
       const releaseSourceNotice = source === 'release-service'
         ? ' GitHub took longer than 12 seconds to respond, so CCTI verified this result through its backup release service. No GitHub sign-in is required.'
         : '';
@@ -530,6 +522,8 @@ async function checkForUpdates() {
         state: available ? 'available' : 'current',
         currentVersion,
         latestVersion,
+        latestPackageVersion,
+        latestPublicTag: releaseIdentity.tag,
         releaseUrl,
         checkedAt: new Date().toISOString(),
         artifactDigestSummary,
@@ -540,8 +534,8 @@ async function checkForUpdates() {
           ? canDownload
             ? `CCTI ${latestVersion} is available. Select Check for Updates to download the signed update now.${releaseSourceNotice}`
             : `CCTI ${latestVersion} is available. This build does not support in-app updates; use View Release to update.${releaseSourceNotice}`
-          : compareVersions(latestVersion, currentVersion) === 0
-            ? `CCTI ${currentVersion} is the newest published release.${releaseSourceNotice}`
+          : compareVersions(latestPackageVersion, currentVersion) === 0
+            ? `CCTI ${latestVersion} is the newest published release.${releaseSourceNotice}`
             : `CCTI ${currentVersion} is ahead of the newest verified public release (${latestVersion}). No download action is needed.${releaseSourceNotice}`,
       };
       publishUpdateStatus();
@@ -603,13 +597,24 @@ function configureNativeUpdaterEvents() {
     publishUpdateStatus();
   });
   getNativeUpdater().on('update-available', (info) => {
-    const latestVersion = String(info?.version || updateStatus.latestVersion || '').replace(/^v/i, '');
+    const latestPackageVersion = String(info?.version || '');
+    if (!parsePackageVersion(latestPackageVersion) || (updateStatus.latestPackageVersion && latestPackageVersion !== updateStatus.latestPackageVersion)) {
+      updateStatus = {
+        ...updateStatus,
+        state: 'available',
+        message: 'CCTI rejected an update because its native updater version did not match the verified public release. Your current app was not changed.',
+        canDownload: nativeUpdaterSupported(),
+        canInstall: false,
+      };
+      publishUpdateStatus();
+      return;
+    }
     updateStatus = {
       ...updateStatus,
       state: 'downloading',
-      latestVersion,
-      releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(latestVersion),
-      message: `Downloading the signed CCTI ${latestVersion} update…`,
+      latestPackageVersion,
+      releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(updateStatus.latestPublicTag),
+      message: `Downloading the signed CCTI ${updateStatus.latestVersion || latestPackageVersion} update…`,
       canDownload: false,
       canInstall: false,
     };
@@ -639,14 +644,25 @@ function configureNativeUpdaterEvents() {
     publishUpdateStatus();
   });
   getNativeUpdater().on('update-downloaded', (info) => {
-    const latestVersion = String(info?.version || updateStatus.latestVersion || '').replace(/^v/i, '');
+    const latestPackageVersion = String(info?.version || '');
+    if (!parsePackageVersion(latestPackageVersion) || latestPackageVersion !== updateStatus.latestPackageVersion) {
+      updateStatus = {
+        ...updateStatus,
+        state: 'available',
+        message: 'CCTI rejected a downloaded update because its native updater version did not match the verified public release. Your current app was not changed.',
+        canDownload: nativeUpdaterSupported(),
+        canInstall: false,
+      };
+      publishUpdateStatus();
+      return;
+    }
     updateStatus = {
       ...updateStatus,
       state: 'downloaded',
-      latestVersion,
-      releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(latestVersion),
+      latestPackageVersion,
+      releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(updateStatus.latestPublicTag),
       checkedAt: new Date().toISOString(),
-      message: `CCTI ${latestVersion} is downloaded and verified. Restart CCTI to apply it now.`,
+      message: `CCTI ${updateStatus.latestVersion || latestPackageVersion} is downloaded and verified. Restart CCTI to apply it now.`,
       canDownload: false,
       canInstall: true,
     };
@@ -688,7 +704,19 @@ async function downloadAvailableUpdate() {
     publishUpdateStatus();
     try {
       const result = await getNativeUpdater().checkForUpdates();
-      if (!result?.updateInfo || !isNewerVersion(result.updateInfo.version, currentAppVersion())) return { ...updateStatus };
+      if (!result?.updateInfo || result.updateInfo.version !== status.latestPackageVersion || !isNewerVersion(result.updateInfo.version, currentAppVersion())) {
+        if (result?.updateInfo && result.updateInfo.version !== status.latestPackageVersion) {
+          updateStatus = {
+            ...status,
+            state: 'available',
+            message: 'CCTI rejected an update because its native updater version did not match the verified public release. Your current app was not changed.',
+            canDownload: nativeUpdaterSupported(),
+            canInstall: false,
+          };
+          publishUpdateStatus();
+        }
+        return { ...updateStatus };
+      }
       await getNativeUpdater().downloadUpdate();
       return { ...updateStatus };
     } catch {
@@ -793,8 +821,18 @@ async function configuredMarketplaceText() {
   }
 }
 
-async function verifySetupStatus() {
+async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {}) {
   const home = app.getPath('home');
+  const selectedSkillScope = skillScope === 'project' ? 'project' : 'global';
+  const selectedProjectPath = selectedSkillScope === 'project'
+    ? await validateSetupProjectFolder(projectPath)
+    : '';
+  const selectedSkillRoot = selectedSkillScope === 'project'
+    ? path.join(selectedProjectPath, '.claude', 'skills')
+    : path.join(home, '.claude', 'skills');
+  const selectedSkillLocation = selectedSkillScope === 'project'
+    ? 'the selected project'
+    : 'your Claude Code setup';
   const [claude, bun, repomix, mcpNames, marketplaceText, pluginIds] = await Promise.all([
     claudeStatus(),
     setupCommandReady('bun'),
@@ -829,13 +867,13 @@ async function verifySetupStatus() {
   }
 
   const [tasteSkill, planningSkill] = await Promise.all([
-    pathExists(path.join(home, '.claude', 'skills', 'design-taste-frontend', 'SKILL.md')),
-    pathExists(path.join(home, '.claude', 'skills', 'planning-with-files', 'SKILL.md')),
+    pathExists(path.join(selectedSkillRoot, 'design-taste-frontend', 'SKILL.md')),
+    pathExists(path.join(selectedSkillRoot, 'planning-with-files', 'SKILL.md')),
   ]);
   add('taste-skill', 'taste-skill', tasteSkill,
-    tasteSkill ? 'Ready. The design-taste skill is available in Claude Code.' : 'Not found. Select Complete setup to install it.');
+    tasteSkill ? `Ready. The design-taste skill is available in ${selectedSkillLocation}.` : `Not found in ${selectedSkillLocation}. Select Complete setup to install it there.`);
   add('planning-with-files', 'Planning with Files', planningSkill,
-    planningSkill ? 'Ready. The planning skill is available in Claude Code.' : 'Not found. Select Complete setup to install it.');
+    planningSkill ? `Ready. The planning skill is available in ${selectedSkillLocation}.` : `Not found in ${selectedSkillLocation}. Select Complete setup to install it there.`);
   add('repomix', 'Repomix', repomix.ready && mcpNames.has('repomix'),
     repomix.ready && mcpNames.has('repomix')
       ? 'Ready. The Repomix command and Claude Code connection are available.'
@@ -1630,7 +1668,7 @@ async function applyAppUninstall({ reviewId, confirmation } = {}) {
   }
 }
 
-function spawnInstaller(mode, selectedIds = [], dryRun = false) {
+function spawnInstaller(mode, selectedIds = [], dryRun = false, { skillScope = 'global', projectPath = '' } = {}) {
   const definition = installerDefinition();
   const args = [...definition.args, definition.script];
   const option = (windows, posix) => process.platform === 'win32' ? windows : posix;
@@ -1643,6 +1681,7 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false) {
     args.push(option('-NoLaunch', '--no-launch'), option('-ClaudeOnly', '--claude-only'), option('-Yes', '--yes'));
   } else if (mode === 'complete' || mode === 'fresh-complete') {
     args.push(option('-Complete', '--complete'), option('-AppManagedPlugins', '--app-managed-plugins'));
+    args.push(option('-SkillScope', '--skill-scope'), skillScope === 'project' ? 'project' : 'global');
     if (mode === 'fresh-complete') args.push(option('-Fresh', '--fresh'), option('-FreshConfirmed', '--fresh-confirmed'));
   } else {
     args.push(option('-NoLaunch', '--no-launch'), option('-Yes', '--yes'));
@@ -1656,7 +1695,7 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false) {
 
   return new Promise((resolve, reject) => {
     const child = spawn(definition.command, args, {
-      cwd: app.getPath('home'),
+      cwd: skillScope === 'project' && projectPath ? projectPath : app.getPath('home'),
       windowsHide: true,
       env: claudeProcessEnv(),
     });
@@ -1670,6 +1709,14 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false) {
 
 async function validateSetupProjectFolder(projectPath) {
   return resolveProjectFolder(projectPath);
+}
+
+async function resolveCompleteSetupScope({ skillScope, projectPath } = {}) {
+  if (skillScope === 'project') {
+    const resolvedProjectPath = await validateSetupProjectFolder(projectPath);
+    return { skillScope: 'project', projectPath: resolvedProjectPath };
+  }
+  return { skillScope: 'global', projectPath: '' };
 }
 
 async function selectedComponents(componentIds) {
@@ -3029,25 +3076,71 @@ app.whenReady().then(async () => {
     }
   });
 
-  ipcMain.handle('setup:verify', async () => verifySetupStatus());
+  ipcMain.handle('setup:verify', async (_event, payload) => {
+    try {
+      return await verifySetupStatus(payload || {});
+    } catch (error) {
+      return { ok: false, error: `CCTI could not check the selected skill scope: ${error.message}` };
+    }
+  });
 
-  ipcMain.handle('setup:complete', async (_event, { fresh }) => {
+  ipcMain.handle('setup:choose-project', async (_event, { createNew } = {}) => {
+    if (createNew) {
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: 'Create a project folder for Claude Code skills',
+        defaultPath: path.join(app.getPath('home'), 'claude-code-project'),
+        buttonLabel: 'Create project folder',
+      });
+      if (result.canceled || !result.filePath) return { canceled: true };
+      try {
+        const projectPath = path.resolve(result.filePath);
+        await fs.mkdir(projectPath);
+        return { canceled: false, projectPath: await validateSetupProjectFolder(projectPath), created: true };
+      } catch (error) {
+        return { canceled: false, error: error.code === 'EEXIST'
+          ? 'That folder already exists. Choose it with “Use an existing project folder,” or choose a different name.'
+          : `CCTI could not create that project folder: ${error.message}` };
+      }
+    }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a project folder for Claude Code skills',
+      defaultPath: app.getPath('home'),
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+    try {
+      return { canceled: false, projectPath: await validateSetupProjectFolder(result.filePaths[0]) };
+    } catch (error) {
+      return { canceled: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('setup:complete', async (_event, payload = {}) => {
+    const { fresh } = payload;
     if (activeInstall) return { ok: false, error: 'An installation is already running.' };
+    let setupScope;
+    try {
+      setupScope = await resolveCompleteSetupScope(payload);
+    } catch (error) {
+      return { ok: false, error: `Choose a valid project folder before installing project skills: ${error.message}` };
+    }
     activeInstall = true;
     emit('installer:state', { running: true });
     try {
-      const result = await spawnInstaller(fresh ? 'fresh-complete' : 'complete');
+      const result = await spawnInstaller(fresh ? 'fresh-complete' : 'complete', [], false, setupScope);
       const after = await claudeStatus();
       if (result.code === 0 && after.installed) {
         emit('installer:output', { stream: 'stdout', text: '[CCTI] Installing supported recommended plugins inside the app…\n' });
         await installReviewedPlugins(completeSetupPluginIds);
       }
-      const verification = result.code === 0 && after.installed ? await verifySetupStatus() : null;
+      const verification = result.code === 0 && after.installed ? await verifySetupStatus(setupScope) : null;
       return {
         ok: result.code === 0 && after.installed && verification?.ready,
         code: result.code,
         installed: after.installed,
         version: after.version,
+        skillScope: setupScope.skillScope,
+        projectPath: setupScope.projectPath,
         verification,
         error: result.code !== 0
           ? `Complete setup stopped with exit code ${result.code}. Review the in-app activity details, then select Complete setup to retry.`
