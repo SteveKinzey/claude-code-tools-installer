@@ -233,6 +233,12 @@ macOS releases must be code-signed and notarized before distribution.
 
 Windows Store submission is optional distribution work; CCTI’s in-app setup flow remains the same for a supported Windows package.
 
+### Cross-platform GitHub release staging
+
+A public cross-platform release is staged in two manual workflows from the same immutable `vYYYY.MM.DD` tag. **Release signed and notarized macOS DMG** stages the notarized DMG, native-update ZIP, `latest-mac.yml`, and checksums on a draft release. **Build, sign, and stage Linux CCTI release archive** builds one Linux x64 tarball, runs the packaged adapter smoke test, produces a SHA-256 sidecar, and creates a keyless Sigstore bundle bound to that tag and workflow. It also uploads only to the draft release.
+
+After both lanes pass, run **Publish verified cross-platform CCTI release** from the same tag. It rechecks the staged macOS checksum inventory and the downloaded Linux archive, checksum, and Sigstore identity before making the GitHub Release public. Do not add Linux assets to a release that is already public; ship the next version instead. The public Linux verifier is `scripts/verify-published-ccti-linux-release.sh vYYYY.MM.DD`.
+
 The app downloads Claude Code only after the user selects **Complete setup** or **Install or update Claude Code only**; it does not redistribute Claude Code inside this repository.
 
 ### Microsoft Store MSIX path

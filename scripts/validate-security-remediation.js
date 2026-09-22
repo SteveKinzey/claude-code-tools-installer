@@ -110,10 +110,10 @@ assert.match(macReleaseWorkflow, /upload_release_asset "\$artifact"/, 'macOS rel
 assert.match(macReleaseWorkflow, /gh api -X DELETE "repos\/\$GITHUB_REPOSITORY\/releases\/assets\/\$release_asset_database_id"/, 'macOS release upload retries must remove only the matching conflicting asset by numeric REST database ID before retrying.');
 assert.match(macReleaseWorkflow, /if gh release upload "\$TAG" "\$artifact"; then/, 'macOS release upload retries must upload each asset individually.');
 assert.match(macReleaseWorkflow, /gh release create "\$TAG" --target "\$SOURCE_COMMIT" --title "\$TAG" --generate-notes --draft/, 'macOS release publication must start from a private draft.');
-assert.match(macReleaseWorkflow, /Verify draft release inventory before publication/, 'macOS releases must verify the complete draft asset inventory before publishing.');
+assert.match(macReleaseWorkflow, /Verify draft macOS asset inventory before cross-platform handoff/, 'macOS releases must verify the complete draft asset inventory before cross-platform handoff.');
 assert.match(macReleaseWorkflow, /gh release view "\$TAG" --json databaseId --jq '\.databaseId'/, 'macOS release publication must resolve the numeric GitHub release databaseId.');
 assert.match(macReleaseWorkflow, /release_database_id.*=~ \^\[0-9\]\+\$/, 'macOS release publication must reject a missing or non-numeric release databaseId.');
-assert.match(macReleaseWorkflow, /releases\/\$\{release_database_id\}/, 'macOS release publication must PATCH the numeric release databaseId, not a GraphQL node ID.');
+assert.match(macReleaseWorkflow, /releases\/\$release_database_id\/assets/, 'macOS staging must use the numeric release databaseId for draft asset inventory.');
 assert.match(macReleaseWorkflow, /releases\/\$release_database_id\/assets\?per_page=100/, 'macOS draft retries must list release assets through the numeric release REST endpoint.');
 assert.match(macReleaseWorkflow, /release_asset_database_id.*=~ \^\[0-9\]\+\$/, 'macOS draft retries must reject a missing or non-numeric release asset database ID.');
 assert.match(macReleaseWorkflow, /releases\/assets\/\$release_asset_database_id/, 'macOS draft retries must delete assets by numeric REST database ID.');
