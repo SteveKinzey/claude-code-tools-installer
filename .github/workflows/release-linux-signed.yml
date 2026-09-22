@@ -95,7 +95,7 @@ jobs:
             exit 1
           }
           archive="${archives[0]}"
-          tar -tzf "$archive" | grep -Eq '/resources/app\.asar$' || {
+          tar -tzf "$archive" | grep -E '/resources/app\.asar$' >/dev/null || {
             echo "Linux archive does not contain resources/app.asar." >&2
             exit 1
           }

@@ -20,6 +20,7 @@ assert.match(linuxWorkflow, /npm ci/, 'Linux signing must use the lockfile.');
 assert.match(linuxWorkflow, /bash \.\.\/scripts\/run-release-desktop-check\.sh/, 'Linux signing must run the release desktop gate.');
 assert.match(linuxWorkflow, /npm run dist:linux/, 'Linux signing must produce the Linux archive.');
 assert.match(linuxWorkflow, /resources\/app\.asar/, 'Linux signing must inspect the packaged app payload.');
+assert.match(linuxWorkflow, /grep -E '\/resources\/app\\\.asar\$' >\/dev\/null/, 'Linux signing must avoid a grep early-exit SIGPIPE under pipefail while inspecting the archive.');
 assert.match(linuxWorkflow, /xvfb-run -a dbus-run-session -- node \.\.\/scripts\/test-packaged-linux-terminal-adapter\.js/, 'Linux signing must execute the packaged adapter smoke test.');
 assert.match(linuxWorkflow, /printf '%s  %s\\n'/, 'Linux signing must write a portable checksum sidecar with the archive basename.');
 assert.match(linuxWorkflow, /verify-linux-release-archive\.js/, 'Linux signing must validate its archive checksum sidecar.');
