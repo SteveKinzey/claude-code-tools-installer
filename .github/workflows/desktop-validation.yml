@@ -36,5 +36,7 @@ jobs:
           package-manager-cache: false
       - name: Install locked desktop dependencies
         run: npm ci
+      - name: Verify CCTI runtime PATH contract
+        run: npm run runtime-path:check
       - name: Run complete desktop validation
         run: npm run check

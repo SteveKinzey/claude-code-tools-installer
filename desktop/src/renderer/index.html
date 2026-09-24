@@ -401,6 +401,15 @@
           <p id="update-status-note" class="update-status-note" role="status" aria-live="polite" aria-busy="false">Checking published CCTI releases in the background…</p>
           <p id="release-integrity-alert" class="release-integrity-alert" role="alert" hidden><strong>Release integrity notice:</strong> <span id="release-integrity-alert-message"></span></p>
         </div>
+        <section id="runtime-path-health" class="runtime-path-health" aria-labelledby="runtime-path-health-heading" hidden>
+          <div>
+            <p class="eyebrow">LOCAL RUNTIME HEALTH</p>
+            <h3 id="runtime-path-health-heading">CCTI execution environment</h3>
+            <p>Shown only after a local Diagnostics run. This summarizes the Electron, CCTI command, and sandbox boundaries without displaying or sending your full PATH.</p>
+          </div>
+          <div id="runtime-path-health-cards" class="runtime-path-health-cards" aria-live="polite"></div>
+          <p id="runtime-path-health-summary" class="runtime-path-health-summary" role="status" aria-live="polite"></p>
+        </section>
       </section>
 
       <section id="uninstall-panel" class="uninstall-panel" aria-labelledby="uninstall-heading">

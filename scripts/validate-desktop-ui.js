@@ -149,6 +149,12 @@ if (!main.includes('async function launchClaudeCode') || !main.includes('async f
 if (!html.includes('id="run-diagnostics-button"') || !html.includes('id="copy-diagnostics-button"') || !html.includes('id="export-diagnostics-button"') || !renderer.includes('async function runDiagnostics()') || !renderer.includes('async function copyDiagnosticResults()') || !renderer.includes('async function exportDiagnosticResults()')) {
   throw new Error('Desktop settings must provide local diagnostics with copy and text-export controls.');
 }
+if (!html.includes('id="runtime-path-health"') || !html.includes('id="runtime-path-health-cards"') || !html.includes('id="runtime-path-health-summary"') || !renderer.includes('function renderRuntimePathHealth(snapshot, diagnostic)') || !renderer.includes('function clearRuntimePathHealth()') || !renderer.includes('window.installer.getRuntimePaths()') || !styles.includes('.runtime-path-health-cards') || !preload.includes("getRuntimePaths: async () =>") || !main.includes("ipcMain.handle('diagnostics:get-runtime-paths'")) {
+  throw new Error('Desktop diagnostics must display a local-only runtime PATH health summary through the fixed renderer bridge.');
+}
+if (!html.includes('without displaying or sending your full PATH') || !renderer.includes('No permissions, shell files, or security settings were changed.')) {
+  throw new Error('Runtime PATH health must state its local-only privacy boundary and non-mutating behavior.');
+}
 if (!html.includes('id="check-updates-button"') || !html.includes('id="install-update-button"') || !html.includes('id="update-status-spinner"') || !html.includes('id="update-status-note" class="update-status-note" role="status" aria-live="polite"') || !html.includes('id="release-integrity-alert"') || !html.includes('id="release-integrity-alert-message"') || !styles.includes('[hidden] { display: none !important; }') || !renderer.includes('function displayUpdateStatus(status)') || !renderer.includes('updateStatusNoteElement.textContent = message') || !renderer.includes('updateStatusSpinnerElement.hidden = !busy') || !renderer.includes('releaseReviewAvailable') || !renderer.includes('downloadAvailableUpdate') || !renderer.includes('installDownloadedUpdate') || !renderer.includes('digestAlert.message')) {
   throw new Error('Desktop settings must hide inactive status affordances, provide signed-update progress and explicit restart-to-apply actions, and pair checksum notices with a release-review action.');
 }
@@ -161,7 +167,7 @@ if (!main.includes("require('electron-updater')") || !main.includes('getNativeUp
 for (const protectedItem of ['Claude Desktop app and its data', 'Claude in Chrome, browser profiles, and browser extensions', 'Any unrelated Anthropic app or account']) {
   if (!main.includes(`'${protectedItem}'`)) throw new Error(`Claude Code removal must explicitly protect ${protectedItem}.`);
 }
-if (!main.includes('const installed = result.code === 0 && version.length > 0')) {
+if (!main.includes('if (result.code === 0 && version) return { ok: true, path: candidate, version };')) {
   throw new Error('Claude Code status must reject an empty successful command response.');
 }
 if (!main.includes("require('./project-prerequisites')") || !main.includes('prepareProjectPackage(projectPath, { dryRun: true })') || !main.includes("spawnInstaller('project-prerequisites')") || !main.includes("const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'")) {
@@ -182,8 +188,9 @@ if (!html.includes('id="start-project-interview-button"') || !html.includes('../
 if (!fs.readFileSync(path.join(root, 'desktop', 'src', 'project-interview.js'), 'utf8').includes('Nothing has been selected or installed.') || !renderer.includes('buildProjectInterviewDraft(interview.answers, state.catalog, state.componentCatalog.components)')) {
   throw new Error('The Project Interview must draft recommendations without selecting or installing tools.');
 }
-if (calledMethods.size !== exposedMethods.size) {
-  throw new Error('The optional Project Interview must not add unused renderer-to-main bridge methods.');
+const unusedBridgeMethods = [...exposedMethods].filter((method) => !calledMethods.has(method));
+if (unusedBridgeMethods.length > 0) {
+  throw new Error(`Preload methods must have a renderer call site: ${unusedBridgeMethods.join(', ')}.`);
 }
 for (const adapter of ['setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
   if (!fs.readFileSync(path.join(root, adapter), 'utf8').includes('--project-prerequisites')) {
@@ -222,6 +229,9 @@ if (!main.includes('const holdsInstallLock = !dryRun') || !/if \(holdsInstallLoc
 }
 if (!main.includes('CCTI could not check the selected project') || !renderer.includes('async function scanSetup()') || !renderer.includes('No valid project folder is selected.')) {
   throw new Error('A missing selected setup-manager project must return a stable actionable error instead of an unhandled renderer rejection.');
+}
+if (!main.includes("type: 'skill-link-excluded'") || !main.includes('This linked skill remains available to Claude Code.') || !renderer.includes("item.type === 'skill-link-excluded' ? 'Linked skill · Cleanup excluded'") || !renderer.includes('safely excluded from duplicate cleanup') || !styles.includes('.manager-item-skill-link-excluded')) {
+  throw new Error('Linked Claude skills must be presented as safe duplicate-cleanup exclusions, not generic attention findings.');
 }
 if (!main.includes('async function installedClaudePluginIds') || !main.includes('pluginIsInstalled(installedIds, requestedPlugin)')) {
   throw new Error('Curated plugin installs must skip plugins Claude Code already reports as installed.');

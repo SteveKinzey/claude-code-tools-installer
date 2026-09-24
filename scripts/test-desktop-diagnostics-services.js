@@ -10,6 +10,7 @@ const tempRoot = path.join(os.tmpdir(), `ccti-diagnostics-test-${process.pid}`);
 const handlers = new Map();
 let readyCallback;
 let saveDialogResult = { canceled: true, filePath: '' };
+let preloadApi;
 
 const electronStub = {
   app: {
@@ -32,6 +33,15 @@ const electronStub = {
   Notification: class { static isSupported() { return false; } },
   shell: { openExternal: async () => {} },
   ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+  contextBridge: { exposeInMainWorld: (_name, api) => { preloadApi = api; } },
+  ipcRenderer: {
+    invoke: async (channel, payload) => {
+      const handler = handlers.get(channel);
+      if (!handler) throw new Error(`Missing IPC handler: ${channel}`);
+      return handler(null, payload);
+    },
+  },
+  webUtils: { getPathForFile: () => '' },
 };
 
 const originalLoad = Module._load;
@@ -63,16 +73,40 @@ async function run() {
     await fs.mkdir(tempRoot, { recursive: true });
     require(path.join(root, 'desktop', 'src', 'main.js'));
     await readyCallback();
+    require(path.join(root, 'desktop', 'src', 'preload.js'));
 
     const runDiagnostics = handlers.get('diagnostics:run');
+    const getRuntimePaths = handlers.get('diagnostics:get-runtime-paths');
     const exportDiagnostics = handlers.get('diagnostics:export');
-    assert.ok(runDiagnostics && exportDiagnostics, 'diagnostic run and export handlers must be registered');
+    assert.ok(runDiagnostics && getRuntimePaths && exportDiagnostics, 'diagnostic run, runtime path, and export handlers must be registered');
+    assert.ok(preloadApi?.getRuntimePaths, 'the preload bridge must expose only the fixed runtime path diagnostic method');
+
+    const mainPaths = await getRuntimePaths();
+    assert.equal(mainPaths.ok, true);
+    assert.equal(mainPaths.mainProcessPath, process.env.PATH || process.env.Path || '');
+    assert.match(mainPaths.cctiCommandPath, /\.local[\\/]bin/);
+    assert.equal(typeof mainPaths.mainProcessPathEntryCount, 'number');
+    assert.equal(typeof mainPaths.cctiCommandPathEntryCount, 'number');
+    assert.equal(mainPaths.cctiIncludesNativeClaudeBin, true);
+    assert.equal(mainPaths.cctiIncludesManagedNodeBin, true);
+    assert.equal(typeof mainPaths.electronExecPath, 'string');
+    assert.equal(typeof mainPaths.electronVersion, 'string');
+    assert.equal(typeof mainPaths.embeddedNodeVersion, 'string');
+
+    const bridgedPaths = await preloadApi.getRuntimePaths();
+    assert.equal(bridgedPaths.ok, true);
+    assert.equal(bridgedPaths.rendererProcess.path, process.env.PATH || process.env.Path || '');
+    assert.equal(bridgedPaths.rendererProcess.processType, 'renderer');
+    assert.equal(typeof bridgedPaths.rendererProcess.sandboxed, 'boolean');
+    assert.equal(typeof bridgedPaths.rendererProcess.contextIsolated, 'boolean');
 
     const diagnostic = await runDiagnostics();
     assert.equal(diagnostic.ok, true);
     assert.match(diagnostic.diagnosticId, /^[a-f0-9-]{36}$/i);
     assert.match(diagnostic.report, /CCTI DIAGNOSTICS — local only/i);
     assert.match(diagnostic.report, /PATH used by CCTI/i);
+    assert.equal(typeof diagnostic.claudeFallback, 'boolean');
+    assert.equal(typeof diagnostic.claudeFallbackReason, 'string');
 
     const canceled = await exportDiagnostics(null, { diagnosticId: diagnostic.diagnosticId });
     assert.deepEqual(canceled, { ok: true, canceled: true });

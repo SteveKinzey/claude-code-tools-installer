@@ -63,6 +63,15 @@ const nameOverlapItems = [
   },
 ];
 
+const linkedSkillExclusion = {
+  id: 'skill-link-excluded:/fixture-home/.claude/skills/gstack',
+  type: 'skill-link-excluded',
+  name: 'gstack',
+  scope: 'Just you',
+  path: '/fixture-home/.claude/skills/gstack',
+  description: 'This linked skill remains available to Claude Code. CCTI excludes skills containing symbolic links from duplicate cleanup, so it will not follow, compare, move, or delete linked files.',
+};
+
 const projectPackage = {
   id: 'project-package:/fixture-project/package.json:@convex-dev/agent',
   type: 'project-package',
@@ -87,7 +96,7 @@ const discoveryReport = {
   discoveryId: 'duplicate-ui-fixture',
   checkedAt: '2026-09-12T12:00:00.000Z',
   projectPath: '/fixture-project',
-  findings: [...duplicateItems, ...nameOverlapItems, projectPackage, longPluginPathItem],
+  findings: [...duplicateItems, ...nameOverlapItems, linkedSkillExclusion, projectPackage, longPluginPathItem],
   managedExtras: { actionCount: 1, manualCount: 1, ignored: 0, error: '' },
   duplicates: [
     {
@@ -474,6 +483,23 @@ async function run() {
     assert.equal(cleanupActionPanel.packageButton, 'Review 1 project package');
     assert.equal(cleanupActionPanel.managedExtrasButton, 'Review 1 removal');
 
+    const linkedSkillCard = await pageValue(window, `(() => {
+      const card = [...document.querySelectorAll('.manager-item-skill-link-excluded')]
+        .find((item) => item.querySelector('h3')?.textContent === 'gstack');
+      return {
+        title: card?.querySelector('h3')?.textContent,
+        meta: card?.querySelector('p')?.textContent,
+        copy: card?.querySelectorAll('p')[1]?.textContent,
+        buttonCount: card?.querySelectorAll('button').length,
+      };
+    })()`);
+    assert.deepEqual(linkedSkillCard, {
+      title: 'gstack',
+      meta: 'Linked skill · Cleanup excluded · Just you',
+      copy: 'This linked skill remains available to Claude Code. CCTI excludes skills containing symbolic links from duplicate cleanup, so it will not follow, compare, move, or delete linked files.',
+      buttonCount: 0,
+    }, 'Linked skills must be shown as safe cleanup exclusions with no backup or removal action.');
+
     const longPathCopyControl = await pageValue(window, `(() => {
       const card = [...document.querySelectorAll('.manager-item-plugin')]
         .find((item) => item.querySelector('h3')?.textContent.includes('5b4d7fbe-5e6a'));
@@ -482,6 +508,8 @@ async function run() {
         title: card?.querySelector('h3')?.textContent,
         buttonText: button?.textContent,
         accessibleName: button?.getAttribute('aria-label'),
+        tooltipText: card?.querySelector('.manager-path-copy-tooltip')?.textContent,
+        tooltipHidden: card?.querySelector('.manager-path-copy-tooltip')?.getAttribute('aria-hidden'),
         cardFits: card ? card.scrollWidth <= card.clientWidth : false,
         titleFits: card?.querySelector('h3') ? card.querySelector('h3').scrollWidth <= card.querySelector('h3').clientWidth : false,
       };
@@ -489,12 +517,17 @@ async function run() {
     assert.equal(longPathCopyControl.title, `Path: ${longPluginPath}`);
     assert.equal(longPathCopyControl.buttonText, 'Copy path');
     assert.equal(longPathCopyControl.accessibleName, 'Copy this add-on path');
+    assert.equal(longPathCopyControl.tooltipText, 'Copied!');
+    assert.equal(longPathCopyControl.tooltipHidden, 'true');
     assert.equal(longPathCopyControl.cardFits, true, 'a long plugin path card must remain within its grid track');
     assert.equal(longPathCopyControl.titleFits, true, 'a long plugin path heading must wrap within its card');
     await pageValue(window, "document.querySelector('.manager-path-copy').click()");
     await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'copyPath'), 'long plugin path copy action');
     assert.equal((await pageValue(window, "window.__duplicateUiCalls.find((call) => call.method === 'copyPath')?.payload")), longPluginPath);
     assert.equal(await pageValue(window, "document.querySelector('.manager-path-copy').textContent"), 'Copied');
+    assert.equal(await pageValue(window, "document.querySelector('.manager-path-copy').getAttribute('aria-label')"), 'Copied! Add-on path copied');
+    assert.equal(await pageValue(window, "document.querySelector('.manager-path-copy-tooltip').classList.contains('is-visible')"), true);
+    assert.equal(await pageValue(window, "document.querySelector('.manager-path-copy-tooltip').getAttribute('aria-hidden')"), 'false');
 
     await pageValue(window, "document.querySelector('#cleanup-manage-skills-button').click()");
     await waitFor(window, () => document.querySelector('#setup-manager-inventory')?.open === true, 'installed skills inventory reveal');

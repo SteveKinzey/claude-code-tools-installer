@@ -194,10 +194,14 @@ h3 { margin: 0; font-size: 1rem; }
 .manager-item p + p { margin-top: 6px; }
 .manager-item-connection { border-color: #3b6288; }
 .manager-item-plugin { border-color: #376d62; }
+.manager-item-skill-link-excluded { border-color: #566f91; background: #0d1e2e; }
 .manager-path { color: #7fa7bd !important; font: 0.72rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
+.manager-path-copy-wrap { position: relative; flex: 0 0 auto; display: inline-flex; }
 .manager-path-copy { flex: 0 0 auto; min-height: 28px; padding: 4px 8px; border: 1px solid #467989; border-radius: 6px; background: #102b38; color: #cbf5ef; cursor: pointer; font-size: 0.72rem; font-weight: 800; line-height: 1.1; }
 .manager-path-copy:hover:not(:disabled) { border-color: #78d6c5; background: #17404a; }
 .manager-path-copy:disabled { cursor: wait; opacity: 0.72; }
+.manager-path-copy-tooltip { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 2; display: none; padding: 4px 7px; border: 1px solid #6bd9c7; border-radius: 5px; background: #0a3135; color: #d9fff8; font-size: 0.68rem; font-weight: 800; line-height: 1; white-space: nowrap; box-shadow: 0 4px 12px rgb(0 0 0 / 0.28); pointer-events: none; }
+.manager-path-copy-tooltip.is-visible { display: block; }
 .cleanup-actions { margin: 16px 0; padding: 18px; border: 1px solid #457584; border-radius: 12px; background: linear-gradient(135deg, #112d35 0%, #102039 100%); }
 .cleanup-actions-heading { max-width: 790px; }
 .cleanup-actions-heading .eyebrow { margin-bottom: 5px; color: #92dccc; }
@@ -302,6 +306,18 @@ h3 { margin: 0; font-size: 1rem; }
 .update-status-downloaded { color: #b9f4df !important; }
 .update-status-installing { color: #b7d6ee !important; }
 @media (prefers-reduced-motion: reduce) { .update-status-spinner { animation: none; } }
+.runtime-path-health { grid-column: 1 / -1; display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid #29475f; }
+.runtime-path-health h3 { margin-bottom: 5px; color: #d9f1ff; font-size: .98rem; }
+.runtime-path-health > div > p:not(.eyebrow) { max-width: 780px; color: #aac5d9; font-size: .8rem; line-height: 1.45; }
+.runtime-path-health-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.runtime-path-health-card { min-height: 104px; padding: 12px; border: 1px solid #335f70; border-radius: 8px; background: #0a1a29; }
+.runtime-path-health-card h4 { margin: 0 0 6px; color: #d6f1f7; font-size: .81rem; }
+.runtime-path-health-card p { margin: 0; color: #abc9d7; font-size: .77rem; line-height: 1.45; }
+.runtime-path-health-card.is-ready { border-color: #397868; background: #0c2929; }
+.runtime-path-health-card.is-ready h4 { color: #b9f5e0; }
+.runtime-path-health-card.is-attention { border-color: #9a6b39; background: #2a2116; }
+.runtime-path-health-card.is-attention h4 { color: #ffe0a1; }
+.runtime-path-health-summary { min-height: 1.3em; margin: 0 !important; color: #b9ddeb !important; font-size: .8rem !important; line-height: 1.45; }
 .compass-toggle { position: fixed; right: 28px; bottom: 28px; display: grid; place-items: center; width: 52px; height: 52px; border: 1px solid #6fd1c2; border-radius: 50%; background: #163f51; color: #e7fffb; box-shadow: 0 12px 30px #0008; cursor: pointer; font-size: 1.55rem; font-weight: 850; }
 .compass-panel { position: fixed; right: 28px; bottom: 28px; z-index: 10; width: min(430px, calc(100vw - 56px)); max-height: min(720px, calc(100vh - 56px)); display: grid; grid-template-rows: auto minmax(120px, 1fr) auto auto auto; overflow: hidden; border: 1px solid #4e98a5; border-radius: 16px; background: #0a1928; box-shadow: 0 18px 60px #000a; }
 .compass-header { display: flex; justify-content: space-between; gap: 16px; padding: 18px 18px 12px; border-bottom: 1px solid #25445c; }
@@ -349,6 +365,7 @@ h3 { margin: 0; font-size: 1rem; }
   .component-card-actions { justify-items: start; min-width: 0; }
   .desktop-utilities-panel { grid-template-columns: 1fr; }
   .desktop-utilities-actions { justify-content: flex-start; }
+  .runtime-path-health-cards { grid-template-columns: 1fr; }
   .setup-verification { grid-template-columns: 1fr; }
   .setup-verification-results { grid-template-columns: 1fr; }
 }

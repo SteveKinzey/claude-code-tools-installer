@@ -6,6 +6,15 @@ contextBridge.exposeInMainWorld('installer', {
   getComponentCatalog: () => ipcRenderer.invoke('components:get'),
   getClaudeStatus: () => ipcRenderer.invoke('claude:status'),
   runDiagnostics: () => ipcRenderer.invoke('diagnostics:run'),
+  getRuntimePaths: async () => ({
+    ...(await ipcRenderer.invoke('diagnostics:get-runtime-paths')),
+    rendererProcess: {
+      path: process.env.PATH || process.env.Path || '',
+      processType: process.type || 'renderer',
+      sandboxed: Boolean(process.sandboxed),
+      contextIsolated: Boolean(process.contextIsolated),
+    },
+  }),
   exportDiagnosticReport: (payload) => ipcRenderer.invoke('diagnostics:export', payload),
   getUpdateStatus: () => ipcRenderer.invoke('updates:get-status'),
   downloadAvailableUpdate: () => ipcRenderer.invoke('updates:download'),

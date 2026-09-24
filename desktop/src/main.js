@@ -1,11 +1,14 @@
 const { app, BrowserWindow, dialog, ipcMain, Notification, shell } = require('electron');
+const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { createHash, randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
-const path = require('node:path');
 const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
 const { comparePackageVersions, parsePackageVersion, parseReleaseIdentity } = require('./release-identity');
 
+if (process.env.CCTI_ELECTRON_TEST === '1' && process.env.CCTI_TEST_HOME) {
+  app.setPath('home', path.resolve(process.env.CCTI_TEST_HOME));
+}
 let mainWindow;
 let activeInstall = false;
 let activeComponentInstall = false;
@@ -211,7 +214,7 @@ function claudeProcessEnv() {
         path.join(home, '.volta', 'bin'),
         path.join(home, '.asdf', 'shims'),
       path.join(home, '.cargo', 'bin'),
-      ];
+  ];
   const inheritedPath = process.env.PATH || process.env.Path || '';
   const resolvedPath = [...new Set([nativeBin, bunBin, managedNodeBin, ...commonPaths, inheritedPath].filter(Boolean).join(path.delimiter).split(path.delimiter).filter(Boolean))].join(path.delimiter);
   return {
@@ -945,41 +948,110 @@ async function commandLocation(command) {
   }
 }
 
+function claudeCandidatePaths(home) {
+  return process.platform === 'win32'
+    ? [path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'), path.join(home, '.local', 'bin', 'claude.exe')]
+    : [path.join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude', path.join(home, '.npm-global', 'bin', 'claude')];
+}
+
+function uniqueCommandPaths(paths) {
+  const seen = new Set();
+  return paths.filter((candidate) => {
+    const normalized = String(candidate || '').trim();
+    if (!normalized) return false;
+    const key = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function verifyClaudeCandidate(candidate, home) {
+  if (!candidate || !await pathExists(candidate)) return { ok: false, path: candidate, reason: 'missing' };
+  try {
+    const result = await runProcess(candidate, ['--version'], { cwd: home, env: claudeProcessEnv(), timeout: 4000 });
+    const version = (result.stdout || result.stderr || '').trim();
+    if (result.code === 0 && version) return { ok: true, path: candidate, version };
+    return { ok: false, path: candidate, reason: result.timedOut ? 'timed-out' : 'not-runnable' };
+  } catch (error) {
+    const code = String(error?.code || '').toUpperCase();
+    return {
+      ok: false,
+      path: candidate,
+      reason: code === 'EACCES' || code === 'EPERM' ? 'permission-denied' : 'spawn-failed',
+    };
+  }
+}
+
 async function claudeStatus() {
   const home = app.getPath('home');
-  try {
-    let installedPath = await commandLocation('claude');
-    if (!installedPath) {
-      const candidates = process.platform === 'win32'
-        ? [path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'), path.join(home, '.local', 'bin', 'claude.exe')]
-        : [path.join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude', path.join(home, '.npm-global', 'bin', 'claude')];
-      for (const candidate of candidates) {
-        if (await pathExists(candidate)) {
-          installedPath = candidate;
-          break;
-        }
-      }
+  const resolvedPath = await commandLocation('claude');
+  const attempts = [];
+  const candidates = uniqueCommandPaths([resolvedPath, ...claudeCandidatePaths(home)]);
+  for (const candidate of candidates) {
+    const verification = await verifyClaudeCandidate(candidate, home);
+    if (verification.ok) {
+      return {
+        installed: true,
+        version: verification.version,
+        path: verification.path,
+        timedOut: false,
+        fallbackUsed: attempts.length > 0,
+        fallbackReason: attempts[0]?.reason || '',
+        reason: '',
+      };
     }
-    const targetCmd = installedPath || 'claude';
-    const result = await runProcess(targetCmd, ['--version'], { cwd: home, env: claudeProcessEnv(), timeout: 4000 });
-    const version = result.stdout.trim() || result.stderr.trim();
-    const installed = result.code === 0 && version.length > 0;
-    return {
-      installed,
-      version: installed ? version : '',
-      path: installedPath,
-      timedOut: Boolean(result.timedOut),
-      reason: installed ? '' : (result.timedOut ? 'Claude Code check took longer than expected.' : result.code === 0 ? 'Claude Code did not return a version.' : 'Claude Code could not be run.'),
-    };
-  } catch {
-    const fallbackPath = await commandLocation('claude').catch(() => '');
-    return { installed: false, version: '', path: fallbackPath, reason: 'Claude Code could not be run.' };
+    if (verification.reason !== 'missing') attempts.push(verification);
   }
+  const timedOut = attempts.some((attempt) => attempt.reason === 'timed-out');
+  const permissionDenied = attempts.some((attempt) => attempt.reason === 'permission-denied');
+  return {
+    installed: false,
+    version: '',
+    path: resolvedPath || '',
+    timedOut,
+    fallbackUsed: false,
+    fallbackReason: permissionDenied ? 'permission-denied' : attempts[0]?.reason || '',
+    reason: permissionDenied
+      ? 'Claude Code was found, but the operating system blocked execution. Run Diagnostics before changing permissions.'
+      : timedOut
+        ? 'Claude Code check took longer than expected.'
+        : 'Claude Code could not be run.',
+  };
 }
 
 function displayLocalPath(value) {
   const home = app.getPath('home');
   return String(value || '').split(home).join('~');
+}
+
+function runtimePathSnapshot() {
+  const commandEnv = claudeProcessEnv();
+  const home = app.getPath('home');
+  const mainProcessPath = process.env.PATH || process.env.Path || '';
+  const cctiCommandPath = commandEnv.PATH || commandEnv.Path || '';
+  const commandEntries = cctiCommandPath.split(path.delimiter).filter(Boolean);
+  const includesPath = (candidate) => commandEntries.some((entry) => (
+    process.platform === 'win32'
+      ? entry.toLowerCase() === candidate.toLowerCase()
+      : entry === candidate
+  ));
+  const nativeClaudeBin = process.platform === 'win32' ? path.join(process.env.APPDATA || '', 'npm') : path.join(home, '.local', 'bin');
+  const managedNodeBin = process.platform === 'win32'
+    ? path.join(setupManagerDir(), 'node-runtime')
+    : path.join(setupManagerDir(), 'node-runtime', 'bin');
+  return {
+    ok: true,
+    mainProcessPath,
+    cctiCommandPath,
+    mainProcessPathEntryCount: mainProcessPath.split(path.delimiter).filter(Boolean).length,
+    cctiCommandPathEntryCount: commandEntries.length,
+    cctiIncludesNativeClaudeBin: includesPath(nativeClaudeBin),
+    cctiIncludesManagedNodeBin: includesPath(managedNodeBin),
+    electronExecPath: process.execPath || '',
+    electronVersion: process.versions.electron || '',
+    embeddedNodeVersion: process.versions.node || '',
+  };
 }
 
 async function diagnosticCommand(command, args) {
@@ -997,9 +1069,7 @@ async function diagnosticCommand(command, args) {
 async function runDiagnostics() {
   const home = app.getPath('home');
   const env = claudeProcessEnv();
-  const candidatePaths = process.platform === 'win32'
-    ? [path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'), path.join(home, '.local', 'bin', 'claude.exe')]
-    : [path.join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude', path.join(home, '.npm-global', 'bin', 'claude')];
+  const candidatePaths = claudeCandidatePaths(home);
   const [claude, node, npm, git, resolvedClaude] = await Promise.all([
     claudeStatus(),
     diagnosticCommand('node', ['--version']),
@@ -1040,7 +1110,14 @@ async function runDiagnostics() {
   ].join('\n');
   const safeReport = boundDiagnosticReport(report);
   const diagnosticId = rememberDiagnosticReport(safeReport);
-  return { ok: true, diagnosticId, report: safeReport, claudeReady: claude.installed };
+  return {
+    ok: true,
+    diagnosticId,
+    report: safeReport,
+    claudeReady: claude.installed,
+    claudeFallback: Boolean(claude.fallbackUsed),
+    claudeFallbackReason: claude.fallbackReason || '',
+  };
 }
 
 function boundDiagnosticReport(report) {
@@ -1988,6 +2065,10 @@ async function describeSkillForDiscovery(skillPath, scope, name) {
   };
 }
 
+function isLinkedSkillManifestError(error) {
+  return String(error?.message || '') === 'A skill contains a symbolic link.';
+}
+
 function moveFilesForPreview(move) {
   return (Array.isArray(move.files) ? move.files : []).map((file) => ({
     source: path.join(move.source, ...file.path.split('/')),
@@ -2070,7 +2151,18 @@ async function listSkillsAt(rootPath, scope) {
       } catch (error) {
         try {
           await fs.access(path.join(skillPath, 'SKILL.md'));
-          skills.push({ id: `skill:${skillPath}`, type: 'attention', name: entry.name, scope, path: skillPath, description: `This skill could not be verified for duplicate cleanup: ${error.message} It was not changed.` });
+          if (isLinkedSkillManifestError(error)) {
+            skills.push({
+              id: `skill-link-excluded:${skillPath}`,
+              type: 'skill-link-excluded',
+              name: entry.name,
+              scope,
+              path: skillPath,
+              description: 'This linked skill remains available to Claude Code. CCTI excludes skills containing symbolic links from duplicate cleanup, so it will not follow, compare, move, or delete linked files.',
+            });
+          } else {
+            skills.push({ id: `skill:${skillPath}`, type: 'attention', name: entry.name, scope, path: skillPath, description: `This skill could not be verified for duplicate cleanup: ${error.message} It was not changed.` });
+          }
         } catch {
           // A folder without SKILL.md is not presented as an installed skill.
         }
@@ -3026,6 +3118,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('components:get', readComponentCatalog);
   ipcMain.handle('claude:status', claudeStatus);
   ipcMain.handle('diagnostics:run', runDiagnostics);
+  ipcMain.handle('diagnostics:get-runtime-paths', async () => runtimePathSnapshot());
   ipcMain.handle('diagnostics:export', async (_event, payload) => exportDiagnosticReport(payload || {}));
   ipcMain.handle('updates:get-status', async () => ({ ...updateStatus }));
   ipcMain.handle('updates:check', checkForUpdates);
