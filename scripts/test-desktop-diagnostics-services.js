@@ -84,7 +84,8 @@ async function run() {
     const mainPaths = await getRuntimePaths();
     assert.equal(mainPaths.ok, true);
     assert.equal(mainPaths.mainProcessPath, process.env.PATH || process.env.Path || '');
-    assert.match(mainPaths.cctiCommandPath, /\.local[\\/]bin/);
+    // Windows resolves Claude from %APPDATA%\npm; macOS and Linux use ~/.local/bin.
+    assert.match(mainPaths.cctiCommandPath, process.platform === 'win32' ? /[\\/]npm(?:;|$)/i : /\.local[\\/]bin/);
     assert.equal(typeof mainPaths.mainProcessPathEntryCount, 'number');
     assert.equal(typeof mainPaths.cctiCommandPathEntryCount, 'number');
     assert.equal(mainPaths.cctiIncludesNativeClaudeBin, true);
