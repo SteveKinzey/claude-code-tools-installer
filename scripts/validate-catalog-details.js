@@ -13,7 +13,7 @@ const expected = [...tools.map((item) => ({ id: item.id, name: item.name, scope:
 const byId = new Map(details.items.map((item) => [item.id, item]));
 
 assert.equal(details.schemaVersion, 1);
-assert.equal(details.catalogCounts.tools, 35);
+assert.equal(details.catalogCounts.tools, tools.length);
 assert.equal(details.catalogCounts.components, 145);
 assert.equal(details.items.length, expected.length);
 assert.equal(byId.size, expected.length, 'detail IDs must be unique');
@@ -34,4 +34,4 @@ for (const item of expected) {
   if (detail.scope === 'This project') assert.match(detail.cctiAction, /selected project|project folder/i, `${item.id} must state that it belongs in the chosen project`);
 }
 
-console.log(`Catalog details passed: ${details.items.length} plain-language records cover 35 computer tools and 145 project components.`);
+console.log(`Catalog details passed: ${details.items.length} plain-language records cover ${tools.length} computer tools and 145 project components.`);

@@ -7,14 +7,14 @@
 
 CCTI now has a **verified direct macOS download path** and a **safe Windows delivery posture**. The public macOS endpoint exposes the `v2026.09.11` ARM64 DMG with the GitHub Release SHA-256 digest. A fresh validation confirmed that the downloaded DMG matches that digest, carries a stapled notarization ticket, is signed by the expected Developer ID identity, and is accepted by Gatekeeper.
 
-Windows is intentionally **not** offered as a GitHub ZIP, EXE, or test MSIX download. The website now treats Windows as Microsoft Store-only and displays a pending state until the official Store listing is live. The Store bundle and clean Windows install/lifecycle workflows both passed, but there is no evidence of a public Microsoft Store listing yet. Therefore, Windows users do not currently have a proper public installation file, which is the correct and safer state until certification and listing publication complete.
+Windows is intentionally **not** offered as a public installer until an approved signed-release workflow produces and verifies a consumer-ready artifact. This preserves a safe boundary between source and a verified downloadable package.
 
 ## Verified Platform Status
 
 | Platform | Public route | Current public state | Verification evidence | User outcome |
 |---|---|---|---|---|
 | macOS | Direct GitHub Release DMG | Available: `v2026.09.11` ARM64 DMG | Uploaded GitHub asset, SHA-256, stapled notarization, nested-signature validation, Developer ID identity, and Gatekeeper acceptance | Users can download the signed, notarized DMG. |
-| Windows | Microsoft Store only | Pending Store publication | Store MSIX build passed; clean Windows bundle/install/launch/uninstall workflow passed | No public installer is shown until the official Store listing is live. |
+| Windows | Approved signed release | Pending signed release | No current public Windows installer | No public installer is shown until a verified artifact is available. |
 | Linux | Direct GitHub Release archive | Available: `v2026.09.11` x64 archive | Uploaded GitHub asset with published SHA-256 digest | Users can download the verified Linux archive. |
 
 ## macOS Release Verification
@@ -27,21 +27,17 @@ The DMG trust check passed all required stages. Apple’s stapler validated the 
 
 ## Windows Release Policy and Readiness
 
-The previous public site behavior exposed the historical `v2026.08.12` `claude-code-tools-installer-windows.zip` as a Windows download. This was removed from current-download selection and from the retained release catalog. The frontend now selects no direct Windows asset, labels the route **Microsoft Store release pending**, and links users to release-status information rather than offering an archive that may not be a safe or supported installer.
-
-The Windows engineering path is ready for Store publication. The `Build Microsoft Store MSIX bundle` workflow completed successfully, including x64 and ARM64 package builds, bundle validation, and Store-bundle upload. The `Test Microsoft Store MSIX on clean Windows` workflow also completed successfully, including protected identity input validation and bundle install, launch, and uninstall lifecycle checks.[2] These results validate the package candidate. They do not prove that a consumer-facing Microsoft Store listing exists.
+The previous public site behavior exposed the historical `v2026.08.12` `claude-code-tools-installer-windows.zip` as a Windows download. This was removed from current-download selection and from the retained release catalog. The frontend now selects no direct Windows asset and links users to release-status information rather than offering an archive that may not be a safe or supported installer.
 
 | Condition for public Windows delivery | Status | Required next action |
 |---|---|---|
-| Store MSIX bundle built | Passed | Retain build evidence. |
-| Clean Windows lifecycle test | Passed | Retain release test evidence. |
-| Protected Partner Center identity | Validated in workflow | Continue to protect identity values. |
-| Microsoft Store listing published | Not verified | Complete Partner Center submission and obtain the canonical Store URL. |
-| Site shows Store install link | Blocked intentionally | Add the approved Store URL to the site only after the listing is live. |
+| Signed Windows artifact | Pending | Complete the approved signing and clean-Windows verification workflow. |
+| Clean Windows lifecycle test | Pending | Retain package install, launch, and uninstall evidence. |
+| Site shows a Windows install link | Blocked intentionally | Add a verified release URL only after the artifact is public. |
 
 ## Website and CDN Delivery
 
-The WebDev project checkpoint `e3d9bb7c` was saved and synchronized to `SteveKinzey/claude-code-tools-installer-site` `main`. The production endpoint, queried with a cache-busting value, now returns HTTP 503 for Windows with `Release data is unavailable.` This is intentional: it prevents a download from starting before an official Store listing exists. The production macOS endpoint returns the verified `v2026.09.11` DMG.
+The WebDev project checkpoint `e3d9bb7c` was saved and synchronized to `SteveKinzey/claude-code-tools-installer-site` `main`. The production endpoint, queried with a cache-busting value, now returns HTTP 503 for Windows with `Release data is unavailable.` This is intentional: it prevents a download from starting before a verified Windows artifact exists. The production macOS endpoint returns the verified `v2026.09.11` DMG.
 
 A host-scoped cache-purge workflow was manually dispatched after the site synchronization. The workflow completed successfully, but its `Purge the production hostname cache` step was skipped. No Cloudflare cache invalidation was therefore performed by that run. The likely operational cause is that the required Cloudflare purge credentials are not configured for the workflow. The deployed origin is correct, but normal cache behavior should be rechecked after credentials are supplied and a real host purge completes.
 
@@ -70,18 +66,16 @@ A failure-only alert helper was added and published in desktop repository commit
 
 ## Reusable Skill Review
 
-The reusable **CCTI Release Integrity Operations** skill was validated with the `/skill-creator` validator. Its execution contract now covers source-only release handling, verified per-platform artifacts, direct macOS trust validation, Windows Microsoft Store-only routing, host-scoped cache purging, 24-hour drift grace behavior, and safe Slack or Discord alert configuration.
+The reusable **CCTI Release Integrity Operations** skill was validated with the `/skill-creator` validator. Its execution contract now covers source-only release handling, verified per-platform artifacts, direct macOS trust validation, Windows signed-artifact routing, host-scoped cache purging, 24-hour drift grace behavior, and safe Slack or Discord alert configuration.
 
 ## Required Follow-up
 
 1. Configure `CLOUDFLARE_ZONE_ID` and `CLOUDFLARE_CACHE_PURGE_TOKEN` in the site repository, then rerun the host-scoped cache-purge workflow and verify normal, non-cache-busted production requests.
-2. Complete Microsoft Partner Center submission and wait for the public product listing. Verify the final Store URL and install experience from a clean Windows device before adding it to the website.
+2. Complete the approved signed Windows release workflow. Verify the install experience from a clean Windows device before adding the artifact to the website.
 3. Configure `CCTI_RELEASE_ALERT_WEBHOOK` and `CCTI_RELEASE_ALERT_PROVIDER` in a protected repository environment. Run the helper in dry-run mode first, then deliberately test delivery with a non-production test webhook.
 4. Keep the `v2026.09.11` macOS DMG as the direct download until a newer release repeats the full checksum, signing, stapling, and Gatekeeper verification sequence.
 
 ## References
 
 [1]: https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.11 "CCTI v2026.09.11 GitHub Release"
-[2]: https://github.com/SteveKinzey/claude-code-tools-installer/actions/runs/34631928257 "Build Microsoft Store MSIX bundle workflow run"
-[3]: https://github.com/SteveKinzey/claude-code-tools-installer/actions/runs/34631930784 "Test Microsoft Store MSIX on clean Windows workflow run"
 [4]: https://github.com/SteveKinzey/claude-code-tools-installer-site/actions/runs/34632723546 "Purge claudetool.app cache workflow run"

@@ -110,7 +110,7 @@ function supportedTerminalOptions() {
   if (process.platform === 'win32') {
     return [
       { id: 'default', label: 'PowerShell', launcher: 'windows-powershell', commands: ['pwsh.exe', 'powershell.exe'] },
-      { id: 'windows-terminal', label: 'Windows Terminal', launcher: 'windows-terminal', commands: ['wt.exe'], packageExecutable: 'WindowsTerminal.exe' },
+      { id: 'windows-terminal', label: 'Windows Terminal', launcher: 'windows-terminal', commands: ['wt.exe'] },
     ];
   }
   return [
@@ -449,8 +449,7 @@ function publishUpdateStatus() {
 }
 
 function nativeUpdaterSupported() {
-  // Microsoft Store (MSIX) installs are updated by the Store, never by the GitHub feed.
-  return (process.platform === 'darwin' || (process.platform === 'win32' && !process.windowsStore)) && app.isPackaged;
+  return (process.platform === 'darwin' || process.platform === 'win32') && app.isPackaged;
 }
 
 function getNativeUpdater() {
@@ -900,6 +899,12 @@ async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {
     anthropicSkillsMarketplace
       ? 'Ready. Choose individual Anthropic skills later only when you need them.'
       : 'Not found. Select Complete setup to add the Anthropic Skills marketplace inside CCTI.');
+  const productivitySynced = pluginIds.includes('productivity@synced');
+  add('productivity', 'Productivity plugin', productivitySynced,
+    productivitySynced
+      ? 'Ready. Productivity is synced from your Claude.ai account. Run /productivity:start to begin, then /productivity:update to refresh project tasks.'
+      : 'Optional. Enable Productivity in your Claude.ai account, then start Claude Code and run /reload-plugins if prompted. CCTI cannot install Claude.ai-synced plugins.',
+    productivitySynced ? 'ready' : 'optional');
   add('claude-hud', 'Claude HUD plugin', pluginIsInstalled(pluginIds, 'claude-hud'),
     pluginIsInstalled(pluginIds, 'claude-hud') ? 'Ready. Claude HUD is enabled for your Claude Code setup.' : 'Not found. Select Complete setup to add it inside CCTI.');
 
@@ -1208,21 +1213,6 @@ async function firstAvailableTerminalCommand(option) {
   for (const command of option.commands || []) {
     const resolved = await commandLocation(command);
     if (resolved) return resolved;
-  }
-  if (process.platform === 'win32' && option.packageExecutable) {
-    try {
-      const query = "$package = Get-AppxPackage -Name Microsoft.WindowsTerminal* -AllUsers | Sort-Object Version -Descending | Select-Object -First 1; if ($package) { $package.InstallLocation }";
-      const result = await runProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', query], {
-        cwd: app.getPath('home'),
-        env: claudeProcessEnv(),
-        timeout: 4000,
-      });
-      const installLocation = result.code === 0
-        ? result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || ''
-        : '';
-      const executable = installLocation ? path.join(installLocation, option.packageExecutable) : '';
-      if (executable && await pathExists(executable)) return executable;
-    } catch {}
   }
   return '';
 }

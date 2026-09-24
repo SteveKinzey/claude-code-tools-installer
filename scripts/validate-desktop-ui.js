@@ -28,10 +28,6 @@ if (!componentCatalogResource) throw new Error('Component catalog is missing fro
 const detailCatalogResource = /from": "catalog-details\.json",\s*"to": "catalog-details\.json"/.test(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'));
 if (!detailCatalogResource) throw new Error('Plain-language catalog details are missing from the packaged resource list.');
 
-for (const asset of ['StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.png', 'Wide310x150Logo.png']) {
-  if (!fs.existsSync(path.join(root, 'desktop', 'build', 'appx', asset))) throw new Error(`Missing required Microsoft Store AppX asset: ${asset}.`);
-}
-
 for (const channel of [
   'catalog-details:get',
   'diagnostics:run',

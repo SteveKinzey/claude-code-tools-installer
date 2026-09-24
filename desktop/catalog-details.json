@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "catalogCounts": {
-    "tools": 35,
+    "tools": 36,
     "components": 145
   },
   "items": [
@@ -172,6 +172,18 @@
       "example": "Example: You want to teach your assistant a new way to automatically organize your photos every time you save them.",
       "cctiAction": "After you approve, CCTI will install this creation tool on your computer so you can start teaching your assistant new tricks.",
       "userAction": "You still need to read the source page and set up the feature for your own project."
+    },
+    {
+      "id": "productivity",
+      "name": "Productivity",
+      "kind": "tool",
+      "category": "Popular Plugins",
+      "scope": "This computer",
+      "plainPurpose": "This optional Anthropic plugin organizes tasks and working context in the folder where you use Claude Code.",
+      "chooseWhen": "Choose this when you want task shortcuts such as /productivity:start and /productivity:update in Claude Code.",
+      "example": "Example: You want Claude Code to create a TASKS.md file for a project and help you keep that task list current.",
+      "cctiAction": "After you approve, CCTI checks whether this optional plugin is already synced from your Claude.ai account. It does not send an install command.",
+      "userAction": "Enable Productivity in your Claude.ai account, start Claude Code, and run /reload-plugins if Claude Code reports a plugin change."
     },
     {
       "id": "ui-ux-pro-max",

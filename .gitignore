@@ -1,7 +1,6 @@
 dist/
 desktop/node_modules/
 desktop/dist/
-desktop/build/appx-store.resolved.json
 desktop/build/windows-signed.resolved.json
 releases/test-builds/*
 !releases/test-builds/.gitkeep

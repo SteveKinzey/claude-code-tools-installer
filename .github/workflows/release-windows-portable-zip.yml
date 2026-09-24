@@ -36,5 +36,5 @@ jobs:
 
           The requested tag was: ``$env:RELEASE_TAG``.
 
-          A public Windows executable requires a separately approved, immutable-tag release workflow that verifies the package version, embedded executable version, Authenticode signature status, trusted publisher identity, and SHA-256 before publishing a draft release. Microsoft Store MSIX remains the supported managed Windows distribution path.
+          A public Windows executable requires a separately approved, immutable-tag release workflow that verifies the package version, embedded executable version, Authenticode signature status, trusted publisher identity, and SHA-256 before publishing a draft release.
           "@ | Add-Content $env:GITHUB_STEP_SUMMARY

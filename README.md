@@ -21,7 +21,7 @@ The main window is a guided flow with a separate library for project-level Conve
 |---|---|---|
 | **Step 1 — Set up Claude Code** | A status check, Complete setup action, and Verify setup result | The app can provision its managed Node.js runtime, Git if needed, Claude Code, supported recommended plugins, and the recommended local-tool stack without sending users to a web page or requiring terminal commands. |
 | **Optional checkup — See what you already have** | A read-only list of found skills, add-ons, and saved connections | Use it before or after other setup. You can also check one project folder. It changes nothing while checking. |
-| **Step 2 — Choose your Claude Code tools** | A curated set of 35 workflow choices grouped by purpose | These choices improve your local Claude Code workflow. They are not project packages. |
+| **Step 2 — Choose your Claude Code tools** | A curated set of 36 workflow choices grouped by purpose | These choices improve your local Claude Code workflow. They are not project packages. |
 | **Convex Components Library** | A separate searchable library of 145 current Convex packages | These packages belong to one specific application folder that you choose. They are never mixed into the local-tool installation queue. |
 | **Step 3 — Review and run** | A selection total, preview toggle, confirmation dialog, and activity panel | You can inspect the selected tool actions before they run. |
 | **Add your own skill or add-on** | A folder picker and trusted-source review | Choose a folder with `SKILL.md`, a trusted GitHub owner/name, or a trusted marketplace link. The app shows the result before you approve it. |
@@ -35,7 +35,7 @@ Download the package for your computer from [Releases](https://github.com/SteveK
 
 | Your computer | Package | What to do next |
 |---|---|---|
-| **Windows** | SHA-256-backed Windows package when listed | Open the verified Windows package, launch CCTI, then use the same Step 1 choice. Microsoft Store submission is a separate distribution task, not a requirement for using CCTI. |
+| **Windows** | SHA-256-backed Windows package when listed | Open the verified Windows package, launch CCTI, then use the same Step 1 choice. |
 | **macOS** | SHA-256-backed `.dmg` when listed | Open the verified DMG, drag the app to Applications, launch it, then use the same Step 1 choice. |
 | **Linux** | SHA-256-backed application archive when listed | Extract the verified archive, run the desktop app, then use the same Step 1 choice. |
 
@@ -60,12 +60,12 @@ The status chip uses simple wording: **Claude Code installed**, **Claude Code no
 
 ## Step 2: Choose Your Claude Code Tools
 
-The first catalog contains **35 curated workflow choices**. These are grouped into Harness, Skills, Memory, Tools, MCP & Automation, Cost & Reference, and Popular Plugins. Every card shows its name, its type, and the specific action the app will take.
+The first catalog contains **36 curated workflow choices**. These are grouped into Harness, Skills, Memory, Tools, MCP & Automation, Cost & Reference, and Popular Plugins. Every card shows its name, its type, and the specific action the app will take.
 
 | Control | What it does |
 |---|---|
 | **Use recommended setup** | Selects eight practical starting tools: Superpowers, gstack, taste-skill, Anthropic Skills, Planning with Files, Repomix, Playwright MCP, and Claude HUD. **Complete setup** applies this same set automatically. |
-| **Select all curated tools** | Selects all 35 local workflow choices. This is available for deliberate review, not recommended as a first run. |
+| **Select all curated tools** | Selects all 36 local workflow choices. This is available for deliberate review, not recommended as a first run. |
 | **Clear selection** | Removes every local-tool selection. |
 | **On / Off on an individual card** | On adds that reviewed extra to the app-run plan. Off leaves it out. It does not remove an extra already on the computer. |
 | **Browse Convex Components** | Opens the project-level component library without adding anything to the local-tool plan. |
@@ -78,7 +78,7 @@ For supported skills, CLIs, MCP servers, and fixed plugin choices, CCTI runs the
 |---|---|
 | **Harness** | Learn Claude Code, Karpathy Skills, Superpowers, Ponytail, gstack, ECC |
 | **Skills** | taste-skill, Anthropic Skills, wshobson/agents, Claude Plugins Official, UI UX Pro Max, Awesome Claude Skills |
-| **Popular Plugins** | Frontend Design, Code Review, Context7, Skill Creator — optional official Anthropic plugins. The GUI shows source-backed install counts when a current official page reports them. |
+| **Popular Plugins** | Frontend Design, Code Review, Context7, Skill Creator, Productivity — optional plugins. Productivity is managed through Claude.ai account sync and exposes `/productivity:start` and `/productivity:update` after it syncs. The GUI shows source-backed install counts when a current official page reports them. |
 | **Memory** | Planning with Files, Claude-Mem, CodeGraph, Graphify, Repomix |
 | **Tools** | Convex for Claude Code, Multica, Firecrawl, CC Switch, Vibe Kanban, GitHub MCP |
 | **MCP & Automation** | Playwright MCP, Claude Code Router, Awesome MCP Servers |
@@ -231,7 +231,7 @@ npm run dist:linux
 
 macOS releases must be code-signed and notarized before distribution.
 
-Windows Store submission is optional distribution work; CCTI’s in-app setup flow remains the same for a supported Windows package.
+Windows packages must meet the current signed-release verification requirements before distribution.
 
 ### Cross-platform GitHub release staging
 
@@ -241,20 +241,6 @@ After both lanes pass, run **Publish verified cross-platform CCTI release** from
 
 The app downloads Claude Code only after the user selects **Complete setup** or **Install or update Claude Code only**; it does not redistribute Claude Code inside this repository.
 
-### Microsoft Store MSIX path
-
-The repository includes the required AppX tile images under `desktop/build/appx/`, an identity-placeholder template, and a guarded `msix:prepare` command. It intentionally does **not** contain Partner Center identity values. The owner must reserve the app in Partner Center and provide the exact Identity name, Application ID, and Publisher value before a Windows build can happen. The generated local configuration is ignored by Git.
-
-On a Windows build machine, only after those exact values are supplied, run:
-
-```powershell
-cd desktop
-npm run msix:prepare
-npm run dist:win:store:x64
-npm run dist:win:store:arm64
-```
-
-The commands create x64 and ARM64 AppX packages for Store review. They do not submit anything, set a price, or replace the legacy ZIP. Microsoft Store delivery signs a certified Store package. See [`docs/windows-msix-store-readiness.md`](docs/windows-msix-store-readiness.md) for the owner-controlled steps.
 ## Repository Layout
 
 | Path | Purpose |
@@ -269,10 +255,7 @@ The commands create x64 and ARM64 AppX packages for Store review. They do not su
 | `setup-my-claude-linux.sh` | Linux adapter. |
 | `setup-my-claude.ps1` | Windows PowerShell adapter. |
 | `scripts/validate-catalog.js` | Validates that each curated GUI tool exists in every platform adapter. |
-| `scripts/prepare-msix-config.js` | Writes an ignored Store-only AppX/MSIX configuration only when all exact Partner Center values are present. |
 | `docs/dry-run-safety-verification.md` | Records the no-write dry-run verification procedure and result. |
-| `docs/windows-msix-store-readiness.md` | Explains the free Microsoft Store MSIX preparation and owner-controlled next steps. |
-| `desktop/build/appx/` | The required 50×50, 44×44, 150×150, and 310×150 Microsoft Store tile images. |
 
 ## License
 

@@ -2,7 +2,7 @@
 
 ## Decision
 
-Use **Azure Artifact Signing**—the current Azure name for its managed signing product—as the direct Windows signing route. Keep it separate from the Microsoft Store/MSIX route. The initial direct channel should ship **one x64 NSIS installer** with a GitHub Release `latest.yml` updater feed. Do not publish an Arm64 updater from the same GitHub feed until the updater uses architecture-aware metadata; one `latest.yml` cannot safely express the correct installer for two architectures.
+Use **Azure Artifact Signing**—the current Azure name for its managed signing product—as the direct Windows signing route. The initial direct channel should ship **one x64 NSIS installer** with a GitHub Release `latest.yml` updater feed. Do not publish an Arm64 updater from the same GitHub feed until the updater uses architecture-aware metadata; one `latest.yml` cannot safely express the correct installer for two architectures.
 
 Electron Builder `26.16.1` already supports Azure signing through `win.azureSignOptions`. Use it rather than signing only the finished installer after packaging. Builder can sign the embedded application executable and NSIS uninstaller while it packages the installer.
 

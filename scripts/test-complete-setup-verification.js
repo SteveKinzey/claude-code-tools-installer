@@ -187,16 +187,18 @@ async function run() {
 
     const pluginInstalls = spawns.filter((entry) => entry.args[0] === 'plugin' && entry.args[1] === 'install');
     assert.ok(pluginInstalls.length >= 2 && pluginInstalls.every((entry) => entry.args.includes('--yes')), 'Every CCTI plugin install must include Claude CLI noninteractive acceptance after the in-app review confirmation.');
+    assert.equal(pluginInstalls.some((entry) => entry.args[2] === 'productivity'), false, 'CCTI must never try to install Productivity because Claude.ai manages synced plugins.');
     assert.ok(marketplaces.has('anthropics/skills'), 'Complete setup must add the Anthropic Skills marketplace in CCTI');
 
     const verification = await verifySetup(null, { skillScope: 'global' });
     assert.equal(verification.ok, true);
     assert.equal(verification.ready, true, 'The setup verification button must identify a completed recommended setup without a terminal command');
-    assert.ok(verification.checks.every((check) => check.state === 'ready' || check.state === 'unavailable'), 'Every setup check must be ready or explicitly unavailable in this fixture.');
+    assert.equal(verification.checks.find((check) => check.id === 'productivity')?.state, 'optional', 'Missing Productivity must remain optional because Claude.ai account sync controls it.');
+    assert.ok(verification.checks.every((check) => check.state === 'ready' || check.state === 'unavailable' || check.state === 'optional'), 'Every setup check must be ready, explicitly unavailable, or an account-managed optional sync in this fixture.');
     if (isWindows) {
       assert.deepEqual(verification.checks.find((check) => check.id === 'gstack')?.state, 'unavailable', 'Windows must report gstack as explicitly unavailable rather than as an actionable setup gap.');
     } else {
-      assert.ok(verification.checks.every((check) => check.state === 'ready'), 'Non-Windows fixtures must report all recommended setup checks as ready.');
+      assert.ok(verification.checks.every((check) => check.state === 'ready' || check.state === 'optional'), 'Non-Windows fixtures must report all required setup checks as ready and account-managed sync as optional.');
     }
     assert.ok(spawns.some((entry) => entry.args[0] === 'mcp' && entry.args[1] === 'get' && entry.args[2] === 'repomix'), 'Setup verification must directly query the Repomix registration.');
     assert.ok(spawns.some((entry) => entry.args[0] === 'mcp' && entry.args[1] === 'get' && entry.args[2] === 'playwright'), 'Setup verification must directly query the Playwright registration.');

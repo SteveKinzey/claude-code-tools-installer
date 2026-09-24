@@ -27,7 +27,7 @@ function classifyArtifact(name) {
     && /\.(?:dmg|zip)$/.test(file)) return "macos";
   if (/claude[._-]?code[._-]?tools[._-]?installer/.test(file)
     && /(?:windows|win)(?:[-_.]|$)/.test(file)
-    && /\.(?:exe|msi|msix|msixbundle|zip)$/.test(file)) return "windows";
+    && /\.(?:exe|msi|zip)$/.test(file)) return "windows";
   if (/claude[._-]?code[._-]?tools[._-]?installer/.test(file)
     && /linux(?:[-_.]|$)/.test(file)
     && /\.(?:appimage|deb|rpm|tar\.gz)$/.test(file)) return "linux";

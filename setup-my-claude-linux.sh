@@ -643,6 +643,9 @@ install_item() {
 /reload-plugins" "https://claude.com/plugins/skill-creator"
       log "Queued Skill Creator plugin command in $PLUGIN_COMMANDS"
       ;;
+    productivity)
+      log "Productivity is managed by Claude.ai account sync. CCTI did not run a Claude plugin install command. Enable Productivity in Claude.ai, restart Claude Code, and run /reload-plugins if prompted. Then use /productivity:start and /productivity:update."
+      ;;
     ui-ux-pro-max)
       version="$(source_version https://github.com/nextlevelbuilders/ui-ux-pro-max)"
       log "Source ui-ux-pro-max HEAD: ${version:-unknown}"
@@ -763,6 +766,7 @@ frontend-design|Frontend Design|popular|official Claude Code plugin|no|queue off
 code-review|Code Review|popular|official Claude Code plugin|no|queue official plugin command for review
 context7|Context7|popular|official Claude Code plugin|no|queue official plugin command for review
 skill-creator|Skill Creator|popular|official Claude Code plugin|no|queue official plugin command for review
+productivity|Productivity|popular|Claude.ai-synced plugin|no|detect Claude.ai account sync; no local install command
 ui-ux-pro-max|ui-ux-pro-max|skills|skill/reference|no|clone reference repo
 awesome-claude-skills|awesome-claude-skills|skills|catalog/reference|no|clone reference repo
 planning-with-files|planning-with-files|memory|skill|yes|npx skills add

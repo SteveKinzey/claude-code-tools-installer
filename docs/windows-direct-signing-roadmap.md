@@ -2,13 +2,13 @@
 
 ## 1. Executive Summary & Objective
 
-**Objective:** Transition Claude Code Tools Installer (CCTI) from the blocked Microsoft Store Partner Center MSIX path to a production-ready, direct Windows distribution model.
+**Objective:** Establish a production-ready, direct Windows distribution model for Claude Code Tools Installer (CCTI).
 
 Windows users currently have access to portable test builds and setup scripts, but lack a frictionless, signed installer experience. By implementing Microsoft Trusted Signing (Authenticode) and an NSIS installer, CCTI can provide:
 - **Zero SmartScreen Warnings:** Established publisher reputation without the "Windows protected your PC" blocker.
 - **One-Click Installation:** Automated per-user setup without admin (UAC) elevation or manual ZIP extraction.
 - **Seamless Auto-Updates:** Background updates matching the macOS `electron-updater` workflow.
-- **No Store App Submission Headaches:** Complete ownership of releases without Microsoft Partner Center certification queues or identity mismatches.
+- **Release Ownership:** Complete control of the verified release process and download channel.
 
 ---
 

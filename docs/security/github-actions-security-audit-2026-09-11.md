@@ -58,9 +58,9 @@ The local package audit found **zero known npm vulnerabilities** in both product
 
 ### Secret Scope
 
-**Risk:** macOS signing/notarization and Microsoft Store identity values were available to entire jobs, including setup and validation steps that did not require them.
+**Risk:** macOS signing/notarization values were available to entire jobs, including setup and validation steps that did not require them.
 
-**Remediation:** Sensitive values are injected only into their consuming steps. The Store workflows retain their fixture mode and do not accept Partner Center identity values through dispatch inputs. The macOS release workflow writes temporary credential files inside `RUNNER_TEMP`, applies `chmod 600`, and deletes them in an `always()` cleanup step.
+**Remediation:** Sensitive values are injected only into their consuming steps. The macOS release workflow writes temporary credential files inside `RUNNER_TEMP`, applies `chmod 600`, and deletes them in an `always()` cleanup step.
 
 ### Release Cache Poisoning
 
@@ -87,7 +87,6 @@ The local package audit found **zero known npm vulnerabilities** in both product
 | High | `main` has no branch protection rule or ruleset. | Require pull requests, one approving review, passing dependency review, passing weekly scan when relevant, and prohibit force pushes/deletions. |
 | High | CodeQL is newly configured and has not yet produced its first alert scan. | Require its first successful run, then review and triage the CodeQL queue before considering the code-scanning surface assessed. |
 | High | Secret-scanning alert endpoints were inaccessible to the configured integration. | Review the secret-scanning queue in repository Settings or grant alert-read capability to the auditing integration. |
-| Medium | `msix-store-release` has no approval rule. | Before adding production Partner Center secrets, require a named reviewer and disable administrator bypass where operationally feasible. |
 | Medium | macOS release secrets could not be inventoried through the configured integration. | Confirm the required signing secrets reside only in GitHub Actions secrets, rotate any secret exposed outside the approved secret manager, and use an environment with required reviewers for production releases. |
 | Low | The npm tree contains deprecated transitive packages but no current audit finding. | Continue updating Electron/electron-builder release lines via reviewed Dependabot pull requests. |
 

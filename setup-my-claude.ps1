@@ -565,6 +565,7 @@ function Get-ItemTable {
     [pscustomobject]@{ Id="code-review"; Name="Code Review"; Category="popular"; Classification="official Claude Code plugin"; Default=$false; Action="queue official plugin command for review" }
     [pscustomobject]@{ Id="context7"; Name="Context7"; Category="popular"; Classification="official Claude Code plugin"; Default=$false; Action="queue official plugin command for review" }
     [pscustomobject]@{ Id="skill-creator"; Name="Skill Creator"; Category="popular"; Classification="official Claude Code plugin"; Default=$false; Action="queue official plugin command for review" }
+    [pscustomobject]@{ Id="productivity"; Name="Productivity"; Category="popular"; Classification="Claude.ai-synced plugin"; Default=$false; Action="detect Claude.ai account sync; no local install command" }
     [pscustomobject]@{ Id="ui-ux-pro-max"; Name="ui-ux-pro-max"; Category="skills"; Classification="skill/reference"; Default=$false; Action="clone reference repo" }
     [pscustomobject]@{ Id="awesome-claude-skills"; Name="awesome-claude-skills"; Category="skills"; Classification="catalog/reference"; Default=$false; Action="clone reference repo" }
     [pscustomobject]@{ Id="planning-with-files"; Name="planning-with-files"; Category="memory"; Classification="skill"; Default=$true; Action="npx skills add" }
@@ -704,6 +705,9 @@ function Install-Item {
     "skill-creator" {
       Add-PluginCommand "Skill Creator" "/plugin install skill-creator@claude-plugins-official`n/reload-plugins" "https://claude.com/plugins/skill-creator"
       Write-Log "Queued Skill Creator plugin command in $PluginCommands"
+    }
+    "productivity" {
+      Write-Log "Productivity is managed by Claude.ai account sync. CCTI did not run a Claude plugin install command. Enable Productivity in Claude.ai, restart Claude Code, and run /reload-plugins if prompted. Then use /productivity:start and /productivity:update."
     }
     "ui-ux-pro-max" {
       Clone-OrUpdate "https://github.com/nextlevelbuilders/ui-ux-pro-max" (Join-Path $CloneDir "ui-ux-pro-max") $Id

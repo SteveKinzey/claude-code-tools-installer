@@ -17,7 +17,7 @@ The Electron primary window now denies renderer-created child windows and in-win
 
 The installer now reports Complete setup as successful only when the installer exits cleanly **and** CCTI can subsequently verify a usable Claude Code command. Project-component installation acquires its main-process lock before its first asynchronous operation, preventing simultaneous `npm install` calls from racing over one selected project.
 
-Release assurance now rejects checksum sidecars, metadata, generic source archives, and similarly named non-binaries as platform coverage. macOS release automation creates or retains a draft release, uploads the complete asset set, verifies uploaded GitHub asset metadata and checksum-sidecar contents, and only then publishes. It refuses to modify an already-public release. The old unsigned Windows portable-ZIP publication workflow no longer builds or uploads artifacts; Microsoft Store MSIX remains the supported managed Windows path until a separately approved signed Windows workflow exists.
+Release assurance now rejects checksum sidecars, metadata, generic source archives, and similarly named non-binaries as platform coverage. macOS release automation creates or retains a draft release, uploads the complete asset set, verifies uploaded GitHub asset metadata and checksum-sidecar contents, and only then publishes. It refuses to modify an already-public release. The old unsigned Windows portable-ZIP publication workflow no longer builds or uploads artifacts; Windows publication requires a separately approved signed workflow.
 
 ## Changed controls
 
