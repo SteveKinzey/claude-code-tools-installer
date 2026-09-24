@@ -99,6 +99,12 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 async function run() {
+  if (originalPlatform === 'win32') {
+    // The scenario is a POSIX file-permission failure on ~/.local/bin/claude with a
+    // Homebrew fallback; it has no Windows equivalent and uses POSIX PATH syntax.
+    console.log('Claude fallback ladder: POSIX EACCES scenario skipped on Windows.');
+    return;
+  }
   try {
     await realFs.mkdir(path.dirname(inaccessibleLauncher), { recursive: true });
     await realFs.writeFile(inaccessibleLauncher, '#!/bin/sh\n', { mode: 0o644 });
