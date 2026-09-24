@@ -4,6 +4,11 @@
   "private": true,
   "license": "Apache-2.0",
   "description": "A safe desktop installer for a curated Claude Code tool stack.",
+  "author": {
+    "name": "SK America LLC",
+    "email": "info@claudetool.app",
+    "url": "https://claudetool.app"
+  },
   "main": "src/main.js",
   "type": "commonjs",
   "engines": {
@@ -67,6 +72,7 @@
   "build": {
     "appId": "com.skamerica.claudecodetoolsinstaller",
     "productName": "Claude Code Tools Installer",
+    "copyright": "Copyright © 2026 SK America LLC",
     "forceCodeSigning": false,
     "afterSign": "build/notarize.js",
     "artifactName": "Claude-Code-Tools-Installer-${version}-${os}-${arch}.${ext}",
