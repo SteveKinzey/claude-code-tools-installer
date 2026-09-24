@@ -25,6 +25,7 @@ const marketplaces = new Set();
 let openDialogResult = { canceled: true, filePaths: [] };
 let saveDialogResult = { canceled: true, filePath: '' };
 let readyCallback;
+let hangNextCompleteSetup = false;
 
 function childProcess() {
   const child = new EventEmitter();
@@ -78,6 +79,10 @@ function spawnStub(command, args = [], options = {}) {
     return child;
   }
   if (command === installerCommand && args.includes(completeFlag)) {
+    if (hangNextCompleteSetup) {
+      hangNextCompleteSetup = false;
+      return child;
+    }
     finish(child, { stdout: 'Installer completed\n' });
     return child;
   }
@@ -212,6 +217,21 @@ async function run() {
     const invalidScope = await completeSetup(null, { fresh: false, skillScope: 'project', projectPath: path.join(tempRoot, 'missing-project') });
     assert.equal(invalidScope.ok, false, 'Project setup must reject an unreviewed or missing project folder before starting the installer');
     assert.match(invalidScope.error, /choose a valid project folder/i);
+
+    const originalSetTimeout = global.setTimeout;
+    global.setTimeout = (callback, delay, ...args) => originalSetTimeout(callback, Math.min(delay, 5), ...args);
+    try {
+      hangNextCompleteSetup = true;
+      const timeoutResult = await completeSetup(null, { fresh: false, skillScope: 'global' });
+      assert.equal(timeoutResult.ok, false, 'A hung Complete setup child must not leave CCTI in a running state.');
+      assert.equal(timeoutResult.timedOut, undefined, 'The IPC response should preserve the documented setup response surface.');
+      assert.equal(timeoutResult.code, -1, 'A hung Complete setup child must return a deterministic timeout code.');
+      assert.match(timeoutResult.error, /timed out after 10 minutes/i, 'CCTI must explain that it stopped waiting without removing existing configuration.');
+      const retryAfterTimeout = await completeSetup(null, { fresh: false, skillScope: 'global' });
+      assert.notEqual(retryAfterTimeout.error, 'An installation is already running.', 'A timed-out Complete setup must clear its lock and permit a retry.');
+    } finally {
+      global.setTimeout = originalSetTimeout;
+    }
 
     console.log('Complete setup verification passed: supported plugins install inside CCTI, skill scope stays explicit, and the read-only readiness check reports every recommended item.');
   } finally {

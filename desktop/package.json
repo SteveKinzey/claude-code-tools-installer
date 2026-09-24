@@ -4,6 +4,11 @@
   "private": true,
   "license": "Apache-2.0",
   "description": "A safe desktop installer for a curated Claude Code tool stack.",
+  "author": {
+    "name": "SK America LLC",
+    "email": "info@claudetool.app",
+    "url": "https://claudetool.app"
+  },
   "main": "src/main.js",
   "type": "commonjs",
   "engines": {
@@ -49,6 +54,9 @@
     "dist:mac:signed": "electron-builder --mac dmg zip --publish never --config.forceCodeSigning=true",
     "dist:mac:release": "NOTARIZE=1 electron-builder --mac dmg zip --publish never --config.forceCodeSigning=true",
     "dist:win": "electron-builder --win nsis --publish never",
+    "windows-signing:prepare": "node ../scripts/prepare-windows-azure-signing-config.js --out build/windows-signed.resolved.json",
+    "dist:win:unsigned:x64": "electron-builder --win nsis --x64 --publish never",
+    "dist:win:signed:x64": "node ../scripts/prepare-windows-azure-signing-config.js --out build/windows-signed.resolved.json && electron-builder --win nsis --x64 --config build/windows-signed.resolved.json --publish never",
     "dist:win:zip": "electron-builder --win zip --publish never",
     "msix:prepare": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json",
     "dist:win:store": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json && electron-builder --win appx --config build/appx-store.resolved.json --publish never",
@@ -66,6 +74,7 @@
   "build": {
     "appId": "com.skamerica.claudecodetoolsinstaller",
     "productName": "Claude Code Tools Installer",
+    "copyright": "Copyright © 2026 SK America LLC",
     "forceCodeSigning": false,
     "afterSign": "build/notarize.js",
     "artifactName": "Claude-Code-Tools-Installer-${version}-${os}-${arch}.${ext}",

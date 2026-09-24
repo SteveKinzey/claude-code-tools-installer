@@ -117,7 +117,11 @@ async function evaluate(window, expression) {
 
 async function measureViewport(window, viewport) {
   window.setSize(viewport.width, viewport.height);
-  await new Promise((resolve) => setTimeout(resolve, 80));
+  // A cold Electron renderer can apply the external responsive stylesheet after
+  // the resize event. Wait for two paints and a bounded settle period before
+  // measuring the media-query layout.
+  await evaluate(window, 'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  await new Promise((resolve) => setTimeout(resolve, 150));
   const measurement = await evaluate(window, `(() => {
     const verification = document.querySelector('.setup-verification');
     const controls = document.querySelector('.setup-verification-buttons');

@@ -7,6 +7,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const macWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml'), 'utf8');
 const windowsWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-windows-portable-zip.yml'), 'utf8');
+const signedWindowsWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-windows-signed.yml'), 'utf8');
 const publisherWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'publish-verified-release.yml'), 'utf8');
 const linuxWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-linux-signed.yml'), 'utf8');
 const sourceBuilder = fs.readFileSync(path.join(root, 'scripts', 'build-source-releases.sh'), 'utf8');
@@ -23,7 +24,7 @@ assert.match(macWorkflow, /Refusing to modify an already-public release/, 'macOS
 assert.match(macWorkflow, /checkout "\$TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS releases must package the desktop runtime from the immutable tag.');
 assert.doesNotMatch(macWorkflow, /checkout "\$TAG" -- desktop scripts/, 'macOS releases must retain current release-policy validators rather than restoring stale tag scripts.');
 assert.match(macWorkflow, /bash \.\.\/scripts\/run-release-desktop-check\.sh/, 'macOS releases must use the resilient release-specific audit gate.');
-for (const [name, workflow] of [['macOS', macWorkflow], ['Linux', linuxWorkflow], ['publisher', publisherWorkflow]]) {
+for (const [name, workflow] of [['macOS', macWorkflow], ['Linux', linuxWorkflow], ['Windows', signedWindowsWorkflow], ['publisher', publisherWorkflow]]) {
   assert.match(workflow, /release-identity\.js/, `${name} releases must centralize public tag to package version validation.`);
   assert.match(workflow, /--require-daily-revision/, `${name} releases must require a daily revision identity.`);
 }
@@ -40,6 +41,21 @@ assert.match(windowsWorkflow, /Windows portable ZIP release blocked/, 'the Windo
 assert.match(publisherWorkflow, /-f draft=false -f make_latest=false/, 'the shared publisher must make the verified draft public before requesting latest-pointer promotion.');
 assert.match(publisherWorkflow, /-f make_latest=true/, 'the shared publisher must advance GitHub\'s latest-release pointer after publication.');
 assert.match(publisherWorkflow, /GitHub may ignore make_latest when a draft is published in the same PATCH/, 'the shared publisher must document the two-step GitHub latest-pointer promotion boundary.');
+assert.match(signedWindowsWorkflow, /environment: windows-release/, 'signed Windows release staging must require the protected Windows environment');
+assert.match(signedWindowsWorkflow, /id-token: write/, 'signed Windows staging must use short-lived GitHub OIDC credentials');
+assert.match(signedWindowsWorkflow, /azure\/login@/, 'signed Windows staging must authenticate through Azure OIDC');
+assert.match(signedWindowsWorkflow, /dist:win:signed:x64/, 'signed Windows staging must build only the dedicated x64 NSIS target');
+assert.match(signedWindowsWorkflow, /Get-AuthenticodeSignature/, 'signed Windows staging must verify Authenticode before upload');
+assert.match(signedWindowsWorkflow, /TimeStamperCertificate/, 'signed Windows staging must require an RFC3161 timestamp');
+assert.match(signedWindowsWorkflow, /latest\.yml/, 'signed Windows staging must retain native updater metadata');
+assert.match(signedWindowsWorkflow, /Azure signing is partly configured/, 'Windows staging must refuse a half-configured signing environment instead of silently shipping unsigned');
+assert.match(signedWindowsWorkflow, /actions\/attest-build-provenance@[0-9a-f]{40}/, 'unsigned Windows staging must attach pinned GitHub build provenance');
+assert.match(signedWindowsWorkflow, /Status -ne 'NotSigned'/, 'unsigned Windows staging must confirm the installer really is unsigned');
+assert.match(signedWindowsWorkflow, /attestations: write/, 'Windows staging must be allowed to write build provenance');
+assert.match(signedWindowsWorkflow, /Windows signing only stages assets on a draft release/, 'signed Windows staging must not publish the shared release');
+assert.match(publisherWorkflow, /signed Windows x64 installer/, 'the shared publisher must verify a signed Windows installer before publication');
+assert.match(publisherWorkflow, /Windows checksum sidecar does not match the staged signed installer/, 'the shared publisher must validate the Windows checksum sidecar');
+assert.match(publisherWorkflow, /Windows latest\.yml does not reference the signed installer/, 'the shared publisher must validate the Windows updater feed');
 assert.match(publisherWorkflow, /X-GitHub-Api-Version: 2026-03-10/, 'the shared publisher must use the documented GitHub API version when assigning the latest release pointer.');
 assert.match(publisherWorkflow, /releases\/latest" --jq '\.tag_name'/, 'the shared publisher must verify that GitHub\'s latest-release pointer resolves to the published tag.');
 execFileSync('bash', [path.join(root, 'scripts', 'test-publish-latest-pointer-workflow.sh'), root], { stdio: 'inherit' });

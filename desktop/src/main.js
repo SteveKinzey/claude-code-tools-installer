@@ -301,12 +301,16 @@ function compareVersions(left, right) {
   return comparePackageVersions(left, right) ?? 0;
 }
 
-function isVerifiedDesktopArtifact(asset) {
+function isVerifiedDesktopArtifact(asset, platform = process.platform) {
   const name = String(asset?.name || '').toLowerCase();
   const hasReleaseDigest = /^sha256:[a-f0-9]{64}$/i.test(String(asset?.digest || ''));
   const isUploaded = asset?.state === 'uploaded';
   const hasPositiveSize = Number.isFinite(Number(asset?.size)) && Number(asset.size) > 0;
-  const isDesktopArchive = /\.(dmg|zip|tar\.gz)$/.test(name) && !/(?:sha256sums|\.sha256)$/.test(name);
+  const isDesktopArchive = platform === 'win32'
+    ? /-win-x64\.exe$/.test(name)
+    : platform === 'darwin'
+      ? /(?:^ccti-macos\.(?:dmg|zip)$)|(?:-mac-(?:arm64|x64)\.(?:dmg|zip)$)/.test(name)
+      : /-linux-x64\.tar\.gz$/.test(name);
   return isUploaded && hasPositiveSize && hasReleaseDigest && isDesktopArchive;
 }
 
@@ -316,10 +320,10 @@ function isPublicReleaseRecord(release) {
   return Boolean(releaseIdentity) && releaseUrl.startsWith(releaseUrlPrefix) && !release?.draft && !release?.prerelease;
 }
 
-function newestVerifiedRelease(releases) {
+function newestVerifiedRelease(releases, platform = process.platform) {
   const candidates = (Array.isArray(releases) ? releases : [])
     .filter(isPublicReleaseRecord)
-    .filter((release) => Array.isArray(release.assets) && release.assets.some(isVerifiedDesktopArtifact));
+    .filter((release) => Array.isArray(release.assets) && release.assets.some((asset) => isVerifiedDesktopArtifact(asset, platform)));
   return candidates.sort((left, right) => {
     const leftIdentity = parseReleaseIdentity(String(left.tag_name || ''));
     const rightIdentity = parseReleaseIdentity(String(right.tag_name || ''));
@@ -357,7 +361,7 @@ function normalizeReleaseServiceResponse(payload, platform) {
     if (!name || !Number.isFinite(size) || size <= 0 || !isTrustedReleaseDownload(downloadUrl) || !/^[a-f0-9]{64}$/.test(digest)) return [];
     return [{ name, size, state: 'uploaded', digest: `sha256:${digest}`, browser_download_url: downloadUrl }];
   });
-  if (!assets.some(isVerifiedDesktopArtifact)) return null;
+  if (!assets.some((asset) => isVerifiedDesktopArtifact(asset, platform === 'windows' ? 'win32' : platform === 'macos' ? 'darwin' : 'linux'))) return null;
 
   return {
     tag_name: releaseIdentity.tag,
@@ -445,7 +449,8 @@ function publishUpdateStatus() {
 }
 
 function nativeUpdaterSupported() {
-  return process.platform === 'darwin' && app.isPackaged;
+  // Microsoft Store (MSIX) installs are updated by the Store, never by the GitHub feed.
+  return (process.platform === 'darwin' || (process.platform === 'win32' && !process.windowsStore)) && app.isPackaged;
 }
 
 function getNativeUpdater() {
@@ -804,19 +809,17 @@ async function setupCommandReady(command, args = ['--version']) {
   }
 }
 
-async function configuredMcpNames() {
-  const claude = await claudeStatus();
-  if (!claude.installed) return new Set();
+async function configuredMcpReady(name, claude = null) {
   const names = ['repomix', 'playwright'];
-  const results = await Promise.all(names.map(async (name) => {
-    try {
-      const result = await runProcess(claude.path || 'claude', ['mcp', 'get', name], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
-      return result.code === 0 ? name : '';
-    } catch {
-      return '';
-    }
-  }));
-  return new Set(results.filter(Boolean));
+  if (!names.includes(name)) return false;
+  const resolvedClaude = claude || await claudeStatus();
+  if (!resolvedClaude.installed) return false;
+  try {
+    const result = await runProcess(resolvedClaude.path || 'claude', ['mcp', 'get', name], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
+    return result.code === 0;
+  } catch {
+    return false;
+  }
 }
 
 async function configuredMarketplaceText() {
@@ -842,11 +845,12 @@ async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {
   const selectedSkillLocation = selectedSkillScope === 'project'
     ? 'the selected project'
     : 'your Claude Code setup';
-  const [claude, bun, repomix, mcpNames, marketplaceText, pluginIds] = await Promise.all([
-    claudeStatus(),
+  const claude = await claudeStatus();
+  const [bun, repomix, repomixMcpReady, playwrightMcpReady, marketplaceText, pluginIds] = await Promise.all([
     setupCommandReady('bun'),
     setupCommandReady('repomix'),
-    configuredMcpNames(),
+    configuredMcpReady('repomix', claude),
+    configuredMcpReady('playwright', claude),
     configuredMarketplaceText(),
     installedClaudePluginIds(),
   ]);
@@ -883,12 +887,12 @@ async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {
     tasteSkill ? `Ready. The design-taste skill is available in ${selectedSkillLocation}.` : `Not found in ${selectedSkillLocation}. Select Complete setup to install it there.`);
   add('planning-with-files', 'Planning with Files', planningSkill,
     planningSkill ? `Ready. The planning skill is available in ${selectedSkillLocation}.` : `Not found in ${selectedSkillLocation}. Select Complete setup to install it there.`);
-  add('repomix', 'Repomix', repomix.ready && mcpNames.has('repomix'),
-    repomix.ready && mcpNames.has('repomix')
+  add('repomix', 'Repomix', repomix.ready && repomixMcpReady,
+    repomix.ready && repomixMcpReady
       ? 'Ready. The Repomix command and Claude Code connection are available.'
       : 'Needs attention. Repomix needs both its command and its Claude Code connection. Select Complete setup to repair them.');
-  add('playwright-mcp', 'Playwright connection', mcpNames.has('playwright'),
-    mcpNames.has('playwright') ? 'Ready. Claude Code can use the Playwright connection.' : 'Not found. Select Complete setup to add it.');
+  add('playwright-mcp', 'Playwright connection', playwrightMcpReady,
+    playwrightMcpReady ? 'Ready. Claude Code can use the Playwright connection.' : 'Not found. Select Complete setup to add it.');
   add('superpowers', 'Superpowers plugin', pluginIsInstalled(pluginIds, 'superpowers@superpowers-marketplace'),
     pluginIsInstalled(pluginIds, 'superpowers@superpowers-marketplace') ? 'Ready. The Superpowers plugin is enabled for your Claude Code setup.' : 'Not found. Select Complete setup to add it inside CCTI.');
   const anthropicSkillsMarketplace = marketplaceText.includes('anthropics/skills');
@@ -1755,6 +1759,8 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false, { skillScope = '
   const definition = installerDefinition();
   const args = [...definition.args, definition.script];
   const option = (windows, posix) => process.platform === 'win32' ? windows : posix;
+  const isCompleteSetup = mode === 'complete' || mode === 'fresh-complete';
+  const timeoutMs = isCompleteSetup ? 10 * 60 * 1000 : 0;
 
   if (mode === 'bootstrap') {
     args.push(option('-NoLaunch', '--no-launch'), option('-BootstrapOnly', '--bootstrap-only'));
@@ -1777,6 +1783,14 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false, { skillScope = '
   }
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeout = null;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolve(result);
+    };
     const child = spawn(definition.command, args, {
       cwd: skillScope === 'project' && projectPath ? projectPath : app.getPath('home'),
       windowsHide: true,
@@ -1785,8 +1799,21 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false, { skillScope = '
 
     child.stdout.on('data', (chunk) => emit('installer:output', { stream: 'stdout', text: chunk.toString() }));
     child.stderr.on('data', (chunk) => emit('installer:output', { stream: 'stderr', text: chunk.toString() }));
-    child.on('error', (error) => reject(new Error(`Could not start ${definition.command}: ${error.message}`)));
-    child.on('close', (code) => resolve({ code, args }));
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      reject(new Error(`Could not start ${definition.command}: ${error.message}`));
+    });
+    child.on('close', (code) => finish({ code, args }));
+    if (timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        const error = `Complete setup timed out after ${Math.round(timeoutMs / 60000)} minutes. CCTI stopped waiting and did not remove any existing Claude Code configuration.`;
+        emit('installer:output', { stream: 'stderr', text: `[CCTI] ${error}\n` });
+        try { child.kill('SIGTERM'); } catch {}
+        finish({ code: -1, args, timedOut: true, error });
+      }, timeoutMs);
+    }
   });
 }
 
@@ -3241,7 +3268,9 @@ app.whenReady().then(async () => {
         skillScope: setupScope.skillScope,
         projectPath: setupScope.projectPath,
         verification,
-        error: result.code !== 0
+        error: result.timedOut
+          ? result.error
+          : result.code !== 0
           ? `Complete setup stopped with exit code ${result.code}. Review the in-app activity details, then select Complete setup to retry.`
           : !after.installed
             ? 'The installer finished, but CCTI could not verify Claude Code. Select Check installation again or Run Diagnostics inside CCTI before continuing.'
