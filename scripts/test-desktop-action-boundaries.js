@@ -102,7 +102,9 @@ async function run() {
 
     const componentCatalog = JSON.parse(await fs.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8'));
     const firstInstall = installComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id], dryRun: false });
-    for (let attempts = 0; attempts < 20 && componentSpawns.length === 0; attempts += 1) await new Promise((resolve) => setImmediate(resolve));
+    // Project prerequisite discovery includes asynchronous filesystem work. Use
+    // a bounded wall-clock wait instead of racing only queued microtasks.
+    for (let attempts = 0; attempts < 100 && componentSpawns.length === 0; attempts += 1) await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(componentSpawns.length, 1, 'the first component install must reach its prerequisite boundary');
     const concurrentInstall = await installComponents(null, { projectPath: project, componentIds: [componentCatalog.components[0].id], dryRun: false });
     assert.equal(concurrentInstall.ok, false);

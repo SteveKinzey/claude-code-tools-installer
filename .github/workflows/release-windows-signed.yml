@@ -1,0 +1,136 @@
+name: Build, sign, and stage Windows CCTI installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, such as v2026.09.22.01"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: windows-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign, verify, and stage Windows installer
+    if: github.ref_type == 'tag' && github.ref_name == inputs.tag
+    runs-on: windows-2022
+    environment: windows-release
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: desktop
+        shell: pwsh
+
+    steps:
+      - name: Check out immutable release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.12.0'
+          package-manager-cache: false
+
+      - id: release
+        name: Validate release tag and package version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $tag = $env:INPUT_TAG
+          if ($env:REF_TYPE -ne 'tag' -or $env:REF_NAME -ne $tag) { throw 'Dispatch this workflow from the exact selected release tag.' }
+          $commit = git -C $env:GITHUB_WORKSPACE rev-parse --verify --quiet "$tag^{commit}"
+          if ($LASTEXITCODE -ne 0 -or -not $commit) { throw "Release tag was not found: $tag" }
+          $packageJson = Join-Path $env:RUNNER_TEMP 'ccti-release-package.json'
+          git -C $env:GITHUB_WORKSPACE show "${tag}:desktop/package.json" | Set-Content -LiteralPath $packageJson -Encoding utf8
+          node (Join-Path $env:GITHUB_WORKSPACE 'scripts/release-identity.js') --tag $tag --package-json $packageJson --require-daily-revision
+          if ($LASTEXITCODE -ne 0) { throw "Tag $tag does not match desktop/package.json." }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "commit=$commit" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Install and validate desktop dependencies
+        run: |
+          npm ci
+          npm run check
+
+      - name: Sign in to Azure through GitHub OIDC
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build signed x64 NSIS installer
+        env:
+          AZURE_CODESIGN_ENDPOINT: ${{ vars.AZURE_CODESIGN_ENDPOINT }}
+          AZURE_CODESIGN_ACCOUNT_NAME: ${{ vars.AZURE_CODESIGN_ACCOUNT_NAME }}
+          AZURE_CODESIGN_PROFILE_NAME: ${{ vars.AZURE_CODESIGN_PROFILE_NAME }}
+          CCTI_WINDOWS_PUBLISHER_NAME: ${{ vars.CCTI_WINDOWS_PUBLISHER_NAME }}
+        run: |
+          Remove-Item ..\releases\test-builds\*-win-x64.exe, ..\releases\test-builds\latest.yml -Force -ErrorAction SilentlyContinue
+          npm run dist:win:signed:x64
+
+      - id: artifact
+        name: Verify one signed installer and updater feed
+        env:
+          EXPECTED_PUBLISHER: ${{ vars.CCTI_WINDOWS_PUBLISHER_NAME }}
+        run: |
+          $installers = @(Get-ChildItem ..\releases\test-builds -File -Filter '*-win-x64.exe' | Where-Object { $_.Name -notmatch 'uninstaller' })
+          if ($installers.Count -ne 1) { throw "Expected exactly one x64 NSIS installer; found $($installers.Count)." }
+          $installer = $installers[0]
+          $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
+          if ($signature.Status -ne 'Valid') { throw "Authenticode status is $($signature.Status)." }
+          if (-not $signature.TimeStamperCertificate) { throw 'Installer is missing an RFC3161 timestamp.' }
+          if ($signature.SignerCertificate.Subject -notlike "*$env:EXPECTED_PUBLISHER*") { throw "Unexpected signer subject: $($signature.SignerCertificate.Subject)" }
+          $metadata = Join-Path $installer.DirectoryName 'latest.yml'
+          if (-not (Test-Path -LiteralPath $metadata -PathType Leaf)) { throw 'electron-builder did not create latest.yml.' }
+          if (-not (Select-String -LiteralPath $metadata -SimpleMatch $installer.Name -Quiet)) { throw 'latest.yml does not reference the signed installer.' }
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content -LiteralPath "$($installer.FullName).sha256" -NoNewline
+          "installer=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "checksum=$($installer.FullName).sha256" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "metadata=$metadata" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Stage signed assets on the draft release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_COMMIT: ${{ steps.release.outputs.commit }}
+          INSTALLER: ${{ steps.artifact.outputs.installer }}
+          CHECKSUM: ${{ steps.artifact.outputs.checksum }}
+          METADATA: ${{ steps.artifact.outputs.metadata }}
+        run: |
+          $isDraft = gh release view $env:TAG --json isDraft --jq '.isDraft' 2>$null
+          if ($LASTEXITCODE -eq 0 -and $isDraft -eq 'false') {
+            throw 'Windows signing only stages assets on a draft release. Create a new release tag for a corrected artifact.'
+          }
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:TAG --target $env:SOURCE_COMMIT --title $env:TAG --generate-notes --draft
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release.' }
+          }
+          gh release upload $env:TAG $env:INSTALLER $env:CHECKSUM $env:METADATA --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Could not upload the signed Windows assets.' }
+
+      - name: Upload Windows release evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: claude-code-tools-installer-windows-${{ steps.release.outputs.tag || github.sha }}
+          path: |
+            releases/test-builds/*-win-x64.exe
+            releases/test-builds/*-win-x64.exe.sha256
+            releases/test-builds/latest.yml
+          if-no-files-found: ignore
