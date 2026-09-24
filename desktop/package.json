@@ -48,6 +48,7 @@
     "dist:mac:release": "NOTARIZE=1 electron-builder --mac dmg zip --publish never --config.forceCodeSigning=true",
     "dist:win": "electron-builder --win nsis --publish never",
     "windows-signing:prepare": "node ../scripts/prepare-windows-azure-signing-config.js --out build/windows-signed.resolved.json",
+    "dist:win:unsigned:x64": "electron-builder --win nsis --x64 --publish never",
     "dist:win:signed:x64": "node ../scripts/prepare-windows-azure-signing-config.js --out build/windows-signed.resolved.json && electron-builder --win nsis --x64 --config build/windows-signed.resolved.json --publish never",
     "dist:win:zip": "electron-builder --win zip --publish never",
     "msix:prepare": "node ../scripts/prepare-msix-config.js --out build/appx-store.resolved.json",

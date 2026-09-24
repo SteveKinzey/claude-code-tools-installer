@@ -48,6 +48,10 @@ assert.match(signedWindowsWorkflow, /dist:win:signed:x64/, 'signed Windows stagi
 assert.match(signedWindowsWorkflow, /Get-AuthenticodeSignature/, 'signed Windows staging must verify Authenticode before upload');
 assert.match(signedWindowsWorkflow, /TimeStamperCertificate/, 'signed Windows staging must require an RFC3161 timestamp');
 assert.match(signedWindowsWorkflow, /latest\.yml/, 'signed Windows staging must retain native updater metadata');
+assert.match(signedWindowsWorkflow, /Azure signing is partly configured/, 'Windows staging must refuse a half-configured signing environment instead of silently shipping unsigned');
+assert.match(signedWindowsWorkflow, /actions\/attest-build-provenance@[0-9a-f]{40}/, 'unsigned Windows staging must attach pinned GitHub build provenance');
+assert.match(signedWindowsWorkflow, /Status -ne 'NotSigned'/, 'unsigned Windows staging must confirm the installer really is unsigned');
+assert.match(signedWindowsWorkflow, /attestations: write/, 'Windows staging must be allowed to write build provenance');
 assert.match(signedWindowsWorkflow, /Windows signing only stages assets on a draft release/, 'signed Windows staging must not publish the shared release');
 assert.match(publisherWorkflow, /signed Windows x64 installer/, 'the shared publisher must verify a signed Windows installer before publication');
 assert.match(publisherWorkflow, /Windows checksum sidecar does not match the staged signed installer/, 'the shared publisher must validate the Windows checksum sidecar');

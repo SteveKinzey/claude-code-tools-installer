@@ -1,5 +1,9 @@
 name: Build, sign, and stage Windows CCTI installer
 
+# Signs through Azure Artifact Signing when the windows-release environment has
+# all signing variables. Until then it stages an unsigned installer with a
+# GitHub build-provenance attestation so Windows users are not left without one.
+
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +15,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  attestations: write
 
 concurrency:
   group: windows-release-${{ inputs.tag }}
@@ -65,7 +70,23 @@ jobs:
           npm ci
           npm run check
 
+      - id: mode
+        name: Choose signed or unsigned build
+        env:
+          AZURE_CODESIGN_ENDPOINT: ${{ vars.AZURE_CODESIGN_ENDPOINT }}
+          AZURE_CODESIGN_ACCOUNT_NAME: ${{ vars.AZURE_CODESIGN_ACCOUNT_NAME }}
+          AZURE_CODESIGN_PROFILE_NAME: ${{ vars.AZURE_CODESIGN_PROFILE_NAME }}
+          CCTI_WINDOWS_PUBLISHER_NAME: ${{ vars.CCTI_WINDOWS_PUBLISHER_NAME }}
+        run: |
+          $names = 'AZURE_CODESIGN_ENDPOINT', 'AZURE_CODESIGN_ACCOUNT_NAME', 'AZURE_CODESIGN_PROFILE_NAME', 'CCTI_WINDOWS_PUBLISHER_NAME'
+          $set = @($names | Where-Object { -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+          if ($set.Count -eq $names.Count) { $signed = 'true' }
+          elseif ($set.Count -eq 0) { $signed = 'false'; Write-Output '::warning::Azure signing is not configured; staging an unsigned installer with build provenance.' }
+          else { throw "Azure signing is partly configured. Set all of: $($names -join ', ')." }
+          "signed=$signed" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Sign in to Azure through GitHub OIDC
+        if: steps.mode.outputs.signed == 'true'
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -73,6 +94,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Build signed x64 NSIS installer
+        if: steps.mode.outputs.signed == 'true'
         env:
           AZURE_CODESIGN_ENDPOINT: ${{ vars.AZURE_CODESIGN_ENDPOINT }}
           AZURE_CODESIGN_ACCOUNT_NAME: ${{ vars.AZURE_CODESIGN_ACCOUNT_NAME }}
@@ -82,28 +104,45 @@ jobs:
           Remove-Item ..\releases\test-builds\*-win-x64.exe, ..\releases\test-builds\latest.yml -Force -ErrorAction SilentlyContinue
           npm run dist:win:signed:x64
 
+      - name: Build unsigned x64 NSIS installer
+        if: steps.mode.outputs.signed != 'true'
+        run: |
+          Remove-Item ..\releases\test-builds\*-win-x64.exe, ..\releases\test-builds\latest.yml -Force -ErrorAction SilentlyContinue
+          npm run dist:win:unsigned:x64
+
       - id: artifact
-        name: Verify one signed installer and updater feed
+        name: Verify one installer and updater feed
         env:
           EXPECTED_PUBLISHER: ${{ vars.CCTI_WINDOWS_PUBLISHER_NAME }}
+          SIGNED: ${{ steps.mode.outputs.signed }}
         run: |
           $installers = @(Get-ChildItem ..\releases\test-builds -File -Filter '*-win-x64.exe' | Where-Object { $_.Name -notmatch 'uninstaller' })
           if ($installers.Count -ne 1) { throw "Expected exactly one x64 NSIS installer; found $($installers.Count)." }
           $installer = $installers[0]
           $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
-          if ($signature.Status -ne 'Valid') { throw "Authenticode status is $($signature.Status)." }
-          if (-not $signature.TimeStamperCertificate) { throw 'Installer is missing an RFC3161 timestamp.' }
-          if ($signature.SignerCertificate.Subject -notlike "*$env:EXPECTED_PUBLISHER*") { throw "Unexpected signer subject: $($signature.SignerCertificate.Subject)" }
+          if ($env:SIGNED -eq 'true') {
+            if ($signature.Status -ne 'Valid') { throw "Authenticode status is $($signature.Status)." }
+            if (-not $signature.TimeStamperCertificate) { throw 'Installer is missing an RFC3161 timestamp.' }
+            if ($signature.SignerCertificate.Subject -notlike "*$env:EXPECTED_PUBLISHER*") { throw "Unexpected signer subject: $($signature.SignerCertificate.Subject)" }
+          } elseif ($signature.Status -ne 'NotSigned') {
+            throw "Unsigned build unexpectedly has Authenticode status $($signature.Status)."
+          }
           $metadata = Join-Path $installer.DirectoryName 'latest.yml'
           if (-not (Test-Path -LiteralPath $metadata -PathType Leaf)) { throw 'electron-builder did not create latest.yml.' }
-          if (-not (Select-String -LiteralPath $metadata -SimpleMatch $installer.Name -Quiet)) { throw 'latest.yml does not reference the signed installer.' }
+          if (-not (Select-String -LiteralPath $metadata -SimpleMatch $installer.Name -Quiet)) { throw 'latest.yml does not reference the installer.' }
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
           "$hash  $($installer.Name)" | Set-Content -LiteralPath "$($installer.FullName).sha256" -NoNewline
           "installer=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "checksum=$($installer.FullName).sha256" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "metadata=$metadata" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Stage signed assets on the draft release
+      - name: Attest unsigned installer build provenance
+        if: steps.mode.outputs.signed != 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.artifact.outputs.installer }}
+
+      - name: Stage Windows assets on the draft release
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
@@ -122,7 +161,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release.' }
           }
           gh release upload $env:TAG $env:INSTALLER $env:CHECKSUM $env:METADATA --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Could not upload the signed Windows assets.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Could not upload the Windows assets.' }
 
       - name: Upload Windows release evidence
         if: always()
