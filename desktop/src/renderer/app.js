@@ -165,6 +165,9 @@ const updateStatusNoteElement = document.querySelector('#update-status-note');
 const updateStatusSpinnerElement = document.querySelector('#update-status-spinner');
 const releaseIntegrityAlertElement = document.querySelector('#release-integrity-alert');
 const releaseIntegrityAlertMessageElement = document.querySelector('#release-integrity-alert-message');
+const runtimePathHealthElement = document.querySelector('#runtime-path-health');
+const runtimePathHealthCardsElement = document.querySelector('#runtime-path-health-cards');
+const runtimePathHealthSummaryElement = document.querySelector('#runtime-path-health-summary');
 
 function selectedItems() {
   return state.catalog.filter((tool) => state.selected.has(tool.id));
@@ -596,6 +599,68 @@ function displayUpdateStatus(status) {
   }
 }
 
+function addRuntimePathHealthCard({ title, stateName, message }) {
+  const card = document.createElement('article');
+  card.className = `runtime-path-health-card is-${stateName}`;
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  const copy = document.createElement('p');
+  copy.textContent = message;
+  card.append(heading, copy);
+  runtimePathHealthCardsElement.append(card);
+}
+
+function clearRuntimePathHealth() {
+  runtimePathHealthElement.hidden = true;
+  runtimePathHealthCardsElement.replaceChildren();
+  runtimePathHealthSummaryElement.textContent = '';
+}
+
+function renderRuntimePathHealth(snapshot, diagnostic) {
+  runtimePathHealthCardsElement.replaceChildren();
+  runtimePathHealthElement.hidden = false;
+  if (!snapshot?.ok) {
+    addRuntimePathHealthCard({
+      title: 'Runtime snapshot',
+      stateName: 'attention',
+      message: 'The full local diagnostic report is available, but this compact runtime summary could not be read. Run Diagnostics again before changing PATH.',
+    });
+    runtimePathHealthSummaryElement.textContent = 'No configuration was changed. Copy or save the local report if this repeats.';
+    return;
+  }
+
+  const claudeReady = Boolean(diagnostic?.claudeReady);
+  const fallbackUsed = Boolean(diagnostic?.claudeFallback);
+  const cctiPathReady = Boolean(snapshot.cctiIncludesNativeClaudeBin) && Boolean(snapshot.cctiIncludesManagedNodeBin);
+  const rendererBoundaryReady = snapshot.rendererProcess?.sandboxed === true && snapshot.rendererProcess?.contextIsolated === true;
+  addRuntimePathHealthCard({
+    title: 'Claude Code resolution',
+    stateName: claudeReady ? 'ready' : 'attention',
+    message: claudeReady
+      ? (fallbackUsed ? 'Ready through the next approved command location after the first candidate could not run.' : 'Ready through an approved command location.')
+      : 'Needs attention. Read the local diagnostic report before changing PATH or permissions.',
+  });
+  addRuntimePathHealthCard({
+    title: 'CCTI command PATH',
+    stateName: cctiPathReady ? 'ready' : 'attention',
+    message: cctiPathReady
+      ? `Ready. ${snapshot.cctiCommandPathEntryCount || 0} ordered command locations include the Claude and CCTI-managed Node folders.`
+      : 'Needs attention. An expected CCTI command folder is missing from the computed execution environment.',
+  });
+  addRuntimePathHealthCard({
+    title: 'Renderer boundary',
+    stateName: rendererBoundaryReady ? 'ready' : 'attention',
+    message: rendererBoundaryReady
+      ? 'Ready. The renderer remains sandboxed and context-isolated; command execution stays in the main process.'
+      : 'Needs attention. The expected renderer security boundary was not reported.',
+  });
+  runtimePathHealthSummaryElement.textContent = claudeReady && cctiPathReady && rendererBoundaryReady
+    ? (fallbackUsed
+      ? 'CCTI recovered with a verified fallback. No permissions, shell files, or security settings were changed.'
+      : 'Runtime PATH health is ready. No permissions, shell files, or security settings were changed.')
+    : 'One or more runtime checks need attention. Copy or save the local report before making a change.';
+}
+
 function setDiagnosticActionsEnabled(enabled) {
   copyDiagnosticsButton.disabled = !enabled;
   exportDiagnosticsButton.disabled = !enabled;
@@ -616,6 +681,7 @@ function scheduleDiagnosticExpiry() {
   diagnosticExpiryTimer = setTimeout(() => {
     state.diagnostics = { id: '', report: '', expiresAt: 0 };
     setDiagnosticActionsEnabled(false);
+    clearRuntimePathHealth();
     runStatusElement.textContent = 'Diagnostic sharing actions expired. Run Diagnostics again to create a current report.';
   }, Math.max(0, state.diagnostics.expiresAt - Date.now()));
 }
@@ -676,16 +742,23 @@ async function runDiagnostics() {
   if (diagnosticExpiryTimer) clearTimeout(diagnosticExpiryTimer);
   state.diagnostics = { id: '', report: '', expiresAt: 0 };
   setDiagnosticActionsEnabled(false);
+  clearRuntimePathHealth();
   runStatusElement.textContent = 'Running local diagnostics';
   try {
-    const result = await window.installer.runDiagnostics();
+    const [result, runtimePaths] = await Promise.all([
+      window.installer.runDiagnostics(),
+      window.installer.getRuntimePaths().catch(() => ({ ok: false })),
+    ]);
     if (!result.ok) throw new Error(result.error || 'CCTI could not complete diagnostics.');
     state.diagnostics = { id: result.diagnosticId || '', report: result.report, expiresAt: Date.now() + (10 * 60 * 1000) };
     outputElement.textContent = result.report;
     outputElement.classList.remove('has-error');
     setDiagnosticActionsEnabled(hasCurrentDiagnostics());
     scheduleDiagnosticExpiry();
-    runStatusElement.textContent = result.claudeReady ? 'Diagnostics complete · Claude Code is ready' : 'Diagnostics complete · Claude Code needs attention';
+    renderRuntimePathHealth(runtimePaths, result);
+    const isolatedRenderer = Boolean(runtimePaths?.ok && runtimePaths.rendererProcess?.sandboxed && runtimePaths.rendererProcess?.contextIsolated);
+    const runtimeBoundaryStatus = isolatedRenderer ? ' · renderer isolation verified' : ' · renderer isolation needs attention';
+    runStatusElement.textContent = `${result.claudeReady ? 'Diagnostics complete · Claude Code is ready' : 'Diagnostics complete · Claude Code needs attention'}${runtimeBoundaryStatus}`;
   } catch (error) {
     appendOutput(`[CCTI] Diagnostics failed: ${error.message}\n`, 'stderr');
     runStatusElement.textContent = 'Diagnostics could not finish';
@@ -1126,21 +1199,34 @@ function isLongInventoryPath(item, path) {
 }
 
 function createInventoryPathCopyButton(path) {
+  const wrap = document.createElement('span');
   const button = document.createElement('button');
   const status = document.createElement('span');
+  const tooltip = document.createElement('span');
   const defaultLabel = 'Copy path';
+  const tooltipId = `manager-path-copy-feedback-${Math.random().toString(36).slice(2)}`;
+  wrap.className = 'manager-path-copy-wrap';
   button.type = 'button';
   button.className = 'manager-path-copy';
   button.textContent = defaultLabel;
   button.setAttribute('aria-label', 'Copy this add-on path');
+  button.setAttribute('aria-describedby', tooltipId);
   status.className = 'sr-only';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
+  tooltip.id = tooltipId;
+  tooltip.className = 'manager-path-copy-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  tooltip.setAttribute('aria-hidden', 'true');
+  tooltip.textContent = 'Copied!';
   button.addEventListener('click', async () => {
     button.disabled = true;
     try {
       await copyText(path);
       button.textContent = 'Copied';
+      button.setAttribute('aria-label', 'Copied! Add-on path copied');
+      tooltip.classList.add('is-visible');
+      tooltip.setAttribute('aria-hidden', 'false');
       status.textContent = 'Add-on path copied to clipboard.';
     } catch (error) {
       button.textContent = 'Copy failed';
@@ -1148,11 +1234,15 @@ function createInventoryPathCopyButton(path) {
     } finally {
       window.setTimeout(() => {
         button.textContent = defaultLabel;
+        button.setAttribute('aria-label', 'Copy this add-on path');
+        tooltip.classList.remove('is-visible');
+        tooltip.setAttribute('aria-hidden', 'true');
         button.disabled = false;
       }, 1800);
     }
   });
-  return { button, status };
+  wrap.append(button, tooltip, status);
+  return { wrap, button, status };
 }
 
 async function copyManifestVerificationCommand() {
@@ -1703,13 +1793,14 @@ function renderSetupManager(report) {
   const items = Array.isArray(report?.findings) ? report.findings : [];
   const duplicates = Array.isArray(report?.duplicates) ? report.duplicates : [];
   const skills = items.filter((item) => item.type === 'skill').length;
+  const linkedSkillExclusions = items.filter((item) => item.type === 'skill-link-excluded').length;
   const plugins = items.filter((item) => item.type === 'plugin').length;
   const connections = items.filter((item) => item.type === 'connection').length;
   const globalItems = items.filter((item) => item.scope === 'This computer').length;
   const projectItems = items.filter((item) => item.scope === 'This project' || item.scope === 'Only you in this project').length;
   const followUps = items.filter((item) => item.scope === 'Your action may be needed').length;
   setupManagerSummaryElement.textContent = items.length
-    ? `Found ${globalItems} item${globalItems === 1 ? '' : 's'} for this computer, ${projectItems} item${projectItems === 1 ? '' : 's'} in the selected project, ${skills} skill${skills === 1 ? '' : 's'}, ${plugins} add-on${plugins === 1 ? '' : 's'}, and ${connections} saved connection${connections === 1 ? '' : 's'}${followUps ? `, plus ${followUps} follow-up item${followUps === 1 ? '' : 's'}` : ''}. This list is a checkup only. Nothing was changed.`
+    ? `Found ${globalItems} item${globalItems === 1 ? '' : 's'} for this computer, ${projectItems} item${projectItems === 1 ? '' : 's'} in the selected project, ${skills} skill${skills === 1 ? '' : 's'}, ${plugins} add-on${plugins === 1 ? '' : 's'}, and ${connections} saved connection${connections === 1 ? '' : 's'}${linkedSkillExclusions ? `, plus ${linkedSkillExclusions} linked skill${linkedSkillExclusions === 1 ? '' : 's'} safely excluded from duplicate cleanup` : ''}${followUps ? `, plus ${followUps} follow-up item${followUps === 1 ? '' : 's'}` : ''}. This list is a checkup only. Nothing was changed.`
     : 'Nothing was found in the places checked. That is okay. You can still add tools or your own skill when ready.';
   const manageableSkills = items.filter((item) => item.type === 'skill' && ['Just you', 'This project'].includes(item.scope));
   const manageablePlugins = items.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
@@ -1784,15 +1875,16 @@ function renderSetupManager(report) {
     if (includePathCopy) {
       const titleRow = document.createElement('div');
       titleRow.className = 'manager-item-title-row';
-      const { button: pathCopyButton, status: pathCopyStatus } = createInventoryPathCopyButton(pathForCopy);
-      titleRow.append(title, pathCopyButton, pathCopyStatus);
+      const { wrap: pathCopyControl } = createInventoryPathCopyButton(pathForCopy);
+      titleRow.append(title, pathCopyControl);
       card.append(titleRow);
     } else {
       card.append(title);
     }
     const meta = document.createElement('p');
     const kind = item.type === 'skill' ? 'Skill'
-      : item.type === 'plugin' ? 'Add-on'
+      : item.type === 'skill-link-excluded' ? 'Linked skill · Cleanup excluded'
+        : item.type === 'plugin' ? 'Add-on'
         : item.type === 'connection' ? 'Saved connection'
           : item.type === 'runtime' ? 'Runtime'
             : item.type === 'tool' ? 'Tool'

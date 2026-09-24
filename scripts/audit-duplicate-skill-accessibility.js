@@ -185,6 +185,8 @@ async function run() {
       { id: 'manifest-comparison-result', role: null, live: 'polite', busy: null },
       { id: 'compass-messages', role: null, live: 'polite', busy: null },
       { id: 'duplicate-backup-preview-summary', role: 'status', live: 'polite', busy: null },
+      { id: 'runtime-path-health-cards', role: null, live: 'polite', busy: null },
+      { id: 'runtime-path-health-summary', role: 'status', live: 'polite', busy: null },
     ];
     assert.deepEqual(
       staticLiveRegions.sort((left, right) => left.id.localeCompare(right.id)),
@@ -268,8 +270,8 @@ async function run() {
   }
 }
 
-app.whenReady().then(run).then(() => app.quit()).catch(async (error) => {
+app.whenReady().then(run).then(() => app.exit(0)).catch(async (error) => {
   console.error(error.stack || error.message || error);
   await fs.rm(fixturePath, { force: true }).catch(() => {});
-  process.exit(1);
+  app.exit(1);
 });

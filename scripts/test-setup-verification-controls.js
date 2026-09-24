@@ -62,6 +62,23 @@ function injectedBridge() {
       }),
       setTerminalPreference: async () => ({ ok: true, selectedId: 'default', options: [], message: 'CCTI will open Claude Code in Default Terminal.' }),
       getClaudeStatus: async () => ({ installed: true, version: 'fixture', path: '/fixture-home/.local/bin/claude' }),
+      runDiagnostics: async () => ({
+        ok: true,
+        diagnosticId: '7a9ed5b9-2a7e-48bf-946a-08e42d9580a1',
+        report: 'CCTI DIAGNOSTICS — local only; this report is not sent anywhere.',
+        claudeReady: true,
+        claudeFallback: true,
+        claudeFallbackReason: 'permission-denied',
+      }),
+      getRuntimePaths: async () => ({
+        ok: true,
+        mainProcessPathEntryCount: 12,
+        cctiCommandPathEntryCount: 14,
+        cctiIncludesNativeClaudeBin: true,
+        cctiIncludesManagedNodeBin: true,
+        rendererProcess: { sandboxed: true, contextIsolated: true },
+      }),
+      exportDiagnosticReport: async () => ({ ok: true, canceled: true }),
       chooseCompleteSetupProject: async (payload) => {
         record('chooseCompleteSetupProject', payload);
         return { canceled: false, projectPath: payload.createNew ? '/fixture/new-project' : '/fixture/existing-project' };
@@ -364,10 +381,46 @@ async function run() {
       'CCTI verified all 10 setup items. Everything is ready.',
     ], 'The Setup Check live region must announce each workflow transition in order.');
 
+    await evaluate(window, "document.querySelector('#run-diagnostics-button').click()");
+    await waitFor(window, () => !document.querySelector('#runtime-path-health')?.hidden && document.querySelectorAll('.runtime-path-health-card').length === 3, 'runtime PATH health dashboard');
+    const runtimeHealth = await evaluate(window, `(() => ({
+      summary: document.querySelector('#runtime-path-health-summary').textContent,
+      cards: [...document.querySelectorAll('.runtime-path-health-card')].map((card) => ({
+        title: card.querySelector('h4').textContent,
+        state: [...card.classList].find((name) => name.startsWith('is-')),
+        message: card.querySelector('p').textContent,
+      })),
+      runStatus: document.querySelector('#run-status').textContent,
+    }))()`);
+    assert.deepEqual(runtimeHealth, {
+      summary: 'CCTI recovered with a verified fallback. No permissions, shell files, or security settings were changed.',
+      cards: [
+        { title: 'Claude Code resolution', state: 'is-ready', message: 'Ready through the next approved command location after the first candidate could not run.' },
+        { title: 'CCTI command PATH', state: 'is-ready', message: 'Ready. 14 ordered command locations include the Claude and CCTI-managed Node folders.' },
+        { title: 'Renderer boundary', state: 'is-ready', message: 'Ready. The renderer remains sandboxed and context-isolated; command execution stays in the main process.' },
+      ],
+      runStatus: 'Diagnostics complete · Claude Code is ready · renderer isolation verified',
+    }, 'Diagnostics must show a local-only fallback, CCTI PATH, and sandbox-boundary summary without exposing full PATH entries.');
+
+    window.setSize(320, 568);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const compactRuntimeHealth = await evaluate(window, `(() => {
+      const cards = document.querySelector('#runtime-path-health-cards');
+      return {
+        rootFits: document.documentElement.scrollWidth <= window.innerWidth,
+        cardsFit: cards.scrollWidth <= cards.clientWidth,
+        columnCount: getComputedStyle(cards).gridTemplateColumns.split(' ').length,
+      };
+    })()`);
+    assert.equal(compactRuntimeHealth.rootFits, true, 'Compact runtime health must not cause horizontal page overflow.');
+    assert.equal(compactRuntimeHealth.cardsFit, true, 'Compact runtime health cards must contain their content.');
+    assert.equal(compactRuntimeHealth.columnCount, 1, 'Compact runtime health cards must stack into one column.');
+
     console.log(JSON.stringify({
       ok: true,
       viewports: responsiveEvidence,
       screenReaderAnnouncementLog: liveRegionMutationLog,
+      runtimeHealth,
     }));
   } finally {
     if (!window.isDestroyed()) window.destroy();

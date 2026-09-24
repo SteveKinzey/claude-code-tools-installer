@@ -13,6 +13,8 @@ const home = path.join(tempRoot, 'home');
 const project = path.join(tempRoot, 'project');
 const sourceSkill = path.join(tempRoot, 'my-skill');
 const duplicateSourceSkill = path.join(tempRoot, 'duplicate-skill');
+const linkedSkill = path.join(home, '.claude', 'skills', 'linked-skill');
+const linkedSkillTarget = path.join(tempRoot, 'linked-skill-shared-section.md');
 const fakeClaudeLog = path.join(tempRoot, 'fake-claude.log');
 const handlers = new Map();
 let readyCallback;
@@ -80,6 +82,9 @@ async function run() {
   await fsp.utimes(path.join(project, '.claude', 'skills', 'project-backup-skill', 'SKILL.md'), new Date('2026-01-15T10:00:00.000Z'), new Date('2026-01-15T10:00:00.000Z'));
   await writeSkill(path.join(home, '.claude', 'skills', 'same-name-different-content'), 'Same name global', { contents: '# Global instructions\n' });
   await writeSkill(path.join(project, '.claude', 'skills', 'same-name-different-content'), 'Same name project', { contents: '# Project instructions\n' });
+  await writeSkill(linkedSkill, 'Linked skill');
+  await fsp.writeFile(linkedSkillTarget, 'Shared linked section\n', 'utf8');
+  await fsp.symlink(linkedSkillTarget, path.join(linkedSkill, 'shared-section.md'));
   const hashCollision = { contents: '# Same instructions\n', files: { 'references/guide.md': 'Identical guide\n' } };
   await writeSkill(path.join(home, '.claude', 'skills', 'global-revenue-playbook'), 'Global revenue playbook', hashCollision);
   await writeSkill(path.join(project, '.claude', 'skills', 'local-gtm-playbook'), 'Local go-to-market playbook', hashCollision);
@@ -214,6 +219,15 @@ async function run() {
   const userSkill = report.findings.find((item) => item.type === 'skill' && item.scope === 'Just you' && item.name === 'duplicate-skill');
   assert.ok(userSkill, 'the user skill should be found');
   assert.match(userSkill.updatedAt, /^\d{4}-\d{2}-\d{2}T/, 'discovered skills should expose their SKILL.md last-edited time for a user-reviewed cleanup choice');
+  const linkedSkillFinding = report.findings.find((item) => item.type === 'skill-link-excluded' && item.name === 'linked-skill');
+  assert.ok(linkedSkillFinding, 'a skill with internal links should be shown as a cleanup exclusion, not a needs-attention finding');
+  assert.match(linkedSkillFinding.description, /remains available to Claude Code/i);
+  assert.match(linkedSkillFinding.description, /will not follow, compare, move, or delete linked files/i);
+  assert.equal(report.duplicates.some((group) => group.items.some((item) => item.id === linkedSkillFinding.id)), false, 'linked skills must not enter duplicate grouping');
+  const linkedSkillCleanup = await reviewCleanup(null, { discoveryId: report.discoveryId, findingId: linkedSkillFinding.id });
+  assert.equal(linkedSkillCleanup.ok, false, 'linked skill cleanup exclusions must never receive a backup plan');
+  await fsp.access(path.join(linkedSkill, 'SKILL.md'));
+  await fsp.access(path.join(linkedSkill, 'shared-section.md'));
   const userPlugin = report.findings.find((item) => item.type === 'plugin' && item.scope === 'Just you');
   assert.ok(userPlugin, 'a user-scope plugin should be found');
   await fsp.writeFile(path.join(project, 'package.json'), JSON.stringify({
