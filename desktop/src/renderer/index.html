@@ -269,7 +269,7 @@
           <div>
             <p class="eyebrow">OPTIONAL FIRST STEP</p>
             <h2 id="project-interview-heading">Not sure what your project needs?</h2>
-            <p>Start with a short private interview. CCTI will turn your answers into a simple first-draft project plan and show tools you may want to review. It does not select or install anything.</p>
+            <p>Start with a short private interview. CCTI will turn your answers into a simple first-draft project plan and show tools you may want to review. It never installs anything. You can add its suggestions to your review list, and every install still asks you first.</p>
           </div>
           <button id="start-project-interview-button" class="button button-secondary" type="button">Start Project Interview</button>
           <div id="project-interview-panel" class="project-interview-panel is-hidden">
@@ -284,6 +284,8 @@
             </div>
             <pre id="project-interview-output" class="project-interview-output is-hidden" aria-live="polite"></pre>
             <button id="export-project-prd-button" class="button button-secondary is-hidden" type="button">Save draft PRD</button>
+            <button id="queue-interview-suggestions-button" class="button button-primary is-hidden" type="button">Add suggestions to my review list</button>
+            <p id="queue-interview-suggestions-note" class="project-interview-help" role="status" aria-live="polite"></p>
           </div>
         </section>
 
@@ -487,6 +489,7 @@
       </form>
     </dialog>
 
+    <script src="../tool-matcher.js"></script>
     <script src="../project-interview.js"></script>
     <script src="app.js"></script>
   </body>

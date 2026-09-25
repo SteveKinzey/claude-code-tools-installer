@@ -145,6 +145,8 @@ const projectInterviewBackButton = document.querySelector('#project-interview-ba
 const projectInterviewNextButton = document.querySelector('#project-interview-next-button');
 const projectInterviewOutputElement = document.querySelector('#project-interview-output');
 const exportProjectPrdButton = document.querySelector('#export-project-prd-button');
+const queueInterviewSuggestionsButton = document.querySelector('#queue-interview-suggestions-button');
+const queueInterviewSuggestionsNoteElement = document.querySelector('#queue-interview-suggestions-note');
 const uninstallAppButton = document.querySelector('#uninstall-app-button');
 const exportInstallationManifestButton = document.querySelector('#export-installation-manifest-button');
 const openManifestFolderButton = document.querySelector('#open-manifest-folder-button');
@@ -296,7 +298,7 @@ function offerAnonymousSuccessCount(kind) {
 }
 
 function getProjectInterviewApi() {
-  return window.CCTIProjectInterview || { PROJECT_INTERVIEW_QUESTIONS: [], buildProjectInterviewDraft: () => ({ draft: '', recommendations: [] }) };
+  return window.CCTIProjectInterview || { PROJECT_INTERVIEW_QUESTIONS: [], buildProjectInterviewDraft: () => ({ draft: '', recommendations: [] }), queueInterviewSuggestions: (_items, selected, componentPlan) => ({ selected, componentPlan, addedTools: 0, addedComponents: 0 }) };
 }
 
 function renderProjectInterview() {
@@ -316,6 +318,7 @@ function renderProjectInterview() {
     projectInterviewOutputElement.textContent = interview.result.draft;
     projectInterviewOutputElement.classList.remove('is-hidden');
     exportProjectPrdButton.classList.remove('is-hidden');
+    queueInterviewSuggestionsButton.classList.toggle('is-hidden', !interview.result.recommendations.length);
     return;
   }
 
@@ -331,6 +334,8 @@ function renderProjectInterview() {
   projectInterviewNextButton.classList.remove('is-hidden');
   projectInterviewOutputElement.classList.add('is-hidden');
   exportProjectPrdButton.classList.add('is-hidden');
+  queueInterviewSuggestionsButton.classList.add('is-hidden');
+  queueInterviewSuggestionsNoteElement.textContent = '';
 }
 
 function beginProjectInterview() {
@@ -351,7 +356,7 @@ function advanceProjectInterview() {
     projectInterviewAnswerElement.focus();
     return;
   }
-  interview.result = buildProjectInterviewDraft(interview.answers, state.catalog, state.componentCatalog.components);
+  interview.result = buildProjectInterviewDraft(interview.answers, state.catalog, state.componentCatalog.components, [...state.catalogDetails.values()]);
   renderProjectInterview();
 }
 
@@ -382,6 +387,23 @@ function exportProjectPrd() {
   link.download = 'ccti-project-requirements-draft.md';
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function queueInterviewSuggestionsFromDraft() {
+  if (!state.projectInterview.result) return;
+  const { queueInterviewSuggestions } = getProjectInterviewApi();
+  const next = queueInterviewSuggestions(state.projectInterview.result.recommendations, state.selected, state.componentPlan);
+  state.selected = next.selected;
+  state.componentPlan = next.componentPlan;
+  renderCatalog();
+  renderComponents();
+  updateSummary();
+  const parts = [];
+  if (next.addedTools) parts.push(`${next.addedTools} tool${next.addedTools === 1 ? '' : 's'} added to your review list`);
+  if (next.addedComponents) parts.push(`${next.addedComponents} project package${next.addedComponents === 1 ? '' : 's'} added to your project plan. Choose a project folder before installing them`);
+  queueInterviewSuggestionsNoteElement.textContent = parts.length
+    ? `${parts.join('. ')}. Nothing is installed until you confirm.`
+    : 'These suggestions are already on your review list. Nothing is installed until you confirm.';
 }
 
 async function reportAnonymousSuccess() {
@@ -2416,6 +2438,7 @@ startProjectInterviewButton.addEventListener('click', beginProjectInterview);
 projectInterviewNextButton.addEventListener('click', advanceProjectInterview);
 projectInterviewBackButton.addEventListener('click', goBackInProjectInterview);
 exportProjectPrdButton.addEventListener('click', exportProjectPrd);
+queueInterviewSuggestionsButton.addEventListener('click', queueInterviewSuggestionsFromDraft);
 document.querySelector('#open-components-library').addEventListener('click', openComponentLibrary);
 document.querySelector('#close-components-library').addEventListener('click', () => componentLibraryElement.classList.add('is-hidden'));
 componentSearchElement.addEventListener('input', renderComponents);

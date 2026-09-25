@@ -181,8 +181,17 @@ if (!html.includes('CCTI prepares Node.js and creates package.json there when it
 if (!html.includes('id="start-project-interview-button"') || !html.includes('../project-interview.js') || !renderer.includes('function beginProjectInterview()') || !renderer.includes('function exportProjectPrd()')) {
   throw new Error('CCTI must offer a private optional Project Interview with local draft export.');
 }
-if (!fs.readFileSync(path.join(root, 'desktop', 'src', 'project-interview.js'), 'utf8').includes('Nothing has been selected or installed.') || !renderer.includes('buildProjectInterviewDraft(interview.answers, state.catalog, state.componentCatalog.components)')) {
-  throw new Error('The Project Interview must draft recommendations without selecting or installing tools.');
+if (!fs.readFileSync(path.join(root, 'desktop', 'src', 'project-interview.js'), 'utf8').includes('Nothing has been selected or installed.') || !renderer.includes('buildProjectInterviewDraft(interview.answers, state.catalog, state.componentCatalog.components, [...state.catalogDetails.values()])')) {
+  throw new Error('The Project Interview must draft job-matched recommendations without selecting or installing tools.');
+}
+if (!html.includes('../tool-matcher.js') || html.indexOf('../tool-matcher.js') > html.indexOf('../project-interview.js')) {
+  throw new Error('The offline tool matcher must load before the Project Interview.');
+}
+if (!html.includes('id="queue-interview-suggestions-button"') || !renderer.includes('function queueInterviewSuggestionsFromDraft()') || !renderer.includes('queueInterviewSuggestions(state.projectInterview.result.recommendations, state.selected, state.componentPlan)')) {
+  throw new Error('Interview suggestions must be added to the existing review lists only through an explicit user action.');
+}
+if (/queueInterviewSuggestionsFromDraft[\s\S]{0,1200}(runInstall|installComponents|runInstallation)\(/.test(renderer)) {
+  throw new Error('Adding interview suggestions must never start an install; Step 3 confirmation still applies.');
 }
 const unusedBridgeMethods = [...exposedMethods].filter((method) => !calledMethods.has(method));
 if (unusedBridgeMethods.length > 0) {
