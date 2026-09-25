@@ -15,38 +15,63 @@ function findByName(items, matcher) {
   return items.find((item) => matcher.test(String(item.name || '')));
 }
 
-function createRecommendations(answers, catalog, components) {
-  const text = Object.values(answers).join(' ').toLowerCase();
-  const results = [];
-  const add = (item, scope, reason) => {
-    if (!item || results.some((result) => result.id === item.id)) return;
-    results.push({ id: item.id, name: item.name, scope, reason, packageName: item.packageName || '' });
-  };
-  const addTool = (matcher, reason) => add(findByName(catalog, matcher), 'This computer', reason);
-  const addComponent = (matcher, reason) => add(findByName(components, matcher), 'Selected project', reason);
+function getToolMatcher() {
+  if (typeof window !== 'undefined' && window.CCTIToolMatcher) return window.CCTIToolMatcher;
+  if (typeof require === 'function') return require('./tool-matcher');
+  return { matchTools: () => [] };
+}
 
-  addTool(/^Planning with Files$/i, 'Helps turn the agreed first version into small, saved work steps.');
-  if (/design|screen|website|landing|interface|look|brand/.test(text)) addTool(/^Frontend Design$/i, 'Helps with clear screens and simple design decisions.');
-  if (/test|testing|browser|quality|bug/.test(text)) addTool(/^Playwright MCP$/i, 'Helps test the project in a browser before sharing it.');
-  if (/docs?|documentation|library|framework|api/.test(text)) addTool(/^Context7$/i, 'Helps Claude Code use current documentation when building.');
-  if (/auth|sign.?in|login|account|member|user profile/.test(text)) addComponent(/better auth/i, 'A possible project package for sign-in. Review its own setup before using it.');
-  if (/chat|agent|ai|assistant|prompt|model/.test(text)) addComponent(/agent|ai/i, 'A possible project package for an AI or chat feature. Review its data and provider needs first.');
-  if (/real.?time|live|presence|collaboration|multiplayer|team/.test(text)) addComponent(/presence|real.?time/i, 'A possible project package for live updates or shared presence.');
-  if (/database|backend|real.?time|live|convex/.test(text)) addTool(/^Convex for Claude Code$/i, 'Helps Claude Code work with a Convex project when you choose to use Convex.');
+function createRecommendations(answers, catalog, components, details) {
+  const answerText = Object.values(answers).filter((value) => value !== 'Not decided yet.').join(' ');
+  const installable = new Map([
+    ...catalog.map((item) => [item.id, { scope: 'This computer', packageName: '' }]),
+    ...components.map((item) => [item.id, { scope: 'Selected project', packageName: item.packageName || '' }]),
+  ]);
+  const results = [];
+  const add = (id, name, reason, closeTo = null) => {
+    const target = installable.get(id);
+    // A suggestion the installer cannot act on is worse than no suggestion.
+    if (!target || results.some((result) => result.id === id)) return;
+    results.push({ id, name, scope: target.scope, reason, closeTo, packageName: target.packageName });
+  };
+
+  const planning = findByName(catalog, /^Planning with Files$/i);
+  if (planning) add(planning.id, planning.name, 'Helps turn the agreed first version into small, saved work steps.');
+  for (const match of getToolMatcher().matchTools(answerText, details)) {
+    add(match.id, match.name, match.reason, match.closeTo);
+  }
   return results;
 }
 
-function buildProjectInterviewDraft(answers, catalog = [], components = []) {
+/** Add interview suggestions to the Step 2 review lists. Nothing is installed here. */
+function queueInterviewSuggestions(recommendations, selected, componentPlan) {
+  const nextSelected = new Set(selected);
+  const nextComponentPlan = new Set(componentPlan);
+  let addedTools = 0;
+  let addedComponents = 0;
+  for (const item of recommendations || []) {
+    if (item.scope === 'This computer' && !nextSelected.has(item.id)) {
+      nextSelected.add(item.id);
+      addedTools += 1;
+    } else if (item.scope === 'Selected project' && !nextComponentPlan.has(item.id)) {
+      nextComponentPlan.add(item.id);
+      addedComponents += 1;
+    }
+  }
+  return { selected: nextSelected, componentPlan: nextComponentPlan, addedTools, addedComponents };
+}
+
+function buildProjectInterviewDraft(answers, catalog = [], components = [], details = []) {
   const values = Object.fromEntries(PROJECT_INTERVIEW_QUESTIONS.map((question) => [question.key, valueOrPlaceholder(answers?.[question.key])]));
-  const recommendations = createRecommendations(values, catalog, components);
+  const recommendations = createRecommendations(values, catalog, components, details);
   const suggestionLines = recommendations.length
-    ? recommendations.map((item) => `- ${item.name} — ${item.scope}. ${item.reason}${item.packageName ? ` Package: ${item.packageName}.` : ''}`).join('\n')
+    ? recommendations.map((item) => `- ${item.name} — ${item.scope}. ${item.reason}${item.closeTo ? ` Close alternative: ${item.closeTo.name}. ${item.closeTo.reason}` : ''}${item.packageName ? ` Package: ${item.packageName}.` : ''}`).join('\n')
     : '- No specific CCTI choice matches yet. Start with the project outline, then use Compass to compare options.';
   const draft = `# Draft product requirements\n\nStatus: Private early draft. Nothing has been selected or installed.\n\n## What you want to make\n${values.idea}\n\n## Who it is for\n${values.users}\n\n## First problem to solve\n${values.problem}\n\n## First version\n${values.firstVersion}\n\n## Limits and must-haves\n${values.constraints}\n\n## Open questions to settle before building\n- What is the smallest working first release?\n- What information will the product need to store?\n- Does any feature need an account, payment, outside service, or sign-in?\n\n## Suggested CCTI choices to review\n${suggestionLines}\n\nThese are suggestions only. Review each one, choose what fits, and approve any install separately.`;
   return { draft, recommendations, values };
 }
 
-const projectInterviewApi = { PROJECT_INTERVIEW_QUESTIONS, buildProjectInterviewDraft };
+const projectInterviewApi = { PROJECT_INTERVIEW_QUESTIONS, buildProjectInterviewDraft, queueInterviewSuggestions };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = projectInterviewApi;
 if (typeof window !== 'undefined') window.CCTIProjectInterview = projectInterviewApi;
