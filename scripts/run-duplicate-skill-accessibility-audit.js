@@ -15,9 +15,10 @@ const command = process.platform === 'linux' ? 'xvfb-run' : electron;
 const args = process.platform === 'linux'
   ? ['--auto-servernum', '--server-args=-screen 0 1280x1024x24', electron, ...electronArgs]
   : electronArgs;
-const reportPath = path.join(os.tmpdir(), `ccti-duplicate-a11y-result-${process.pid}.json`);
+const callerReportPath = process.env.CCTI_A11Y_REPORT_PATH ? path.resolve(process.env.CCTI_A11Y_REPORT_PATH) : '';
+const reportPath = callerReportPath || path.join(os.tmpdir(), `ccti-duplicate-a11y-result-${process.pid}.json`);
 
-fs.rmSync(reportPath, { force: true });
+if (!callerReportPath) fs.rmSync(reportPath, { force: true });
 const result = spawnSync(command, args, { cwd: desktop, stdio: 'inherit', env: { ...process.env, CCTI_A11Y_REPORT_PATH: reportPath } });
 if (result.error) {
   console.error(`Could not start the duplicate-skill accessibility audit: ${result.error.message}`);
@@ -29,7 +30,7 @@ try {
 } catch {
   console.error('The duplicate-skill accessibility audit did not emit a completion result.');
 }
-fs.rmSync(reportPath, { force: true });
+if (!callerReportPath) fs.rmSync(reportPath, { force: true });
 if (result.status !== 0 || !auditResult?.ok) {
   if (auditResult?.error) console.error(`Duplicate-skill accessibility audit failed: ${auditResult.error}`);
   process.exit(1);
