@@ -191,7 +191,7 @@ if (!html.includes('id="queue-interview-suggestions-button"') || !html.includes(
   throw new Error('Interview suggestions must be added to the existing review lists only through an explicit user action, and only the items the user checked.');
 }
 if (!html.includes('id="interview-suggestion-groups"') || !renderer.includes('function renderInterviewSuggestions()') || !renderer.includes("checkbox.type = 'checkbox'") || !renderer.includes('reason.textContent = item.reason') || !renderer.includes('.filter((item) => item.prechecked)')) {
-  throw new Error('Each interview suggestion must have its own checkbox with its stated reason, and only the strongest matches may start checked.');
+  throw new Error('Each interview suggestion must have its own checkbox with its stated reason, and only the Planning with Files baseline may start checked.');
 }
 if (/function renderInterviewSuggestions\(\)[\s\S]{0,2500}innerHTML/.test(renderer)) {
   throw new Error('Interview suggestions must be rendered with DOM APIs and textContent, never innerHTML.');

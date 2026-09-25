@@ -51,12 +51,11 @@ assert.match(hedged.draft, /I am not sure/, 'the draft still shows what the user
 const deferred = buildProjectInterviewDraft({ idea: 'A tutoring website', constraints: 'Must work on phones. Payments maybe later.' }, catalog, components, details);
 assert.ok(!deferred.recommendations.some((item) => /Pay/.test(item.name)), 'a feature the user deferred ("maybe later") is not suggested now');
 
-// Critical 1d: only the baseline and the top three matches start checked.
+// Fix #9: only the Planning with Files baseline starts checked; every matched
+// suggestion (however strong the match) starts unchecked and waits for the user.
 const prechecked = result.recommendations.filter((item) => item.prechecked).map((item) => item.name);
-assert.ok(prechecked.includes('Planning with Files'), 'the baseline starts checked');
-assert.ok(prechecked.length <= 4, `at most the baseline plus three matches start checked; got ${prechecked.join(', ')}`);
-assert.deepEqual(result.recommendations.filter((item) => item.name !== 'Planning with Files').slice(0, 3).map((item) => item.prechecked), result.recommendations.filter((item) => item.name !== 'Planning with Files').slice(0, 3).map(() => true), 'the top matches start checked');
-assert.ok(result.recommendations.filter((item) => item.name !== 'Planning with Files').slice(3).every((item) => !item.prechecked), 'weaker matches start unchecked');
+assert.deepEqual(prechecked, ['Planning with Files'], `only the baseline starts checked; got ${prechecked.join(', ') || 'none'}`);
+assert.ok(result.recommendations.filter((item) => item.name !== 'Planning with Files').every((item) => !item.prechecked), 'every matched suggestion starts unchecked');
 
 // Important 2: at most one close alternative, on the top match only.
 assert.ok(result.recommendations.filter((item) => item.closeTo).length <= 1, 'only one close alternative may be shown');

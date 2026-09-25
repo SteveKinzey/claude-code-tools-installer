@@ -141,12 +141,50 @@ const cases = [
     answers: { idea: 'I want gstack so Claude acts like a whole team' },
     mustAppear: ['gstack'],
   },
+  // Fix #9 held-out interviews: realistic answers outside the original fixture where
+  // the old unconditional top-3 pre-check surfaced wrong items already ticked.
+  {
+    label: 'restaurant menu site, full interview',
+    answers: {
+      idea: 'A website for my family restaurant',
+      users: 'Local diners',
+      problem: 'People call to ask about the menu',
+      firstVersion: 'Show the menu with prices and our opening hours',
+      constraints: 'Must look good on phones',
+    },
+  },
+  {
+    label: 'school robotics club sign-up, full interview',
+    answers: {
+      idea: 'A sign-up page for our school robotics club',
+      users: 'Students and parents',
+      problem: 'Paper forms get lost',
+      firstVersion: 'Students sign up and pick a team',
+      constraints: 'Free and simple',
+    },
+  },
+  {
+    label: 'tutoring marketplace, full interview',
+    answers: {
+      idea: 'A marketplace for math tutors',
+      users: 'Parents and tutors',
+      problem: 'Hard to find a good tutor',
+      firstVersion: 'Parents book a session and pay the tutor',
+      constraints: 'Needs sign-in',
+    },
+  },
+  {
+    label: 'photo sharing one-liner',
+    answers: { idea: 'An app where I upload photos and share them with friends' },
+  },
 ];
 
 const failures = [];
 const summary = [];
+const allCases = [];
 for (const testCase of cases) {
   const { recommendations } = buildProjectInterviewDraft(testCase.answers, catalog, components, details);
+  allCases.push({ label: testCase.label, recommendations });
   const matched = recommendations.filter((item) => item.name !== BASELINE);
   const names = matched.map((item) => item.name);
   summary.push(`${testCase.label}: ${names.join(', ') || '(none)'}`);
@@ -159,14 +197,23 @@ for (const testCase of cases) {
   if (testCase.mustBeFirst && names[0] !== testCase.mustBeFirst) fail(`${testCase.mustBeFirst} must be the top match`);
   for (const name of testCase.mustNotBeFirst || []) if (names[0] === name) fail(`${name} must not be the top match`);
   if (testCase.maxMatches !== undefined && names.length > testCase.maxMatches) fail(`at most ${testCase.maxMatches} matches for a vague answer`);
-  // Only the strongest few are pre-checked; the rest wait for the user.
-  const prechecked = recommendations.filter((item) => item.prechecked);
-  if (prechecked.length > 4) fail(`at most the baseline plus 3 matches may be pre-checked (got ${prechecked.length})`);
-  if (recommendations.length && !recommendations.find((item) => item.name === BASELINE)?.prechecked) fail('the baseline must be pre-checked');
+  // Fix #9: no matched suggestion is ever pre-checked; only Planning with Files may be.
+  const preCheckedNames = recommendations.filter((item) => item.prechecked).map((item) => item.name);
+  if (preCheckedNames.length !== 1 || preCheckedNames[0] !== BASELINE) fail(`only ${BASELINE} may be pre-checked [prechecked: ${preCheckedNames.join(', ') || 'none'}]`);
   // A close alternative is offered at most once and never as a reverse pair.
   const withClose = matched.filter((item) => item.closeTo);
   if (withClose.length > 1) fail('only the top match may carry a close alternative');
   if (withClose.length && withClose[0] !== matched[0]) fail('the close alternative must belong to the top match');
+}
+
+// General assertion across every fixture case: the pre-checked set is always exactly
+// the baseline, never a matched suggestion.
+for (const { label, recommendations } of allCases) {
+  const preCheckedIds = recommendations.filter((item) => item.prechecked).map((item) => item.id);
+  const baselineId = recommendations.find((item) => item.name === BASELINE)?.id;
+  if (baselineId && (preCheckedIds.length !== 1 || preCheckedIds[0] !== baselineId)) {
+    failures.push(`${label}: prechecked set must equal exactly [${baselineId}] [got: ${preCheckedIds.join(', ') || 'none'}]`);
+  }
 }
 
 if (process.argv.includes('--verbose') || failures.length) console.log(summary.join('\n'));

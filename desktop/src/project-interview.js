@@ -22,7 +22,6 @@ function getToolMatcher() {
 }
 
 const PLACEHOLDER = 'Not decided yet.';
-const PRECHECKED_MATCHES = 3;
 // Hedges say "I have not decided"; they are stripped exactly like the placeholder
 // so "I am not sure" can never match an item that mentions "sure".
 const HEDGE_PATTERN = /\b(not sure|unsure|don'?t know|do not know|no idea|not yet|maybe|later|none|nothing|n\/a|idk|tbd|undecided|not decided|whatever)\b/i;
@@ -57,11 +56,12 @@ function createRecommendations(answers, catalog, components, details) {
   for (const match of getToolMatcher().matchTools(answerTexts, details)) {
     add(match.id, match.name, match.kind, match.reason, match.closeTo);
   }
-  // Pre-check only the baseline and the strongest few; the rest wait for the user.
-  let checkedMatches = 0;
-  for (const item of results) {
-    if (planning && item.id === planning.id) item.prechecked = true;
-    else if (checkedMatches < PRECHECKED_MATCHES) { item.prechecked = true; checkedMatches += 1; }
+  // Fix #9: pre-check only the Planning with Files baseline. A matched suggestion can be
+  // text-true but job-wrong (see fix9 report), so every matched suggestion starts unchecked
+  // and waits for the user to tick what fits.
+  if (planning) {
+    const baseline = results.find((item) => item.id === planning.id);
+    if (baseline) baseline.prechecked = true;
   }
   return results;
 }
