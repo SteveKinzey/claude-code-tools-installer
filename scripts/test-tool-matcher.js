@@ -32,7 +32,8 @@ for (const text of sample) {
   for (const item of results) {
     assert.match(item.reason, /^Choose this when /, `${item.name} must carry its own chooseWhen sentence as the reason`);
     assert.ok(['tool', 'component'].includes(item.kind), `${item.name} must carry its kind`);
-    assert.ok(['This computer', 'This project'].includes(item.scope), `${item.name} must carry its scope`);
+    // Minor 4: the matcher reports kind only; the interview derives its scope label from kind.
+    assert.equal(item.scope, undefined, `${item.name} must not carry a parallel scope vocabulary`);
     if (item.closeTo) {
       assert.notEqual(item.closeTo.id, item.id, 'a close match must name a different item');
       assert.match(item.closeTo.reason, /^Choose this when /, 'a close match must quote the rival\'s own reason');
@@ -40,7 +41,38 @@ for (const text of sample) {
   }
 }
 
+// Important 2: a close alternative belongs only to the top match, only for a same-category
+// runner-up within 15% that matched some of the same words, and never as a reverse pair.
+for (const text of ['send text message reminders to customers', 'users log in with google', 'A booking app for dog walkers where customers sign in and pay', 'let people log in without a password', 'sell a digital book']) {
+  const results = matchTools(text, details);
+  results.slice(1).forEach((item) => assert.equal(item.closeTo, null, `${text}: only the top match may name a close alternative (${item.name})`));
+  const [top, second] = results;
+  if (top?.closeTo) {
+    assert.equal(top.closeTo.id, second.id, `${text}: the close alternative must be the runner-up`);
+    assert.equal(second.category, top.category, `${text}: a close alternative must be in the same category`);
+    assert.ok(second.score >= top.score * 0.85, `${text}: a close alternative must be within 15%`);
+  }
+}
+const texting = matchTools('send text message reminders to customers', details);
+assert.ok(texting[0].closeTo, 'near-tied messaging items must state how they differ');
+
+// Critical 1a: one shared word is never enough ("online" alone must not pick Presence).
+assert.deepEqual(matchTools('online store', details), [], 'a single shared word must not produce a match');
+// Critical 1c: hedges are not words to match on.
+for (const hedge of ['I am not sure', 'I don\'t know', 'no idea', 'maybe later', 'none', 'idk']) {
+  assert.deepEqual(matchTools(hedge, details), [], `"${hedge}" must return no matches`);
+}
+// Critical 1b: answers are scored separately, so stray words spread across answers cannot add up.
+const spread = ['People who want to order cakes', 'Customers call me', 'Pay online for pickup'];
+const joined = matchTools(spread.join(' '), details).map((item) => item.name);
+const separate = matchTools(spread, details).map((item) => item.name);
+assert.ok(separate.length <= joined.length, 'per-answer scoring must not add matches that joined text would not');
+assert.ok(!separate.includes('QuiCK') && !separate.includes('OxaPay'), `scattered single words must not pick niche items; got ${separate.join(', ')}`);
+// Minor 5: harness and reference installs do not answer product descriptions unless named.
+assert.ok(!matchTools('A team chat app with live updates', details).some((item) => ['Claude HUD', 'gstack'].includes(item.name)), 'harness/reference tools must be demoted for product text');
+assert.equal(matchTools('set up gstack so Claude acts like a whole team', details)[0]?.name, 'gstack', 'a named harness tool is still found');
+
 const hostile = matchTools('<script>alert(1)</script> '.repeat(500), details);
 assert.ok(Array.isArray(hostile), 'very long or markup-like answers must not throw');
 
-console.log('Tool matcher passed: job-level ranking, honest empty results, stated reasons, and close-match comparisons.');
+console.log('Tool matcher passed: job-level ranking, two-word evidence, per-answer scoring, hedge stripping, harness demotion, and top-only close-match comparisons.');
