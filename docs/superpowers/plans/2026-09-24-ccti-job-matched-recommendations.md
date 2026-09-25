@@ -22,6 +22,12 @@
 - Commits end with `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` when made by Claude.
 - Out of scope, already done: the spec's "Data hazard" catalog sync assertion already exists in `scripts/validate-catalog-details.js` (ids resolve, counts match `catalogCounts`). Do not duplicate it.
 
+## Deviation from spec (final-review fix wave, 2026-09-24)
+
+The spec's bridge says matches **pre-select** into the Step 2 queue. This branch keeps an **explicit, per-item opt-in** instead: each suggestion is shown with its own checkbox and stated `chooseWhen` reason, only the "Planning with Files" baseline and the top three matches start checked, and nothing reaches `state.selected` or `state.componentPlan` until the user clicks "Add selected to my review list". Installing still goes through Step 3.
+
+Why: probes with realistic beginner answers showed the offline matcher still produces some noise, and a pre-selected wrong item is exactly the "confidently wrong answer" the spec warns against. One extra click is cheaper for a beginner than silently queued packages they did not ask for (ruling in `progress.md`, Important 3). The same wave also tightened matching (two-word evidence per answer, per-answer scoring, hedge stripping, harness/reference demotion, top-match-only close alternatives) and added `scripts/test-interview-fixtures.js`, a realistic-beginner fixture run by `npm run check`.
+
 ## Review Focus
 
 Each line below is pinned by a test in the task that owns the code.
