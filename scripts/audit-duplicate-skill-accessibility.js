@@ -168,6 +168,7 @@ async function run() {
       { id: 'setup-manager-results', role: null, live: 'polite', busy: null },
       { id: 'custom-addon-output', role: 'status', live: 'polite', busy: null },
       { id: 'project-interview-output', role: null, live: 'polite', busy: null },
+      { id: 'queue-interview-suggestions-note', role: 'status', live: 'polite', busy: null },
       { id: 'catalog', role: null, live: 'polite', busy: null },
       { id: 'component-results', role: null, live: 'polite', busy: null },
       { id: 'component-detail', role: null, live: 'polite', busy: null },
@@ -270,8 +271,12 @@ async function run() {
   }
 }
 
-app.whenReady().then(run).then(() => app.exit(0)).catch(async (error) => {
+app.whenReady().then(run).then(() => app.quit()).catch(async (error) => {
   console.error(error.stack || error.message || error);
+  if (evidencePath) {
+    await fs.mkdir(path.dirname(evidencePath), { recursive: true }).catch(() => {});
+    await fs.writeFile(evidencePath, `${JSON.stringify({ ok: false, error: String(error.message || error) }, null, 2)}\n`, 'utf8').catch(() => {});
+  }
   await fs.rm(fixturePath, { force: true }).catch(() => {});
-  app.exit(1);
+  process.exit(1);
 });

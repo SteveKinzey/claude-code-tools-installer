@@ -24,7 +24,7 @@
 
 ## Deviation from spec (final-review fix wave, 2026-09-24)
 
-The spec's bridge says matches **pre-select** into the Step 2 queue. This branch keeps an **explicit, per-item opt-in** instead: each suggestion is shown with its own checkbox and stated `chooseWhen` reason, only the "Planning with Files" baseline and the top three matches start checked, and nothing reaches `state.selected` or `state.componentPlan` until the user clicks "Add selected to my review list". Installing still goes through Step 3.
+The spec's bridge says matches **pre-select** into the Step 2 queue. This branch keeps an **explicit, per-item opt-in** instead: each suggestion is shown with its own checkbox and stated `chooseWhen` reason, only the Planning with Files baseline starts checked, and nothing reaches `state.selected` or `state.componentPlan` until the user clicks "Add selected to my review list". Installing still goes through Step 3.
 
 Why: probes with realistic beginner answers showed the offline matcher still produces some noise, and a pre-selected wrong item is exactly the "confidently wrong answer" the spec warns against. One extra click is cheaper for a beginner than silently queued packages they did not ask for (ruling in `progress.md`, Important 3). The same wave also tightened matching (two-word evidence per answer, per-answer scoring, hedge stripping, harness/reference demotion, top-match-only close alternatives) and added `scripts/test-interview-fixtures.js`, a realistic-beginner fixture run by `npm run check`.
 
