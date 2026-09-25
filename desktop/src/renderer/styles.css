@@ -180,6 +180,14 @@ h3 { margin: 0; font-size: 1rem; }
 .project-interview-panel textarea { width: 100%; resize: vertical; border: 1px solid #426780; border-radius: 8px; background: #091726; color: #e7f1ff; padding: 10px; font: 0.9rem/1.5 system-ui, sans-serif; }
 .project-interview-panel textarea:focus { outline: 2px solid #82d1f8; outline-offset: 2px; }
 .project-interview-output { max-height: 340px; margin: 4px 0 0; overflow: auto; padding: 12px; border: 1px solid #315d79; border-radius: 8px; background: #08131f; color: #c8deef; font: 0.78rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; }
+.interview-suggestions { display: grid; gap: 8px; }
+.interview-suggestions h4 { margin: 4px 0 0; color: #e6f5ff; font-size: 0.95rem; }
+.interview-suggestion-group { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.interview-suggestion-group legend { margin-bottom: 6px; color: #8fc8e8; font-weight: 750; font-size: 0.8rem; letter-spacing: 0.02em; }
+.interview-suggestion { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: start; padding: 10px; border: 1px solid #315d79; border-radius: 8px; background: #0b1a2b; }
+.interview-suggestion input { margin-top: 3px; width: 18px; height: 18px; }
+.interview-suggestion label { color: #e6f5ff; font-weight: 700; cursor: pointer; }
+.interview-suggestion p { grid-column: 2; margin: 0; color: #bdcfe4; font-size: 0.85rem; line-height: 1.45; }
 .setup-manager { border-color: #3f6b7d; background: linear-gradient(135deg, #102b35 0%, #0d1b32 100%); }
 .manager-header { align-items: flex-start; }
 .manager-header .step-heading { max-width: 760px; }

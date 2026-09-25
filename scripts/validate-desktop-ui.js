@@ -187,8 +187,14 @@ if (!fs.readFileSync(path.join(root, 'desktop', 'src', 'project-interview.js'), 
 if (!html.includes('../tool-matcher.js') || html.indexOf('../tool-matcher.js') > html.indexOf('../project-interview.js')) {
   throw new Error('The offline tool matcher must load before the Project Interview.');
 }
-if (!html.includes('id="queue-interview-suggestions-button"') || !renderer.includes('function queueInterviewSuggestionsFromDraft()') || !renderer.includes('queueInterviewSuggestions(state.projectInterview.result.recommendations, state.selected, state.componentPlan)')) {
-  throw new Error('Interview suggestions must be added to the existing review lists only through an explicit user action.');
+if (!html.includes('id="queue-interview-suggestions-button"') || !html.includes('Add selected to my review list') || !renderer.includes('function queueInterviewSuggestionsFromDraft()') || !renderer.includes('queueInterviewSuggestions(state.projectInterview.result.recommendations, state.selected, state.componentPlan, state.projectInterview.checked)')) {
+  throw new Error('Interview suggestions must be added to the existing review lists only through an explicit user action, and only the items the user checked.');
+}
+if (!html.includes('id="interview-suggestion-groups"') || !renderer.includes('function renderInterviewSuggestions()') || !renderer.includes("checkbox.type = 'checkbox'") || !renderer.includes('reason.textContent = item.reason') || !renderer.includes('.filter((item) => item.prechecked)')) {
+  throw new Error('Each interview suggestion must have its own checkbox with its stated reason, and only the strongest matches may start checked.');
+}
+if (/function renderInterviewSuggestions\(\)[\s\S]{0,2500}innerHTML/.test(renderer)) {
+  throw new Error('Interview suggestions must be rendered with DOM APIs and textContent, never innerHTML.');
 }
 if (/queueInterviewSuggestionsFromDraft[\s\S]{0,1200}(runInstall|installComponents|runInstallation)\(/.test(renderer)) {
   throw new Error('Adding interview suggestions must never start an install; Step 3 confirmation still applies.');

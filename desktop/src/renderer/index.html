@@ -284,7 +284,12 @@
             </div>
             <pre id="project-interview-output" class="project-interview-output is-hidden" aria-live="polite"></pre>
             <button id="export-project-prd-button" class="button button-secondary is-hidden" type="button">Save draft PRD</button>
-            <button id="queue-interview-suggestions-button" class="button button-primary is-hidden" type="button">Add suggestions to my review list</button>
+            <div id="interview-suggestions" class="interview-suggestions is-hidden" role="group" aria-labelledby="interview-suggestions-heading">
+              <h4 id="interview-suggestions-heading">Choose which suggestions to review</h4>
+              <p class="project-interview-help">The strongest matches start checked. Uncheck anything that does not fit. Adding them only puts them on your lists; nothing installs until you confirm in Step 3.</p>
+              <div id="interview-suggestion-groups"></div>
+            </div>
+            <button id="queue-interview-suggestions-button" class="button button-primary is-hidden" type="button">Add selected to my review list</button>
             <p id="queue-interview-suggestions-note" class="project-interview-help" role="status" aria-live="polite"></p>
           </div>
         </section>

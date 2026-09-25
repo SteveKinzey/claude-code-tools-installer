@@ -24,7 +24,7 @@ const state = {
   duplicateDialogInvoker: null,
   customAddOnReview: null,
   compass: { online: false, history: [], opened: false },
-  projectInterview: { active: false, step: 0, answers: {}, result: null },
+  projectInterview: { active: false, step: 0, answers: {}, result: null, checked: new Set() },
   anonymousSuccess: { kind: '', reported: false, dismissed: false },
   diagnostics: { id: '', report: '', expiresAt: 0 },
 };
@@ -147,6 +147,8 @@ const projectInterviewOutputElement = document.querySelector('#project-interview
 const exportProjectPrdButton = document.querySelector('#export-project-prd-button');
 const queueInterviewSuggestionsButton = document.querySelector('#queue-interview-suggestions-button');
 const queueInterviewSuggestionsNoteElement = document.querySelector('#queue-interview-suggestions-note');
+const interviewSuggestionsElement = document.querySelector('#interview-suggestions');
+const interviewSuggestionGroupsElement = document.querySelector('#interview-suggestion-groups');
 const uninstallAppButton = document.querySelector('#uninstall-app-button');
 const exportInstallationManifestButton = document.querySelector('#export-installation-manifest-button');
 const openManifestFolderButton = document.querySelector('#open-manifest-folder-button');
@@ -318,7 +320,7 @@ function renderProjectInterview() {
     projectInterviewOutputElement.textContent = interview.result.draft;
     projectInterviewOutputElement.classList.remove('is-hidden');
     exportProjectPrdButton.classList.remove('is-hidden');
-    queueInterviewSuggestionsButton.classList.toggle('is-hidden', !interview.result.recommendations.length);
+    renderInterviewSuggestions();
     return;
   }
 
@@ -334,12 +336,68 @@ function renderProjectInterview() {
   projectInterviewNextButton.classList.remove('is-hidden');
   projectInterviewOutputElement.classList.add('is-hidden');
   exportProjectPrdButton.classList.add('is-hidden');
+  interviewSuggestionsElement.classList.add('is-hidden');
+  interviewSuggestionGroupsElement.replaceChildren();
   queueInterviewSuggestionsButton.classList.add('is-hidden');
   queueInterviewSuggestionsNoteElement.textContent = '';
 }
 
+/** One checkbox per suggestion, with its stated reason. Tools and project packages stay in separate groups. */
+function renderInterviewSuggestions() {
+  const interview = state.projectInterview;
+  const recommendations = interview.result?.recommendations || [];
+  const groups = [
+    { kind: 'tool', title: 'Tools for this computer (Step 2 review list)' },
+    { kind: 'component', title: 'Packages for your selected project (project plan)' },
+  ];
+  const fragments = groups.map(({ kind, title }) => {
+    const items = recommendations.filter((item) => item.kind === kind);
+    if (!items.length) return null;
+    const fieldset = document.createElement('fieldset');
+    fieldset.className = 'interview-suggestion-group';
+    const legend = document.createElement('legend');
+    legend.textContent = title;
+    fieldset.append(legend);
+    for (const item of items) {
+      const row = document.createElement('div');
+      row.className = 'interview-suggestion';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = `interview-suggestion-${item.id}`;
+      checkbox.dataset.suggestionId = item.id;
+      checkbox.checked = interview.checked.has(item.id);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) interview.checked.add(item.id);
+        else interview.checked.delete(item.id);
+        queueInterviewSuggestionsNoteElement.textContent = '';
+      });
+      const label = document.createElement('label');
+      label.htmlFor = checkbox.id;
+      label.textContent = `${item.name} — ${item.scope}`;
+      const reason = document.createElement('p');
+      reason.textContent = item.reason;
+      row.append(checkbox, label, reason);
+      if (item.closeTo) {
+        const alternative = document.createElement('p');
+        alternative.textContent = `Close alternative: ${item.closeTo.name}. ${item.closeTo.reason}`;
+        row.append(alternative);
+      }
+      if (item.packageName) {
+        const packageLine = document.createElement('p');
+        packageLine.textContent = `Package: ${item.packageName}`;
+        row.append(packageLine);
+      }
+      fieldset.append(row);
+    }
+    return fieldset;
+  }).filter(Boolean);
+  interviewSuggestionGroupsElement.replaceChildren(...fragments);
+  interviewSuggestionsElement.classList.toggle('is-hidden', !recommendations.length);
+  queueInterviewSuggestionsButton.classList.toggle('is-hidden', !recommendations.length);
+}
+
 function beginProjectInterview() {
-  state.projectInterview = { active: true, step: 0, answers: {}, result: null };
+  state.projectInterview = { active: true, step: 0, answers: {}, result: null, checked: new Set() };
   renderProjectInterview();
   projectInterviewAnswerElement.focus();
 }
@@ -357,6 +415,7 @@ function advanceProjectInterview() {
     return;
   }
   interview.result = buildProjectInterviewDraft(interview.answers, state.catalog, state.componentCatalog.components, [...state.catalogDetails.values()]);
+  interview.checked = new Set(interview.result.recommendations.filter((item) => item.prechecked).map((item) => item.id));
   renderProjectInterview();
 }
 
@@ -390,9 +449,14 @@ function exportProjectPrd() {
 }
 
 function queueInterviewSuggestionsFromDraft() {
-  if (!state.projectInterview.result) return;
+  const interview = state.projectInterview;
+  if (!interview.result) return;
+  if (!interview.checked.size) {
+    queueInterviewSuggestionsNoteElement.textContent = 'Nothing is checked, so nothing was added. Check the suggestions you want to review.';
+    return;
+  }
   const { queueInterviewSuggestions } = getProjectInterviewApi();
-  const next = queueInterviewSuggestions(state.projectInterview.result.recommendations, state.selected, state.componentPlan);
+  const next = queueInterviewSuggestions(state.projectInterview.result.recommendations, state.selected, state.componentPlan, state.projectInterview.checked);
   state.selected = next.selected;
   state.componentPlan = next.componentPlan;
   renderCatalog();
@@ -401,9 +465,17 @@ function queueInterviewSuggestionsFromDraft() {
   const parts = [];
   if (next.addedTools) parts.push(`${next.addedTools} tool${next.addedTools === 1 ? '' : 's'} added to your review list`);
   if (next.addedComponents) parts.push(`${next.addedComponents} project package${next.addedComponents === 1 ? '' : 's'} added to your project plan. Choose a project folder before installing them`);
-  queueInterviewSuggestionsNoteElement.textContent = parts.length
-    ? `${parts.join('. ')}. Nothing is installed until you confirm.`
-    : 'These suggestions are already on your review list. Nothing is installed until you confirm.';
+  const alreadyLists = [];
+  if (next.alreadyTools) alreadyLists.push('your review list');
+  if (next.alreadyComponents) alreadyLists.push('your project plan');
+  const already = alreadyLists.length ? `already on ${alreadyLists.join(' and ')}` : '';
+  if (parts.length) {
+    const alreadyCount = next.alreadyTools + next.alreadyComponents;
+    const alreadyNote = alreadyCount ? ` ${alreadyCount} checked item${alreadyCount === 1 ? ' was' : 's were'} ${already}.` : '';
+    queueInterviewSuggestionsNoteElement.textContent = `${parts.join('. ')}.${alreadyNote} Nothing is installed until you confirm.`;
+  } else {
+    queueInterviewSuggestionsNoteElement.textContent = `The checked suggestions are ${already}. Nothing is installed until you confirm.`;
+  }
 }
 
 async function reportAnonymousSuccess() {
