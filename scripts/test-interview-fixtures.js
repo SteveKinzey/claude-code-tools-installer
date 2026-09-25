@@ -99,7 +99,7 @@ const cases = [
       firstVersion: 'Let parents book a lesson time and get an email confirmation',
       constraints: 'Must work on phones. Payments maybe later.',
     },
-    mustNotAppear: ['ePayco', 'OxaPay', 'QuiCK', 'Idempotency Keys', ...HARNESS_AND_REFERENCE],
+    mustNotAppear: ['ePayco', 'OxaPay', 'QuiCK', 'Idempotency Keys', 'Conflict Free Counter', ...HARNESS_AND_REFERENCE],
   },
   {
     label: 'hiking club newsletter, full interview',

@@ -102,8 +102,9 @@ function scoreAnswer(entry, answer, index) {
     if (fieldWeight) {
       score += fieldWeight * index.idf(word);
       matched.add(word);
-      // Saying an item's own name word ("blog", "chat") is stronger evidence than a stray match.
-      if (!index.isCommon(word)) evidence += entry.nameWords.includes(word) ? 2 : 1;
+      // Saying what the item is ("blog" for Basic Blog, "chat" for Chat) is stronger evidence than
+      // a stray match, so the head noun of its name counts twice ("free" in Conflict Free Counter does not).
+      if (!index.isCommon(word)) evidence += word === entry.nameWords[entry.nameWords.length - 1] ? 2 : 1;
     } else if (entry.category.has(word)) {
       score += CATEGORY_WEIGHT * index.idf(word);
     }
