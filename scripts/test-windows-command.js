@@ -41,14 +41,20 @@ assert.deepEqual(
 );
 
 const { quoteCommand } = require(path.join(__dirname, '..', 'desktop', 'src', 'windows-command.js'));
-assert.equal(quoteCommand('npm.cmd'), '"npm.cmd"', 'the command token is always quoted');
+assert.equal(quoteCommand('npm.cmd'), 'npm.cmd', 'a bare name stays unquoted so its %~dp0 still resolves to its own folder');
+assert.equal(quoteCommand('C:\\Tools\\npm.cmd'), 'C:\\Tools\\npm.cmd');
+assert.equal(quoteCommand('C:/x/npm.cmd'), '"C:/x/npm.cmd"', 'a / ends an unquoted command name, so it is quoted');
 assert.equal(quoteCommand('C:\\a,b\\claude.cmd'), '"C:\\a,b\\claude.cmd"');
+
+for (const control of ['a\tb', 'a\u007fb', 'a\u001bb']) {
+  assert.throws(() => cmdQuote(control), (error) => error.code === 'UNSAFE_WINDOWS_ARGUMENT', `${JSON.stringify(control)} must be refused`);
+}
 
 // 2. spawnSafely decisions, with a recording spawn so nothing runs.
 const calls = [];
 const recordSpawn = (command, args, options) => { calls.push({ command, args, options }); return { recorded: true }; };
 spawnSafely('npm.cmd', ['uninstall', 'x&calc'], { cwd: 'C:\\p' }, { platform: 'win32', spawn: recordSpawn });
-assert.deepEqual(calls.pop(), { command: '"npm.cmd" uninstall "x&calc"', args: [], options: { cwd: 'C:\\p', shell: true } }, 'a Windows .cmd target must run through cmd.exe with every argument quoted');
+assert.deepEqual(calls.pop(), { command: 'npm.cmd uninstall "x&calc"', args: [], options: { cwd: 'C:\\p', shell: true } }, 'a Windows .cmd target must run through cmd.exe with every argument quoted');
 spawnSafely('C:\\Users\\Jane Doe\\claude.CMD', ['--version'], {}, { platform: 'win32', spawn: recordSpawn });
 assert.equal(calls.pop().command, '"C:\\Users\\Jane Doe\\claude.CMD" --version', 'a .cmd path with a space must be quoted');
 spawnSafely('C:\\Program Files\\Claude\\claude.exe', ['a&b'], { windowsHide: true }, { platform: 'win32', spawn: recordSpawn });

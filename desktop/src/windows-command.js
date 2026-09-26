@@ -26,7 +26,8 @@ const childProcess = require('node:child_process');
 
 const PLAIN_TOKEN = /^[A-Za-z0-9._@:/\\=+,-]+$/;
 // eslint-disable-next-line no-control-regex
-const UNSAFE_CHARACTERS = /["%!\r\n\0]/;
+// eslint-disable-next-line no-control-regex
+const UNSAFE_CHARACTERS = /["%!\u0000-\u001f\u007f]/;
 
 function unsafeArgumentError(reason) {
   const error = new Error(`CCTI stopped this command because ${reason}. Windows cannot pass it to a command script safely.`);
@@ -36,16 +37,22 @@ function unsafeArgumentError(reason) {
 
 function cmdQuote(value) {
   if (typeof value !== 'string') throw unsafeArgumentError('one of its values is not text');
-  if (UNSAFE_CHARACTERS.test(value)) throw unsafeArgumentError('one of its values contains a quote, %, !, or a line break');
+  if (UNSAFE_CHARACTERS.test(value)) throw unsafeArgumentError('one of its values contains a quote, %, !, or a hidden control character');
   if (PLAIN_TOKEN.test(value)) return value;
   return `"${value.replace(/(\\+)$/, '$1$1')}"`;
 }
 
-// The command token is always quoted: cmd.exe ends an unquoted command name at `/ , ; =`, so a
-// path such as `C:\a,b\claude.cmd` would otherwise fail to launch.
+// The command token is quoted whenever it contains anything beyond letters, digits, `. _ @ - :`
+// and `\`: cmd.exe ends an unquoted command name at `/ , ; = +` and spaces, so a path such as
+// `C:\a,b\claude.cmd` would otherwise fail to launch. A bare name such as `npm.cmd` is left
+// unquoted on purpose: when cmd.exe finds a *quoted* bare name on the PATH, the script's own
+// `%~dp0` resolves to the working directory instead of the script's folder, and npm.cmd uses
+// `%~dp0` to find npm itself.
+const PLAIN_COMMAND = /^[A-Za-z0-9._@:\\-]+$/;
 function quoteCommand(command) {
   const quoted = cmdQuote(command);
-  return quoted.startsWith('"') ? quoted : `"${quoted}"`;
+  if (quoted.startsWith('"') || PLAIN_COMMAND.test(quoted)) return quoted;
+  return `"${quoted}"`;
 }
 
 function windowsShellInvocation(command, args) {
