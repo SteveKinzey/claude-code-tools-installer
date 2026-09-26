@@ -44,7 +44,7 @@
     "project-interview:check": "node ../scripts/test-project-interview.js",
     "tool-matcher:check": "node ../scripts/test-tool-matcher.js",
     "interview-fixtures:check": "node ../scripts/test-interview-fixtures.js",
-    "inventory:check": "node ../scripts/test-inventory-tracked-items.js && node ../scripts/test-inventory-scanner.js && node ../scripts/test-inventory-ledger.js && node ../scripts/test-inventory-reconcile.js && node ../scripts/test-inventory-manage-view.js",
+    "inventory:check": "node ../scripts/test-inventory-tracked-items.js && node ../scripts/test-inventory-scanner.js && node ../scripts/test-inventory-ledger.js && node ../scripts/test-inventory-reconcile.js && node ../scripts/test-inventory-manage-view.js && node ../scripts/test-inventory-main.js",
     "release-drift:check": "node ../scripts/test-release-artifact-drift.js",
     "release-workflows:check": "node ../scripts/test-release-workflow-safety.js",
     "linux-release-workflow:check": "node ../scripts/test-linux-release-workflow.js",

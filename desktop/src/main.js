@@ -5,6 +5,10 @@ const { createHash, randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
 const { comparePackageVersions, parsePackageVersion, parseReleaseIdentity } = require('./release-identity');
+const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
+const { buildScan } = require('./inventory/scanner');
+const { createLedgerStore, newlyInstalledEntries, skillBackupResolutions } = require('./inventory/ledger');
+const { reconcileInventory } = require('./inventory/reconcile');
 
 if (process.env.CCTI_ELECTRON_TEST === '1' && process.env.CCTI_TEST_HOME) {
   app.setPath('home', path.resolve(process.env.CCTI_TEST_HOME));
@@ -83,6 +87,13 @@ function managedExtrasManifestPath() {
 
 function terminalPreferencePath() {
   return path.join(app.getPath('userData'), 'terminal-preference.json');
+}
+
+let inventoryStore = null;
+
+function inventoryLedger() {
+  if (!inventoryStore) inventoryStore = createLedgerStore(path.join(app.getPath('userData'), 'inventory.json'));
+  return inventoryStore;
 }
 
 function macBundlePaths(bundleName) {
@@ -940,6 +951,60 @@ async function installReviewedPlugins(selectedIds) {
       if (result.code !== 0 && args[1] !== 'marketplace') throw new Error(`CCTI could not install ${id}. Claude Code returned exit code ${result.code}.`);
       if (result.code !== 0) emit('installer:output', { stream: 'stdout', text: '[CCTI] Marketplace was already available or could not refresh. Continuing with the named plugin install.\n' });
     }
+  }
+}
+
+async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '' } = {}) {
+  const tracked = [...new Set(ids)].map((id) => [id, trackedItem(id)]).filter(([, item]) => item);
+  const present = new Set();
+  if (tracked.length === 0) return present;
+  const skillRoot = skillScope === 'project' && projectPath
+    ? path.join(projectPath, '.claude', 'skills')
+    : path.join(app.getPath('home'), '.claude', 'skills');
+  const claude = await claudeStatus();
+  const pluginIds = tracked.some(([, item]) => item.kind === 'plugin') ? await installedClaudePluginIds() : [];
+  for (const [id, item] of tracked) {
+    if (item.kind === 'skill' && await pathExists(path.join(skillRoot, item.key, 'SKILL.md'))) present.add(id);
+    if (item.kind === 'plugin' && pluginIsInstalled(pluginIds, item.key)) present.add(id);
+    if (item.kind === 'mcp' && await configuredMcpReady(item.key, claude)) present.add(id);
+  }
+  return present;
+}
+
+async function recordCctiInstalls(ids, before, scope = {}) {
+  try {
+    const after = await presentTrackedItems(ids, scope);
+    const entries = newlyInstalledEntries(ids, before, after, { tracked: TRACKED_ITEMS, catalog: await readCatalog(), skillScope: scope.skillScope, projectPath: scope.projectPath });
+    if (entries.length > 0) await inventoryLedger().recordInstalls(entries);
+  } catch (error) {
+    emit('installer:output', { stream: 'stderr', text: `[CCTI] Your tools were installed, but CCTI could not update its record of them: ${error.message}. Check this computer again to see them.\n` });
+  }
+}
+
+async function recordSkillResolutions(moves, projectPath = '') {
+  if (!Array.isArray(moves) || moves.length === 0) return;
+  try {
+    await inventoryLedger().recordResolutions(skillBackupResolutions(moves, { projectPath }));
+  } catch {
+    // The record is advisory. The backup move already succeeded and is shown to the user.
+  }
+}
+
+async function inventoryFromScan(scan) {
+  try {
+    const [history, catalog] = await Promise.all([inventoryLedger().read(), readCatalog()]);
+    return reconcileInventory({ scan, ledger: history.ledger, ledgerStatus: history.status, catalog, tracked: TRACKED_ITEMS });
+  } catch {
+    return null;
+  }
+}
+
+async function resetInventoryHistory() {
+  try {
+    const result = await inventoryLedger().reset();
+    return { ok: true, preserved: Boolean(result.preservedAs) };
+  } catch {
+    return { ok: false, error: 'CCTI could not start a fresh record. Nothing else changed. Restart CCTI and try again.' };
   }
 }
 
@@ -2262,12 +2327,16 @@ async function discoverClaudeSetup(projectPath = '') {
   findings.push(...await listRestorableSkillBackups(resolvedProjectPath));
 
   const claude = await claudeStatus();
+  let pluginList = null;
+  let mcpList = null;
   if (claude.installed) {
     const claudeCommand = claude.path || 'claude';
     const [plugins, connections] = await Promise.all([
       runProcess(claudeCommand, ['plugin', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
       runProcess(claudeCommand, ['mcp', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
     ]);
+    pluginList = { ok: plugins.code === 0, text: plugins.stdout || '' };
+    mcpList = { ok: connections.code === 0, text: connections.stdout || '' };
     if (plugins.code === 0) plugins.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).forEach((name) => findings.push({ id: `plugin-cli:${name}`, type: 'plugin', name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
     if (connections.code === 0) connections.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/)[0]).filter(Boolean).forEach((name) => findings.push({ id: `connection-cli:${name}`, type: 'connection', name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
   }
@@ -2350,6 +2419,7 @@ async function discoverClaudeSetup(projectPath = '') {
     projectPath: resolvedProjectPath,
     findings: uniqueFindings,
     duplicates,
+    inventory: await inventoryFromScan(buildScan({ findings: uniqueFindings, pluginList, mcpList, projectPath: resolvedProjectPath })),
     managedExtras: {
       actionCount: managedExtras.actions.length,
       manualCount: managedExtras.manualItems.length,
@@ -2801,8 +2871,10 @@ async function applyCleanup({ reviewId }) {
     await fs.access(path.join(plan.source, 'SKILL.md'));
     await fs.mkdir(path.dirname(plan.destination), { recursive: true });
     await fs.rename(plan.source, plan.destination);
-    discoveredSkillCleanup.get(plan.discoveryId)?.skills.delete(plan.findingId);
+    const cleanupReport = discoveredSkillCleanup.get(plan.discoveryId);
+    cleanupReport?.skills.delete(plan.findingId);
     reviewedCleanupPlans.delete(reviewId);
+    await recordSkillResolutions(plan.moves, cleanupReport?.projectPath || '');
     return { ok: true, message: 'The selected skill was moved to a backup folder. No other settings were changed.' };
   } catch {
     return { ok: false, error: 'The selected skill could not be moved. It may already be gone or no longer be a skill folder.' };
@@ -2902,6 +2974,7 @@ async function applyAllDuplicateSkills({ reviewId } = {}) {
         : 'CCTI could not move the reviewed duplicate skills. Nothing was deleted.',
     };
   } finally {
+    if (moved.length > 0) await recordSkillResolutions(moved, report.projectPath);
     activeSkillCleanup = false;
   }
 }
@@ -3242,6 +3315,8 @@ app.whenReady().then(async () => {
     }
     activeInstall = true;
     emit('installer:state', { running: true });
+    const trackedIds = Object.keys(TRACKED_ITEMS);
+    const trackedBefore = fresh ? new Set() : await presentTrackedItems(trackedIds, setupScope).catch(() => null);
     try {
       const result = await spawnInstaller(fresh ? 'fresh-complete' : 'complete', [], false, setupScope);
       const after = await claudeStatus();
@@ -3271,6 +3346,7 @@ app.whenReady().then(async () => {
     } catch (error) {
       return { ok: false, error: error.message, installed: false, version: '' };
     } finally {
+      if (trackedBefore) await recordCctiInstalls(trackedIds, trackedBefore, setupScope);
       activeInstall = false;
       emit('installer:state', { running: false });
     }
@@ -3284,7 +3360,9 @@ app.whenReady().then(async () => {
 
     activeInstall = true;
     emit('installer:state', { running: true });
+    let trackedBefore = null;
     try {
+      if (!dryRun) trackedBefore = await presentTrackedItems(selectedIds).catch(() => null);
       const reviewedPluginIds = selectedIds.filter((id) => Object.prototype.hasOwnProperty.call(reviewedPluginPlans, id));
       const adapterIds = selectedIds.filter((id) => !Object.prototype.hasOwnProperty.call(reviewedPluginPlans, id));
       const result = adapterIds.length > 0
@@ -3298,6 +3376,7 @@ app.whenReady().then(async () => {
     } catch (error) {
       return { ok: false, error: error.message };
     } finally {
+      if (trackedBefore) await recordCctiInstalls(selectedIds, trackedBefore);
       activeInstall = false;
       emit('installer:state', { running: false });
     }
@@ -3379,6 +3458,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('telemetry:report-setup-success', async (_event, payload) => reportAnonymousSetupSuccess(payload));
+  ipcMain.handle('inventory:reset-history', async () => resetInventoryHistory());
   ipcMain.handle('setup-manager:review-plugin-change', async (_event, payload) => reviewPluginChange(payload));
   ipcMain.handle('setup-manager:apply-plugin-change', async (_event, payload) => applyPluginChange(payload));
   ipcMain.handle('setup-manager:review-project-package-removal', async (_event, payload) => reviewProjectPackageRemoval(payload || {}));
