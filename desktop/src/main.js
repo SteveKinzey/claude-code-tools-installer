@@ -2441,7 +2441,7 @@ async function discoverClaudeSetup(projectPath = '') {
       type: items[0].type,
       match: 'name',
       items,
-      explanation: 'This name appears in more than one Claude Code location. It is an informational name overlap; CCTI does not clean up add-ons or connections here.',
+      explanation: 'This name appears in more than one place. Where the copies are identical, Resolve in “Your skills, add-ons, and connections” removes the extra one; otherwise it’s listed for your information.',
     })),
   ];
   const discoveryId = randomUUID();
@@ -2504,7 +2504,7 @@ async function discoverClaudeSetup(projectPath = '') {
 // that never leave the main process.
 const RESOLUTION_REFUSALS = {
   'needs-choice': 'Choose which copy to keep first.',
-  'invalid-choice': 'CCTI only keeps the copy Claude Code uses for this one.',
+  'invalid-choice': 'CCTI only removes the extra copy for this one, so everything keeps working.',
   'nothing-to-do': 'There is only one copy now. Nothing needs to change.',
 };
 // Why an informational duplicate is left alone. Each says what to do, if anything.
@@ -2512,7 +2512,7 @@ const INFORMATIONAL_REASONS = {
   'different-setup': 'These are set up differently, so CCTI won’t change them. Nothing needs to be done here.',
   'team-shared': 'One copy is shared with everyone on this project, so CCTI won’t change it. Nothing needs to be done here.',
   'separate-folders': 'These copies are saved for different folders, so they don’t conflict. Nothing needs to change.',
-  'project-unknown': 'One copy belongs to a project. Choose that project and check this computer again to resolve it.',
+  'project-unknown': 'One copy is saved for a specific folder. Choose that folder with “Also check a project” so CCTI can see it, then check again.',
 };
 const KEEPER_REACH = { user: 'you everywhere', local: 'you in this folder', project: 'everyone on this project' };
 const ACTION_LOCKED = 'Another CCTI action is running. Wait for it to finish, then try again.';

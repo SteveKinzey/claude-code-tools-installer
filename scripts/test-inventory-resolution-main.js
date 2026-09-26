@@ -296,7 +296,7 @@ async function run() {
   await setFakeClaude({ userMcp: realWorldUser, localMcp: realWorldLocal });
   report = await discover(null, {});
   const wrongKeep = await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:playwright', keep: 0 });
-  assert.deepEqual(wrongKeep, { ok: false, error: 'CCTI only keeps the copy Claude Code uses for this one.' });
+  assert.deepEqual(wrongKeep, { ok: false, error: 'CCTI only removes the extra copy for this one, so everything keeps working.' });
   assert.deepEqual(await changingCalls(), []);
 
   // Case 5: an unreadable ~/.claude.json never breaks discovery; there are just no
