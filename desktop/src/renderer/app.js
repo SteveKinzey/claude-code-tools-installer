@@ -1904,9 +1904,7 @@ function renderToolInventory(inventory) {
     group.className = 'tool-inventory-group';
     const heading = document.createElement('h4');
     heading.textContent = section.title;
-    const list = document.createElement('ul');
-    list.className = 'tool-inventory-rows';
-    list.append(...section.rows.map((row) => {
+    const buildRow = (row) => {
       const item = document.createElement('li');
       item.className = `tool-inventory-row tool-inventory-${row.tone}`;
       const name = document.createElement('strong');
@@ -1927,8 +1925,22 @@ function renderToolInventory(inventory) {
         item.append(button);
       }
       return item;
-    }));
+    };
+    const list = document.createElement('ul');
+    list.className = 'tool-inventory-rows';
+    list.append(...section.rows.map(buildRow));
     group.append(heading, list);
+    if (section.foldedRows.length) {
+      const folded = document.createElement('details');
+      folded.className = 'tool-inventory-folded';
+      const summary = document.createElement('summary');
+      summary.textContent = section.foldedLabel;
+      const foldedList = document.createElement('ul');
+      foldedList.className = 'tool-inventory-rows';
+      foldedList.append(...section.foldedRows.map(buildRow));
+      folded.append(summary, foldedList);
+      group.append(folded);
+    }
     return group;
   }));
 }
@@ -1956,6 +1968,9 @@ async function runInventoryAction(action, name, button) {
     toolInventoryStatusElement.textContent = result.ok
       ? `${tool.name} was reinstalled.`
       : `${tool.name} could not be reinstalled. Open the activity details to see what happened, then select Reinstall again.`;
+  } catch (error) {
+    toolInventoryStatusElement.textContent = `${tool.name} could not be reinstalled. Open the activity details to see what happened, then select Reinstall again.`;
+    appendOutput(`[Manage] ${error?.message || 'The reinstall request failed.'}\n`, 'stderr');
   } finally {
     state.running = false;
     updateSummary();
@@ -1964,6 +1979,7 @@ async function runInventoryAction(action, name, button) {
 }
 
 async function resetToolInventoryRecord() {
+  if (state.running) return;
   toolInventoryResetButton.disabled = true;
   try {
     const result = await window.installer.resetInventoryHistory();

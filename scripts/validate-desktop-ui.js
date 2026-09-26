@@ -317,6 +317,9 @@ const inventoryContract = [
   [/action\.type !== 'reinstall'[\s\S]*?window\.confirm\([\s\S]*?window\.installer\.runInstall\(\{ selectedIds: \[tool\.id\]/.test(renderer), 'Reinstall must confirm, then use the existing install path for that one tool'],
   [/action\.type === 'resolve'[\s\S]*?openDuplicateSkillDialog\(/.test(renderer), 'Resolve must open the existing reviewed duplicate flow'],
   [main.includes("ipcMain.handle('inventory:reset-history'"), 'main must handle inventory:reset-history'],
+  [/section\.foldedRows/.test(renderer) && /document\.createElement\('details'\)/.test(renderer), 'rows you already had must render folded inside a details element'],
+  [/async function runInventoryAction[\s\S]*?catch \(error\)[\s\S]*?Open the activity details/.test(renderer), 'a failed Reinstall call must tell the user what to do next'],
+  [/async function resetToolInventoryRecord\(\) \{\s*if \(state\.running\) return;/.test(renderer), 'reset must not run while an install is running'],
 ];
 for (const [ok, message] of inventoryContract) if (!ok) throw new Error(message);
 
