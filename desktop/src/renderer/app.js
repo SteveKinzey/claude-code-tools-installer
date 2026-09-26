@@ -1919,7 +1919,7 @@ function openResolveDuplicateDialog(action, name, button) {
   resolveDuplicateDialogHeadingElement.textContent = `Resolve ${name}`;
   resolveDuplicateDialogCopyElement.textContent = action.needsChoice
     ? `Choose which copy of ${name} to keep. CCTI turns off the others; nothing is uninstalled, so you can turn one back on later.`
-    : `Claude Code uses the copy saved for ${action.options[action.keeper]}. Resolve removes the other ${action.options.length - 1 === 1 ? 'copy' : 'copies'}.`;
+    : `These copies are identical. CCTI keeps the one saved for ${action.options[action.keeper]} and removes the extra ${action.options.length - 1 === 1 ? 'copy' : 'copies'}, so nothing stops working.`;
   resolveDuplicateDialogChoiceElement.hidden = !action.needsChoice;
   resolveDuplicateDialogOptionsElement.replaceChildren();
   reviewResolveDuplicateButton.disabled = Boolean(action.needsChoice);
@@ -1998,6 +1998,19 @@ async function applyResolveDuplicateChanges() {
       return;
     }
     if (result.changed) {
+      // Between review and apply the group can turn informational (for example, a second
+      // copy was edited so the copies are no longer identical). There is nothing left to
+      // resolve, so name the reason instead of the generic "changed" message and offer no action.
+      if (result.informational) {
+        resolveDuplicateDialogStatusElement.textContent = result.informational.message || result.error;
+        state.resolveDuplicate = { ...pending, reviewId: null };
+        renderResolveDuplicateChanges([]);
+        resolveDuplicateDialogChangesElement.hidden = true;
+        reviewResolveDuplicateButton.hidden = true;
+        applyResolveDuplicateButton.hidden = true;
+        applyResolveDuplicateButton.disabled = true;
+        return;
+      }
       resolveDuplicateDialogStatusElement.textContent = result.error;
       if (result.review) {
         state.resolveDuplicate = { ...pending, reviewId: result.review.reviewId };

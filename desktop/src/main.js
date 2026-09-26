@@ -2660,7 +2660,8 @@ async function applyResolution({ reviewId } = {}) {
         return { ok: false, changed: true, error: 'This changed since you looked at it, so nothing was changed. It no longer has more than one copy, so nothing needs to change.', review: null, resolution: null };
       }
       // Re-plan with the same keeper when that copy is still there. A fixed keeper is
-      // whatever Claude Code uses now; a chosen add-on copy is matched by identity, not position.
+      // whichever copy the rebuilt group's rule now picks (the broadest-reach identical
+      // connection copy); a chosen add-on copy is matched by identity, not position.
       const keptIndex = rebuilt.needsChoice ? rebuilt.copies.findIndex((copy) => sameCopy(copy, plan.keep)) : -1;
       const next = createResolutionReview({ discoveryId: review.discoveryId, report, group: rebuilt, keep: keptIndex >= 0 ? keptIndex : undefined });
       return {

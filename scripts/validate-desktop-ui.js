@@ -327,6 +327,8 @@ const inventoryContract = [
   [/reviewResolveDuplicateButton\.disabled = Boolean\(action\.needsChoice\)/.test(renderer), 'the confirm button must start disabled until a copy is chosen when a choice is needed'],
   [/action\.type === 'resolve-duplicate'[\s\S]*?openResolveDuplicateDialog\(/.test(renderer), 'Resolve on a duplicate add-on or connection must open the Resolve dialog'],
   [main.includes("ipcMain.handle('inventory:review-resolution'") && main.includes("ipcMain.handle('inventory:apply-resolution'"), 'main must handle both duplicate-resolution IPC channels'],
+  [renderer.includes('These copies are identical. CCTI keeps the one saved for ${action.options[action.keeper]} and removes the extra'), 'the fixed-keeper Resolve dialog intro must not claim Claude Code itself uses the kept copy, since the keeper is the broadest-reach identical copy, not the per-folder winner'],
+  [/if \(result\.informational\) \{\s*resolveDuplicateDialogStatusElement\.textContent = result\.informational\.message \|\| result\.error;[\s\S]{0,300}applyResolveDuplicateButton\.hidden = true;/.test(renderer), 'a duplicate resolution that turned informational since review must show that reason and stop offering Make these changes'],
 ];
 for (const [ok, message] of inventoryContract) if (!ok) throw new Error(message);
 

@@ -79,4 +79,4 @@ assert.ok(compareSkillKeeper(newer, older) < 0, 'within one scope the newer copy
 
 assert.deepEqual(mcpDuplicateGroups([]), []);
 assert.deepEqual(pluginDuplicateGroups(undefined), []);
-console.log('Inventory duplicates passed: documented MCP precedence, add-on choice, and the personal-first skill keeper.');
+console.log('Inventory duplicates passed: broadest-reach keeper for identical connections, informational reasons, synced add-ons excluded, add-on choice, and the personal-first skill keeper.');

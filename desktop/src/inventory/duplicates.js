@@ -1,7 +1,16 @@
-// The one place CCTI encodes which duplicate Claude Code actually uses. Every rule
-// here is documented; see docs/claude-code-precedence-2026-09-26.md. Where Claude
-// Code documents no rule (the same add-on from two marketplaces), CCTI does not
-// guess: the group needs the user's choice. Pure.
+// The one place CCTI encodes duplicate rules for connections, add-ons, and skills. See
+// docs/claude-code-precedence-2026-09-26.md for the documented runtime order: local beats
+// project beats user for a connection inside one folder, and a personal skill beats a
+// project skill. CCTI never removes the copy Claude Code resolves at runtime, because a
+// local or project connection applies only in its own folder while a user copy applies
+// everywhere; identical local/user connection copies instead keep the broadest-reach copy
+// (user) and remove the narrower one, so nothing stops working anywhere. A group is left
+// alone (informational) when its copies are set up differently, when a project copy is
+// involved (team-shared: .mcp.json is shared with the team), or when local copies belong to
+// different folders that never meet (separate-folders) or to a folder CCTI can't identify
+// (project-unknown). Claude.ai-synced add-ons never join a group. Where Claude Code
+// documents no rule (the same add-on enabled from two marketplaces), CCTI does not guess:
+// the group needs the user's choice. Pure.
 
 const MCP_SCOPE_PRECEDENCE = ['local', 'project', 'user'];
 const SKILL_SCOPE_PRECEDENCE = ['Just you', 'This project'];
