@@ -7,7 +7,7 @@ const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = r
 const { comparePackageVersions, parsePackageVersion, parseReleaseIdentity } = require('./release-identity');
 const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
 const { buildScan } = require('./inventory/scanner');
-const { createLedgerStore, newlyInstalledEntries, skillBackupResolutions } = require('./inventory/ledger');
+const { createLedgerStore, newlyInstalledEntries, skillBackupResolutions, extrasRemovalResolutions } = require('./inventory/ledger');
 const { reconcileInventory } = require('./inventory/reconcile');
 
 if (process.env.CCTI_ELECTRON_TEST === '1' && process.env.CCTI_TEST_HOME) {
@@ -1039,6 +1039,15 @@ async function recordSkillResolutions(moves, projectPath = '') {
     await inventoryLedger().recordResolutions(skillBackupResolutions(moves, { projectPath }));
   } catch {
     // The record is advisory. The backup move already succeeded and is shown to the user.
+  }
+}
+
+async function recordExtrasRemovals(actions) {
+  try {
+    const resolutions = extrasRemovalResolutions(actions, { tracked: TRACKED_ITEMS });
+    if (resolutions.length > 0) await inventoryLedger().recordResolutions(resolutions);
+  } catch {
+    // The record is advisory. The removal itself already happened and is reported to the user.
   }
 }
 
@@ -2684,6 +2693,7 @@ async function applyManagedExtrasRemoval({ reviewId, confirmation }) {
   if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) return { ok: false, error: 'This managed extras review has expired. Run the checkup again.' };
   if (confirmation !== 'REMOVE CCTI EXTRAS') return { ok: false, error: 'Type REMOVE CCTI EXTRAS exactly to remove the reviewed items.' };
   if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'Another CCTI action is running. Wait for it to finish before removing CCTI-managed extras.' };
+  const completedActions = [];
   try {
     const currentManifest = await managedExtrasFromManifest();
     if (currentManifest.digest !== plan.digest) return { ok: false, error: 'The CCTI managed extras list changed after review. Run the checkup again before removing it.' };
@@ -2711,6 +2721,7 @@ async function applyManagedExtrasRemoval({ reviewId, confirmation }) {
         }
       }
       action.lines.forEach((line) => completedLines.add(line));
+      completedActions.push(action);
     }
     const remaining = currentManifest.source.split(/\r?\n/).filter((line) => line && !completedLines.has(line));
     await fs.writeFile(plan.manifestPath, remaining.length ? `${remaining.join('\n')}\n` : '', 'utf8');
@@ -2720,6 +2731,8 @@ async function applyManagedExtrasRemoval({ reviewId, confirmation }) {
   } catch (error) {
     return { ok: false, error: `CCTI could not remove the reviewed managed extras: ${error.message}` };
   } finally {
+    // Runs on early returns too, so removals that completed before a failure are recorded.
+    await recordExtrasRemovals(completedActions);
     activeInstall = false;
     emit('installer:state', { running: false });
   }

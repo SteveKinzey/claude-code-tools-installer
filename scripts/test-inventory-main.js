@@ -78,6 +78,12 @@ if (a === 'mcp' && b === 'list') {
   process.exit(0);
 }
 if (a === 'mcp' && b === 'get') process.exit(state.mcp.includes(c) ? 0 : 1);
+if (a === 'mcp' && b === 'remove') {
+  if ((state.mcpRemoveFails || []).includes(c)) { console.error('could not remove ' + c); process.exit(1); }
+  state.mcp = state.mcp.filter((name) => name !== c);
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  process.exit(0);
+}
 process.exit(0);
 }
 `;
@@ -88,7 +94,7 @@ async function writeSkill(folder, body = '# Skill\n') {
 }
 
 async function setFakeClaude(state) {
-  await fsp.writeFile(fakeState, JSON.stringify({ plugins: [], mcp: [], mcpFails: false, pluginListFailsOnce: false, versionHangsOnce: false, ...state }), 'utf8');
+  await fsp.writeFile(fakeState, JSON.stringify({ plugins: [], mcp: [], mcpFails: false, pluginListFailsOnce: false, versionHangsOnce: false, mcpRemoveFails: [], ...state }), 'utf8');
 }
 
 async function installFakeClaude() {
@@ -210,7 +216,48 @@ async function run() {
   report = await discover(null, {});
   assert.equal(report.inventory.historyStatus, 'ok');
 
-  console.log('Inventory main wiring passed: discovery rows, unobserved connections, backup resolutions, verified install recording, and record reset.');
+  // Final review, finding 2: removing CCTI's extras (typed confirmation) records a 'remove'
+  // resolution for each tracked skill and MCP connection it actually removed, so they do not
+  // come back as Missing. A removal that stops partway records only what completed.
+  const skillsRoot = path.join(home, '.claude', 'skills');
+  await writeSkill(path.join(skillsRoot, 'graphify'));
+  await setFakeClaude({ plugins: [], mcp: ['playwright', 'repomix'], mcpRemoveFails: ['repomix'] });
+  await fsp.writeFile(ledgerFile, JSON.stringify({
+    schemaVersion: 1,
+    entries: [
+      entry('planning-with-files', 'skill', 'planning-with-files'),
+      entry('graphify', 'skill', 'graphify'),
+      entry('playwright-mcp', 'mcp', 'playwright'),
+      entry('repomix', 'mcp', 'repomix'),
+    ],
+    resolutions: [],
+  }), 'utf8');
+  const manifestFile = path.join(home, '.setup-my-claude', 'manifest.tsv');
+  await fsp.mkdir(path.dirname(manifestFile), { recursive: true });
+  await fsp.writeFile(manifestFile, [
+    ['2026-09-14T10:00:00Z', 'skill', path.join(skillsRoot, 'planning-with-files'), '-', 'planning-with-files'],
+    ['2026-09-14T10:00:00Z', 'mcp', 'playwright', '-', 'playwright-mcp'],
+    ['2026-09-14T10:00:00Z', 'mcp', 'repomix', '-', 'repomix'],
+    ['2026-09-14T10:00:00Z', 'skill', path.join(skillsRoot, 'graphify'), '-', 'graphify'],
+  ].map((fields) => fields.join('\t')).join('\n') + '\n', 'utf8');
+  const extrasReview = await handlers.get('setup-manager:review-managed-extras-removal')(null);
+  assert.equal(extrasReview.ok, true, extrasReview.error);
+  assert.equal(extrasReview.actions.length, 4);
+  const extrasRemoval = await handlers.get('setup-manager:apply-managed-extras-removal')(null, { reviewId: extrasReview.reviewId, confirmation: 'REMOVE CCTI EXTRAS' });
+  assert.equal(extrasRemoval.ok, false, 'the repomix removal fails, so the removal stops partway');
+  assert.equal(extrasRemoval.removedCount, 2);
+  const afterRemoval = JSON.parse(await fsp.readFile(ledgerFile, 'utf8'));
+  assert.deepEqual(afterRemoval.resolutions.map((item) => [item.kind, item.key, item.scope, item.projectPath, item.action]), [
+    ['skill', 'planning-with-files', 'user', '', 'remove'],
+    ['mcp', 'playwright', 'user', '', 'remove'],
+  ], 'only the removals that completed are recorded');
+  report = await discover(null, {});
+  assert.equal(rowFor(report, 'planning-with-files'), undefined, 'a deliberately removed skill is not Missing');
+  assert.equal(rowFor(report, 'playwright'), undefined, 'a deliberately removed connection is not Missing');
+  assert.equal(rowFor(report, 'repomix').state, 'installed', 'the connection that failed to remove is still there');
+  assert.equal(rowFor(report, 'graphify').state, 'installed', 'the skill after the failure was never touched');
+
+  console.log('Inventory main wiring passed: discovery rows, unobserved connections, backup resolutions, verified install recording, record reset, and extras removal.');
 }
 
 run()

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { SCHEMA_VERSION, emptyLedger, parseLedger, newlyInstalledEntries, skillBackupResolutions, createLedgerStore } = require('../desktop/src/inventory/ledger');
+const { SCHEMA_VERSION, emptyLedger, parseLedger, newlyInstalledEntries, skillBackupResolutions, extrasRemovalResolutions, createLedgerStore } = require('../desktop/src/inventory/ledger');
 
 const tracked = {
   'planning-with-files': { kind: 'skill', key: 'planning-with-files' },
@@ -51,6 +51,20 @@ async function run() {
     { kind: 'skill', key: 'planning-with-files', scope: 'project', projectPath: '/work/app', resolvedAt: now.toISOString(), action: 'backup', movedFrom: '/work/app/.claude/skills/planning-with-files', movedTo: '/backup/planning-with-files' },
     { kind: 'skill', key: 'graphify', scope: 'user', projectPath: '', resolvedAt: now.toISOString(), action: 'backup', movedFrom: '/h/.claude/skills/graphify', movedTo: '/backup/graphify' },
   ]);
+
+  // Final review, finding 2: removing CCTI's extras records what was deliberately removed.
+  assert.deepEqual(extrasRemovalResolutions([
+    { kind: 'skill', target: '/h/.claude/skills/planning-with-files', item: 'planning-with-files' },
+    { kind: 'mcp', target: 'playwright', item: 'playwright-mcp' },
+    { kind: 'npm-global', target: 'repomix', item: 'playwright-mcp' },
+    { kind: 'path', target: '/h/.claude/reference-repos/caveman', item: 'caveman' },
+    { kind: 'mcp', target: 'repomix', item: 'repomix' },
+  ], { tracked, now }), [
+    { kind: 'skill', key: 'planning-with-files', scope: 'user', projectPath: '', resolvedAt: now.toISOString(), action: 'remove', removed: '/h/.claude/skills/planning-with-files' },
+    { kind: 'mcp', key: 'playwright', scope: 'user', projectPath: '', resolvedAt: now.toISOString(), action: 'remove', removed: 'playwright' },
+  ], 'only tracked skill folders and MCP connections are recorded; a package line or untracked item is not');
+  assert.equal(extrasRemovalResolutions([{ kind: 'path', target: '/h/.claude/skills/planning-with-files', item: 'planning-with-files' }], { tracked, now })[0].key, 'planning-with-files', 'a path line for a tracked skill folder counts as removing that skill');
+  assert.deepEqual(extrasRemovalResolutions(undefined, { tracked, now }), []);
 
   // Store.
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccti-ledger-test-'));

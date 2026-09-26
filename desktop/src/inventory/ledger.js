@@ -71,6 +71,31 @@ function skillBackupResolutions(moves, { projectPath = '', now = new Date() } = 
   });
 }
 
+// Resolutions for CCTI-managed extras the user deliberately removed (typed confirmation),
+// so the next check does not show them as Missing. Takes the completed managed-extras
+// manifest actions ({ kind, target, item }). Only actions that removed a tracked skill folder
+// ('skill' or 'path' lines for a tracked skill) or a tracked MCP connection ('mcp' lines)
+// count; everything else is untracked. Manifest skill paths always live in ~/.claude/skills,
+// so skill resolutions are user scope.
+function extrasRemovalResolutions(actions, { tracked = {}, now = new Date() } = {}) {
+  return (Array.isArray(actions) ? actions : []).flatMap((action) => {
+    const item = action && Object.prototype.hasOwnProperty.call(tracked || {}, action.item) ? tracked[action.item] : null;
+    if (!item) return [];
+    const removesSkill = item.kind === 'skill' && (action.kind === 'skill' || action.kind === 'path');
+    const removesMcp = item.kind === 'mcp' && action.kind === 'mcp';
+    if (!removesSkill && !removesMcp) return [];
+    return [{
+      kind: item.kind,
+      key: item.key,
+      scope: 'user',
+      projectPath: '',
+      resolvedAt: now.toISOString(),
+      action: 'remove',
+      removed: String(action.target || ''),
+    }];
+  });
+}
+
 const entryIdentity = (entry) => [entry.id, entry.scope, entry.projectPath || ''].join('\u0000');
 
 function createLedgerStore(filePath, { now = () => new Date() } = {}) {
@@ -125,4 +150,4 @@ function createLedgerStore(filePath, { now = () => new Date() } = {}) {
   };
 }
 
-module.exports = { SCHEMA_VERSION, emptyLedger, parseLedger, newlyInstalledEntries, skillBackupResolutions, createLedgerStore };
+module.exports = { SCHEMA_VERSION, emptyLedger, parseLedger, newlyInstalledEntries, skillBackupResolutions, extrasRemovalResolutions, createLedgerStore };
