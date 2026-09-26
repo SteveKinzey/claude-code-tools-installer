@@ -5,19 +5,20 @@
 const PLUGIN_SCOPE_LABELS = { user: 'Just you', project: 'This project', local: 'Only you in this project' };
 
 function groupFingerprint(group) {
-  return JSON.stringify([group.kind, group.key, (group.copies || []).map((copy) => [copy.scope, copy.projectPath || '', copy.fingerprint || '', copy.id || ''])]);
+  return JSON.stringify([group.kind, group.key, (group.copies || []).map((copy) => [copy.name || '', copy.scope, copy.projectPath || '', copy.fingerprint || '', copy.originalId || copy.id || ''])]);
 }
 
-function changeFor(group, copy) {
+function changeFor(group, copy, keep) {
   if (group.kind === 'mcp') {
     return {
-      args: ['mcp', 'remove', group.name, '--scope', copy.scope],
+      // Each copy keeps its own spelling; the CLI matches the name as saved.
+      args: ['mcp', 'remove', copy.name || group.name, '--scope', copy.scope],
       label: `Remove the copy saved for ${copy.label}`,
-      undo: 'Add it again from the Claude Code tools list if you need it.',
+      undo: `The same connection is still saved for ${keep.label}, so nothing stops working.`,
     };
   }
   return {
-    args: ['plugin', 'disable', copy.id, '--scope', copy.scope],
+    args: ['plugin', 'disable', copy.originalId || copy.id, '--scope', copy.scope],
     label: `Turn off ${copy.marketplace}'s copy (${PLUGIN_SCOPE_LABELS[copy.scope] || copy.scope})`,
     undo: 'You can turn it back on later; nothing is uninstalled.',
   };
@@ -26,6 +27,7 @@ function changeFor(group, copy) {
 function planResolution(group, { keep } = {}) {
   const copies = Array.isArray(group?.copies) ? group.copies : [];
   if (copies.length < 2) return { ok: false, reason: 'nothing-to-do' };
+  if (group.informational) return { ok: false, reason: 'informational' };
   let keeper;
   if (group.needsChoice) {
     if (keep === undefined || keep === null) return { ok: false, reason: 'needs-choice' };
@@ -40,7 +42,7 @@ function planResolution(group, { keep } = {}) {
     kind: group.kind,
     name: group.name,
     keep: copies[keeper],
-    changes: copies.filter((_, index) => index !== keeper).map((copy) => changeFor(group, copy)),
+    changes: copies.filter((_, index) => index !== keeper).map((copy) => changeFor(group, copy, copies[keeper])),
     fingerprint: groupFingerprint(group),
   };
 }

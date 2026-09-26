@@ -2,29 +2,37 @@
 const assert = require('node:assert/strict');
 const { planResolution, groupFingerprint } = require('../desktop/src/inventory/resolvers');
 
-const mcp = { kind: 'mcp', key: 'playwright', name: 'playwright', keeper: 0, needsChoice: false, identical: true, copies: [
-  { scope: 'local', projectPath: '/Users/me', fingerprint: 'a', label: 'Only you, in this folder' },
-  { scope: 'user', projectPath: '', fingerprint: 'a', label: 'Just you, everywhere' },
+// Identical copies at home-local and user: keep the user copy (applies everywhere) and remove
+// the narrower local copy, so behavior is unchanged everywhere.
+const mcp = { kind: 'mcp', key: 'playwright', name: 'playwright', keeper: 1, needsChoice: false, identical: true, informational: false, reason: '', copies: [
+  { name: 'Playwright', scope: 'local', projectPath: '/Users/me', fingerprint: 'a', label: 'Only you, in this folder' },
+  { name: 'playwright', scope: 'user', projectPath: '', fingerprint: 'a', label: 'Just you, everywhere' },
 ] };
 const plan = planResolution(mcp);
 assert.equal(plan.ok, true);
-assert.equal(plan.keep.scope, 'local', 'the documented winner is kept');
-assert.deepEqual(plan.changes.map((c) => c.args), [['mcp', 'remove', 'playwright', '--scope', 'user']], 'only the shadowed copy is removed, always with --scope');
-assert.match(plan.changes[0].label, /Just you, everywhere/);
-assert.deepEqual(planResolution(mcp, { keep: 1 }), { ok: false, reason: 'invalid-choice' }, 'CCTI never removes the copy Claude Code uses');
-assert.equal(planResolution(mcp, { keep: 0 }).ok, true);
+assert.equal(plan.keep.scope, 'user', 'the broadest-reach copy is kept');
+assert.deepEqual(plan.changes.map((c) => c.args), [['mcp', 'remove', 'Playwright', '--scope', 'local']], 'only the narrower copy is removed, by its own name, always with --scope');
+assert.match(plan.changes[0].label, /Only you, in this folder/);
+assert.equal(plan.changes[0].undo, 'The same connection is still saved for Just you, everywhere, so nothing stops working.');
+assert.deepEqual(planResolution(mcp, { keep: 0 }), { ok: false, reason: 'invalid-choice' }, 'CCTI never removes the copy it keeps');
+assert.equal(planResolution(mcp, { keep: 1 }).ok, true);
+for (const reason of ['different-setup', 'team-shared']) {
+  assert.deepEqual(planResolution({ ...mcp, keeper: null, informational: true, reason }), { ok: false, reason: 'informational' }, `${reason} groups never produce changes`);
+  assert.deepEqual(planResolution({ ...mcp, keeper: null, informational: true, reason }, { keep: 0 }), { ok: false, reason: 'informational' });
+}
 
 const plugin = { kind: 'plugin', key: 'foo', name: 'foo', keeper: null, needsChoice: true, identical: false, copies: [
-  { id: 'foo@market-a', scope: 'user', projectPath: '', marketplace: 'market-a', label: 'market-a (Just you)' },
+  { id: 'foo@market-a', originalId: 'Foo@market-a', scope: 'user', projectPath: '', marketplace: 'market-a', label: 'market-a (Just you)' },
   { id: 'foo@market-b', scope: 'project', projectPath: '/work/app', marketplace: 'market-b', label: 'market-b (This project)' },
 ] };
 assert.deepEqual(planResolution(plugin), { ok: false, reason: 'needs-choice' }, 'no documented rule: the user must choose');
 const chosen = planResolution(plugin, { keep: 1 });
 assert.equal(chosen.ok, true);
-assert.deepEqual(chosen.changes.map((c) => c.args), [['plugin', 'disable', 'foo@market-a', '--scope', 'user']], 'the other copy is disabled, never uninstalled');
+assert.deepEqual(chosen.changes.map((c) => c.args), [['plugin', 'disable', 'Foo@market-a', '--scope', 'user']], 'the other copy is disabled by its original id, never uninstalled');
 assert.match(chosen.changes[0].undo, /turn it back on/i);
 assert.deepEqual(planResolution(plugin, { keep: 5 }), { ok: false, reason: 'invalid-choice' });
 assert.deepEqual(planResolution({ ...mcp, copies: [mcp.copies[0]] }), { ok: false, reason: 'nothing-to-do' });
+assert.deepEqual(planResolution({ ...plugin, needsChoice: false, informational: true, reason: 'project-unknown' }, { keep: 1 }), { ok: false, reason: 'informational' }, 'a project add-on copy with no known folder is never changed');
 
 assert.equal(groupFingerprint(mcp), groupFingerprint(JSON.parse(JSON.stringify(mcp))), 'fingerprints are stable');
 assert.notEqual(groupFingerprint(mcp), groupFingerprint({ ...mcp, copies: [...mcp.copies, { scope: 'project', projectPath: '/x', fingerprint: 'b', label: 'x' }] }), 'a new copy changes the fingerprint');
@@ -32,4 +40,4 @@ assert.equal(chosen.fingerprint, groupFingerprint(plugin));
 for (const change of [...plan.changes, ...chosen.changes]) {
   assert.doesNotMatch(change.label, /claude |--scope|\//, 'labels are plain language, never a command or path');
 }
-console.log('Inventory resolvers passed: keep the documented winner, ask when undocumented, reversible add-on changes.');
+console.log('Inventory resolvers passed: keep the broadest identical copy, informational when different or team-shared, ask when undocumented, reversible add-on changes.');

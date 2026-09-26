@@ -132,7 +132,10 @@ function reconcileInventory({ scan, ledger, ledgerStatus = 'ok', catalog = [], t
       reinstall: null,
       uncheckedReason: '',
     };
-    if (duplicateGroup) {
+    if (duplicateGroup?.informational) {
+      // Shown as a duplicate, but CCTI won't change it; the reason says why.
+      row.informational = { reason: duplicateGroup.reason || 'different-setup' };
+    } else if (duplicateGroup) {
       row.resolution = {
         groupKey,
         needsChoice: Boolean(duplicateGroup.needsChoice),

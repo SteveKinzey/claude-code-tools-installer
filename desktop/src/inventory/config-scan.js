@@ -46,7 +46,11 @@ function mcpDefinitions({ claudeJsonText = null, projectMcpJsonText = null, home
   return { ok: claudeJson.ok && projectJson.ok, definitions };
 }
 
-function pluginInstalls(jsonText) {
+// `claude plugin list --json` entries carry enabled, id, installPath, installedAt,
+// lastUpdated, scope and version, but no project folder. A project or local install belongs
+// to the folder the list was run from, so the caller passes that folder only when it ran the
+// list from a checked project; otherwise those installs have no known folder.
+function pluginInstalls(jsonText, { projectPath = '' } = {}) {
   let list;
   try {
     list = JSON.parse(jsonText);
@@ -59,13 +63,15 @@ function pluginInstalls(jsonText) {
     .map((entry) => {
       const id = entry.id.toLowerCase();
       const [name, marketplace] = id.split('@');
+      const scope = typeof entry.scope === 'string' ? entry.scope : 'user';
       return {
         id,
+        originalId: entry.id,
         name,
         marketplace,
-        scope: typeof entry.scope === 'string' ? entry.scope : 'user',
+        scope,
         enabled: entry.enabled !== false,
-        projectPath: typeof entry.projectPath === 'string' ? entry.projectPath : '',
+        projectPath: scope === 'project' || scope === 'local' ? projectPath : '',
       };
     });
   return { ok: true, installs };

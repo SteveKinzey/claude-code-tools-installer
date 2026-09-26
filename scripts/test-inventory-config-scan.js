@@ -37,19 +37,25 @@ assert.equal(broken.ok, false, 'an unreadable config is reported, not thrown');
 assert.deepEqual(broken.definitions, []);
 assert.doesNotThrow(() => mcpDefinitions({ claudeJsonText: '[]', projectMcpJsonText: '"x"', homePath: home, projectPath: project }));
 
+// The real shape: enabled, id, installPath, installedAt, lastUpdated, scope, version. No project folder.
+const real = (id, scope, enabled) => ({ enabled, id, installPath: `/cache/${id}`, installedAt: '2026-09-01T00:00:00.000Z', lastUpdated: '2026-09-01T00:00:00.000Z', scope, version: '1.0.0' });
 const pluginsText = JSON.stringify([
-  { id: 'Foo@market-a', scope: 'user', enabled: true, version: '1.0.0' },
-  { id: 'foo@market-b', scope: 'project', enabled: false, projectPath: project },
-  { id: 'claude-hud@claude-hud', scope: 'user', enabled: true },
+  real('Foo@market-a', 'user', true),
+  real('foo@market-b', 'project', false),
+  real('claude-hud@claude-hud', 'user', true),
+  real('figma@synced', 'synced', true),
   { scope: 'user', enabled: true },
 ]);
 const installs = pluginInstalls(pluginsText);
 assert.equal(installs.ok, true);
-assert.deepEqual(installs.installs.map((i) => [i.id, i.name, i.marketplace, i.scope, i.enabled, i.projectPath]), [
-  ['foo@market-a', 'foo', 'market-a', 'user', true, ''],
-  ['foo@market-b', 'foo', 'market-b', 'project', false, project],
-  ['claude-hud@claude-hud', 'claude-hud', 'claude-hud', 'user', true, ''],
-]);
+assert.deepEqual(installs.installs.map((i) => [i.id, i.originalId, i.name, i.marketplace, i.scope, i.enabled, i.projectPath]), [
+  ['foo@market-a', 'Foo@market-a', 'foo', 'market-a', 'user', true, ''],
+  ['foo@market-b', 'foo@market-b', 'foo', 'market-b', 'project', false, ''],
+  ['claude-hud@claude-hud', 'claude-hud@claude-hud', 'claude-hud', 'claude-hud', 'user', true, ''],
+  ['figma@synced', 'figma@synced', 'figma', 'synced', 'synced', true, ''],
+], 'without a checked project, a project install has no known folder');
+const fromProject = pluginInstalls(pluginsText, { projectPath: project });
+assert.deepEqual(fromProject.installs.map((i) => i.projectPath), ['', project, '', ''], 'only project and local installs take the folder the list ran from');
 assert.equal(pluginInstalls('not json').ok, false);
 assert.equal(pluginInstalls('{"id":"x"}').ok, false, 'a non-array is not a plugin list');
 

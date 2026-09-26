@@ -126,10 +126,10 @@ assert.ok(unavailable.rows.every((row) => !row.installedByCcti && row.state !== 
 const mcpGroup = {
   kind: 'mcp', key: 'playwright', name: 'playwright',
   copies: [
-    { scope: 'local', projectPath: '/home/me', fingerprint: 'a', label: 'Only you, in this folder' },
-    { scope: 'user', projectPath: '', fingerprint: 'b', label: 'Just you, everywhere' },
+    { name: 'playwright', scope: 'local', projectPath: '/home/me', fingerprint: 'a', label: 'Only you, in this folder' },
+    { name: 'playwright', scope: 'user', projectPath: '', fingerprint: 'a', label: 'Just you, everywhere' },
   ],
-  keeper: 0, needsChoice: false, identical: false,
+  keeper: 1, needsChoice: false, identical: true, informational: false, reason: '',
 };
 const pluginGroup = {
   kind: 'plugin', key: 'foo', name: 'foo',
@@ -137,7 +137,7 @@ const pluginGroup = {
     { id: 'foo@market-a', scope: 'user', projectPath: '', marketplace: 'market-a', label: 'market-a (Just you)' },
     { id: 'foo@market-b', scope: 'user', projectPath: '', marketplace: 'market-b', label: 'market-b (Just you)' },
   ],
-  keeper: null, needsChoice: true, identical: false,
+  keeper: null, needsChoice: true, identical: false, informational: false, reason: '',
 };
 const pluginItem = (id) => ({ kind: 'plugin', key: id, name: id, scope: 'Just you', origin: 'local', addOn: '', path: '', contentHash: '' });
 const mcpItem = (name, extra = {}) => ({ kind: 'mcp', key: name.toLowerCase(), name, scope: 'Claude Code', origin: 'local', addOn: '', path: '', contentHash: '', ...extra });
@@ -150,7 +150,8 @@ const withGroups = reconcileInventory({
 const mcpRow = withGroups.rows.find((row) => row.rowId === 'mcp:playwright');
 assert.equal(mcpRow.state, 'duplicate');
 assert.deepEqual(mcpRow.copies, [{ scope: 'Only you, in this folder', path: '' }, { scope: 'Just you, everywhere', path: '' }], 'copies are labelled from the group');
-assert.deepEqual(mcpRow.resolution, { groupKey: 'mcp:playwright', needsChoice: false, keeper: 0, options: ['Only you, in this folder', 'Just you, everywhere'] });
+assert.deepEqual(mcpRow.resolution, { groupKey: 'mcp:playwright', needsChoice: false, keeper: 1, options: ['Only you, in this folder', 'Just you, everywhere'] });
+assert.equal(mcpRow.informational, undefined);
 assert.equal(mcpRow.resolvable, false, 'resolvable stays skill-only');
 assert.equal(mcpRow.installedByCcti, true, 'the install record still matches the duplicate row');
 assert.equal(mcpRow.name, 'Playwright MCP');
@@ -168,5 +169,15 @@ assert.deepEqual(missed.rows.map((row) => [row.rowId, row.state, row.name, row.r
 const connector = reconcileInventory({ scan: scan([mcpItem('playwright'), mcpItem('plugin:tools:playwright', { origin: 'plugin', addOn: 'tools' })], { duplicateGroups: [mcpGroup] }), ledger: { entries: [], resolutions: [] }, catalog, tracked });
 assert.equal(connector.rows.find((row) => row.rowId === 'mcp:plugin:tools:playwright').resolution, undefined);
 assert.equal(connector.rows.find((row) => row.rowId === 'mcp:playwright').state, 'duplicate');
+
+// Fix round 1: an informational group still shows as a duplicate, with a reason and no resolution.
+for (const reason of ['different-setup', 'team-shared', 'project-unknown']) {
+  const info = reconcileInventory({ scan: scan([mcpItem('playwright')], { duplicateGroups: [{ ...mcpGroup, keeper: null, informational: true, reason }] }), ledger: { entries: [], resolutions: [] }, catalog, tracked });
+  const infoRow = info.rows.find((row) => row.rowId === 'mcp:playwright');
+  assert.equal(infoRow.state, 'duplicate');
+  assert.equal(infoRow.resolution, undefined, `${reason} groups get no resolution`);
+  assert.deepEqual(infoRow.informational, { reason });
+  assert.equal(infoRow.copies.length, 2);
+}
 
 console.log('Inventory reconcile passed: all states, unobserved sources, project scope, backups, and unreadable records.');

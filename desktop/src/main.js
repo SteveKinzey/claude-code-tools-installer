@@ -2507,6 +2507,14 @@ const RESOLUTION_REFUSALS = {
   'invalid-choice': 'CCTI only keeps the copy Claude Code uses for this one.',
   'nothing-to-do': 'There is only one copy now. Nothing needs to change.',
 };
+// Why an informational duplicate is left alone. Each says what to do, if anything.
+const INFORMATIONAL_REASONS = {
+  'different-setup': 'These are set up differently, so CCTI won’t change them. Nothing needs to be done here.',
+  'team-shared': 'One copy is shared with everyone on this project, so CCTI won’t change it. Nothing needs to be done here.',
+  'separate-folders': 'These copies are saved for different folders, so they don’t conflict. Nothing needs to change.',
+  'project-unknown': 'One copy belongs to a project. Choose that project and check this computer again to resolve it.',
+};
+const KEEPER_REACH = { user: 'you everywhere', local: 'you in this folder', project: 'everyone on this project' };
 const ACTION_LOCKED = 'Another CCTI action is running. Wait for it to finish, then try again.';
 
 async function readConfigText(filePath) {
@@ -2551,13 +2559,15 @@ async function currentDuplicateGroups({ claude, homePath, projectPath = '', kind
   }
   if (kinds.includes('plugin')) {
     try {
+      // The list has no project folder, so it runs from the checked project when there is
+      // one: its project and local installs then belong to that folder. With no project
+      // checked, project and local installs have no known folder and stay informational.
       const result = claude?.installed
-        ? await runProcess(claude.path || 'claude', ['plugin', 'list', '--json'], { cwd: homePath, env: claudeProcessEnv(), timeout: 8000 })
+        ? await runProcess(claude.path || 'claude', ['plugin', 'list', '--json'], { cwd: projectPath || homePath, env: claudeProcessEnv(), timeout: 8000 })
         : null;
-      const listed = result && !result.timedOut && result.code === 0 ? pluginInstalls(result.stdout) : { ok: false, installs: [] };
+      const listed = result && !result.timedOut && result.code === 0 ? pluginInstalls(result.stdout, { projectPath }) : { ok: false, installs: [] };
       if (!listed.ok) readable = false;
-      const relevant = listed.installs.filter((install) => !install.projectPath || install.projectPath === homePath || install.projectPath === projectPath);
-      groups.push(...pluginDuplicateGroups(relevant));
+      groups.push(...pluginDuplicateGroups(listed.installs));
     } catch {
       readable = false;
     }
@@ -2568,6 +2578,7 @@ async function currentDuplicateGroups({ claude, homePath, projectPath = '', kind
 const resolutionGroupKey = (group) => `${group.kind}:${group.key}`;
 
 function resolutionSummary(group) {
+  if (group.informational) return null;
   return {
     groupKey: resolutionGroupKey(group),
     needsChoice: Boolean(group.needsChoice),
@@ -2578,6 +2589,7 @@ function resolutionSummary(group) {
 
 function createResolutionReview({ discoveryId, report, group, keep }) {
   const plan = planResolution(group, { keep });
+  if (!plan.ok && plan.reason === 'informational') return { ok: false, error: INFORMATIONAL_REASONS[group.reason] || INFORMATIONAL_REASONS['different-setup'] };
   if (!plan.ok) return { ok: false, error: RESOLUTION_REFUSALS[plan.reason] || RESOLUTION_REFUSALS['nothing-to-do'] };
   for (const [id, candidate] of reviewedResolutions) {
     if (Date.now() - candidate.createdAt > 24 * 60 * 60 * 1000) reviewedResolutions.delete(id);
@@ -2657,6 +2669,7 @@ async function applyResolution({ reviewId } = {}) {
         error: 'This changed since you looked at it, so nothing was changed. Here is how it looks now.',
         review: next.ok ? { reviewId: next.reviewId, name: next.name, keepLabel: next.keepLabel, changes: next.changes } : null,
         resolution: resolutionSummary(rebuilt),
+        informational: rebuilt.informational ? { reason: rebuilt.reason, message: INFORMATIONAL_REASONS[rebuilt.reason] || INFORMATIONAL_REASONS['different-setup'] } : null,
       };
     }
 
@@ -2685,8 +2698,8 @@ async function applyResolution({ reviewId } = {}) {
     reviewedResolutions.delete(String(reviewId));
     discoveredSkillCleanup.get(review.discoveryId)?.duplicateGroups?.delete(groupKey);
     const message = group.kind === 'mcp'
-      ? `Done. Claude Code keeps the copy of ${plan.name} saved for ${plan.keep.label}. If you need a removed copy back, add it again from the Claude Code tools list.`
-      : `Done. ${plan.name} from ${plan.keep.label} stays on. Nothing was uninstalled, so you can turn the other copy back on later if you need it.`;
+      ? `Removed the extra copy of ${plan.name}. Claude Code keeps using the one saved for ${KEEPER_REACH[plan.keep.scope] || 'you'}, so nothing stops working.`
+      : `Turned off the extra copy of ${plan.name}. The one from ${plan.keep.marketplace} stays on. Nothing was uninstalled, so you can turn the other one back on later if you need it.`;
     return { ok: true, message };
   } catch {
     return { ok: false, error: `CCTI couldn’t finish resolving ${plan.name}. ${completed.length === 0 ? 'Nothing was changed.' : `${completed.length} of ${plan.changes.length} changes were made.`} Check this computer again, then try again.`, completed: completed.map(({ change }) => change.label) };
