@@ -122,4 +122,51 @@ const unavailable = reconcileInventory({ scan: scan(items), ledger, ledgerStatus
 assert.equal(unavailable.historyStatus, 'unavailable');
 assert.ok(unavailable.rows.every((row) => !row.installedByCcti && row.state !== 'missing'), 'an unavailable record claims nothing and reports nothing missing');
 
+// Plan 3, Task 5: add-on and connection duplicate groups become one resolvable row each.
+const mcpGroup = {
+  kind: 'mcp', key: 'playwright', name: 'playwright',
+  copies: [
+    { scope: 'local', projectPath: '/home/me', fingerprint: 'a', label: 'Only you, in this folder' },
+    { scope: 'user', projectPath: '', fingerprint: 'b', label: 'Just you, everywhere' },
+  ],
+  keeper: 0, needsChoice: false, identical: false,
+};
+const pluginGroup = {
+  kind: 'plugin', key: 'foo', name: 'foo',
+  copies: [
+    { id: 'foo@market-a', scope: 'user', projectPath: '', marketplace: 'market-a', label: 'market-a (Just you)' },
+    { id: 'foo@market-b', scope: 'user', projectPath: '', marketplace: 'market-b', label: 'market-b (Just you)' },
+  ],
+  keeper: null, needsChoice: true, identical: false,
+};
+const pluginItem = (id) => ({ kind: 'plugin', key: id, name: id, scope: 'Just you', origin: 'local', addOn: '', path: '', contentHash: '' });
+const mcpItem = (name, extra = {}) => ({ kind: 'mcp', key: name.toLowerCase(), name, scope: 'Claude Code', origin: 'local', addOn: '', path: '', contentHash: '', ...extra });
+const withGroups = reconcileInventory({
+  scan: scan([mcpItem('playwright'), mcpItem('repomix'), pluginItem('foo@market-a'), pluginItem('foo@market-b')], { duplicateGroups: [mcpGroup, pluginGroup] }),
+  ledger: { entries: [entry('playwright-mcp', 'mcp', 'playwright')], resolutions: [] },
+  catalog,
+  tracked,
+});
+const mcpRow = withGroups.rows.find((row) => row.rowId === 'mcp:playwright');
+assert.equal(mcpRow.state, 'duplicate');
+assert.deepEqual(mcpRow.copies, [{ scope: 'Only you, in this folder', path: '' }, { scope: 'Just you, everywhere', path: '' }], 'copies are labelled from the group');
+assert.deepEqual(mcpRow.resolution, { groupKey: 'mcp:playwright', needsChoice: false, keeper: 0, options: ['Only you, in this folder', 'Just you, everywhere'] });
+assert.equal(mcpRow.resolvable, false, 'resolvable stays skill-only');
+assert.equal(mcpRow.installedByCcti, true, 'the install record still matches the duplicate row');
+assert.equal(mcpRow.name, 'Playwright MCP');
+assert.equal(withGroups.rows.find((row) => row.rowId === 'mcp:repomix').resolution, undefined, 'rows outside a group get no resolution');
+const pluginRow = withGroups.rows.find((row) => row.rowId === 'plugin:foo');
+assert.equal(pluginRow.key, 'foo');
+assert.equal(pluginRow.state, 'duplicate');
+assert.deepEqual(pluginRow.resolution, { groupKey: 'plugin:foo', needsChoice: true, keeper: null, options: ['market-a (Just you)', 'market-b (Just you)'] });
+assert.equal(withGroups.rows.filter((row) => row.kind === 'plugin').length, 1, 'both installs fold into the one duplicate row');
+assert.equal(withGroups.rows.some((row) => row.state === 'missing'), false, 'the recorded connection is present, not missing');
+// A group the text lists missed (or could not read) still gets its row.
+const missed = reconcileInventory({ scan: scan([], { observed: { skill: true, plugin: false, mcp: false }, duplicateGroups: [pluginGroup, mcpGroup] }), ledger: { entries: [], resolutions: [] }, catalog, tracked });
+assert.deepEqual(missed.rows.map((row) => [row.rowId, row.state, row.name, row.resolution.groupKey]), [['plugin:foo', 'duplicate', 'foo', 'plugin:foo'], ['mcp:playwright', 'duplicate', 'playwright', 'mcp:playwright']]);
+// A Claude.ai connector or add-on connection with the same name is not folded into the group.
+const connector = reconcileInventory({ scan: scan([mcpItem('playwright'), mcpItem('plugin:tools:playwright', { origin: 'plugin', addOn: 'tools' })], { duplicateGroups: [mcpGroup] }), ledger: { entries: [], resolutions: [] }, catalog, tracked });
+assert.equal(connector.rows.find((row) => row.rowId === 'mcp:plugin:tools:playwright').resolution, undefined);
+assert.equal(connector.rows.find((row) => row.rowId === 'mcp:playwright').state, 'duplicate');
+
 console.log('Inventory reconcile passed: all states, unobserved sources, project scope, backups, and unreadable records.');

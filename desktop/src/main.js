@@ -9,7 +9,9 @@ const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
 const { buildScan, parsePluginList, parseMcpList } = require('./inventory/scanner');
 const { createLedgerStore, newlyInstalledEntries, skillBackupResolutions, extrasRemovalResolutions } = require('./inventory/ledger');
 const { reconcileInventory } = require('./inventory/reconcile');
-const { compareSkillKeeper } = require('./inventory/duplicates');
+const { compareSkillKeeper, mcpDuplicateGroups, pluginDuplicateGroups } = require('./inventory/duplicates');
+const { mcpDefinitions, pluginInstalls } = require('./inventory/config-scan');
+const { planResolution, groupFingerprint } = require('./inventory/resolvers');
 
 if (process.env.CCTI_ELECTRON_TEST === '1' && process.env.CCTI_TEST_HOME) {
   app.setPath('home', path.resolve(process.env.CCTI_TEST_HOME));
@@ -28,6 +30,7 @@ const reviewedManagedExtrasRemovalPlans = new Map();
 const reviewedCustomAddOnPlans = new Map();
 const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
+const reviewedResolutions = new Map();
 let activeSkillCleanup = false;
 const diagnosticReports = new Map();
 const diagnosticTimers = new Map();
@@ -1053,9 +1056,9 @@ async function recordExtrasRemovals(actions) {
   }
 }
 
-async function inventoryFromScan({ findings, pluginList, mcpList, projectPath }) {
+async function inventoryFromScan({ findings, pluginList, mcpList, projectPath, duplicateGroups = [] }) {
   try {
-    const scan = buildScan({ findings, pluginList, mcpList, projectPath });
+    const scan = { ...buildScan({ findings, pluginList, mcpList, projectPath }), duplicateGroups };
     const [history, catalog] = await Promise.all([inventoryLedger().read(), readCatalog()]);
     return reconcileInventory({ scan, ledger: history.ledger, ledgerStatus: history.status, catalog, tracked: TRACKED_ITEMS });
   } catch {
@@ -2388,12 +2391,15 @@ async function discoverClaudeSetup(projectPath = '') {
   const claude = await claudeStatus();
   let pluginList = null;
   let mcpList = null;
+  let duplicateGroups = [];
   if (claude.installed) {
     const claudeCommand = claude.path || 'claude';
-    const [plugins, connections] = await Promise.all([
+    const [plugins, connections, groups] = await Promise.all([
       runProcess(claudeCommand, ['plugin', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
       runProcess(claudeCommand, ['mcp', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
+      currentDuplicateGroups({ claude, homePath: home, projectPath: resolvedProjectPath }).catch(() => ({ groups: [] })),
     ]);
+    duplicateGroups = groups.groups;
     pluginList = { ok: plugins.code === 0, text: plugins.stdout || '' };
     mcpList = { ok: connections.code === 0, text: connections.stdout || '' };
     if (plugins.code === 0) parsePluginList(plugins.stdout).forEach((item) => findings.push({ id: `plugin-cli:${item.key}`, type: 'plugin', name: item.name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
@@ -2468,6 +2474,8 @@ async function discoverClaudeSetup(projectPath = '') {
     plugins: new Map(manageablePlugins.map((item) => [item.id, { name: item.name, scope: item.scope }])),
     projectPackages: new Map(projectPackages.map((item) => [item.id, { name: item.name, version: item.version, packageJsonPath: item.path, projectPath: resolvedProjectPath }])),
     projectPath: resolvedProjectPath,
+    homePath: home,
+    duplicateGroups: new Map(duplicateGroups.map((group) => [`${group.kind}:${group.key}`, group])),
   });
   for (const [id, report] of discoveredSkillCleanup) {
     if (Date.now() - report.createdAt > 24 * 60 * 60 * 1000) discoveredSkillCleanup.delete(id);
@@ -2481,7 +2489,7 @@ async function discoverClaudeSetup(projectPath = '') {
     projectPath: resolvedProjectPath,
     findings: uniqueFindings,
     duplicates,
-    inventory: await inventoryFromScan({ findings: uniqueFindings, pluginList, mcpList, projectPath: resolvedProjectPath }),
+    inventory: await inventoryFromScan({ findings: uniqueFindings, pluginList, mcpList, projectPath: resolvedProjectPath, duplicateGroups }),
     managedExtras: {
       actionCount: managedExtras.actions.length,
       manualCount: managedExtras.manualItems.length,
@@ -2489,6 +2497,204 @@ async function discoverClaudeSetup(projectPath = '') {
       error: managedExtras.error || '',
     },
   };
+}
+
+// Plan 3: add-on and connection duplicates. Everything here only reads Claude Code's own
+// config files and `plugin list --json`; changes go through the claude CLI with arguments
+// that never leave the main process.
+const RESOLUTION_REFUSALS = {
+  'needs-choice': 'Choose which copy to keep first.',
+  'invalid-choice': 'CCTI only keeps the copy Claude Code uses for this one.',
+  'nothing-to-do': 'There is only one copy now. Nothing needs to change.',
+};
+const ACTION_LOCKED = 'Another CCTI action is running. Wait for it to finish, then try again.';
+
+async function readConfigText(filePath) {
+  try {
+    return { text: await fs.readFile(filePath, 'utf8'), unreadable: false };
+  } catch (error) {
+    return { text: null, unreadable: error.code !== 'ENOENT' };
+  }
+}
+
+// Claude Code resolves connections per folder: in a folder it sees that folder's local
+// copy, the project's .mcp.json, and user copies. A local copy saved for the home folder
+// and one saved for another project never meet, so each folder is grouped on its own and
+// a folder's local copy is only ever removed from that folder.
+function mcpGroupsByFolder(definitions, homePath, projectPath) {
+  const inFolder = (folder) => definitions.filter((definition) => definition.scope === 'user' || definition.projectPath === folder);
+  const groups = new Map();
+  for (const group of mcpDuplicateGroups(inFolder(homePath), { homePath })) groups.set(group.key, group);
+  if (projectPath && projectPath !== homePath) {
+    for (const group of mcpDuplicateGroups(inFolder(projectPath), { homePath })) groups.set(group.key, group);
+  }
+  return [...groups.values()];
+}
+
+// Never throws. `readable` is false when a source that was asked for could not be read, so
+// apply can tell "could not check" apart from "the duplicate is gone".
+async function currentDuplicateGroups({ claude, homePath, projectPath = '', kinds = ['mcp', 'plugin'] }) {
+  const groups = [];
+  let readable = true;
+  if (kinds.includes('mcp')) {
+    try {
+      const [claudeJson, projectMcpJson] = await Promise.all([
+        readConfigText(path.join(homePath, '.claude.json')),
+        projectPath ? readConfigText(path.join(projectPath, '.mcp.json')) : Promise.resolve({ text: null, unreadable: false }),
+      ]);
+      const scanned = mcpDefinitions({ claudeJsonText: claudeJson.text, projectMcpJsonText: projectMcpJson.text, homePath, projectPath });
+      if (claudeJson.unreadable || projectMcpJson.unreadable || !scanned.ok) readable = false;
+      groups.push(...mcpGroupsByFolder(scanned.definitions, homePath, projectPath));
+    } catch {
+      readable = false;
+    }
+  }
+  if (kinds.includes('plugin')) {
+    try {
+      const result = claude?.installed
+        ? await runProcess(claude.path || 'claude', ['plugin', 'list', '--json'], { cwd: homePath, env: claudeProcessEnv(), timeout: 8000 })
+        : null;
+      const listed = result && !result.timedOut && result.code === 0 ? pluginInstalls(result.stdout) : { ok: false, installs: [] };
+      if (!listed.ok) readable = false;
+      const relevant = listed.installs.filter((install) => !install.projectPath || install.projectPath === homePath || install.projectPath === projectPath);
+      groups.push(...pluginDuplicateGroups(relevant));
+    } catch {
+      readable = false;
+    }
+  }
+  return { readable, groups };
+}
+
+const resolutionGroupKey = (group) => `${group.kind}:${group.key}`;
+
+function resolutionSummary(group) {
+  return {
+    groupKey: resolutionGroupKey(group),
+    needsChoice: Boolean(group.needsChoice),
+    keeper: Number.isInteger(group.keeper) ? group.keeper : null,
+    options: group.copies.map((copy) => copy.label),
+  };
+}
+
+function createResolutionReview({ discoveryId, report, group, keep }) {
+  const plan = planResolution(group, { keep });
+  if (!plan.ok) return { ok: false, error: RESOLUTION_REFUSALS[plan.reason] || RESOLUTION_REFUSALS['nothing-to-do'] };
+  for (const [id, candidate] of reviewedResolutions) {
+    if (Date.now() - candidate.createdAt > 24 * 60 * 60 * 1000) reviewedResolutions.delete(id);
+  }
+  const reviewId = randomUUID();
+  reviewedResolutions.set(reviewId, {
+    plan,
+    group,
+    discoveryId,
+    homePath: report?.homePath || app.getPath('home'),
+    projectPath: report?.projectPath || '',
+    createdAt: Date.now(),
+  });
+  return {
+    ok: true,
+    reviewId,
+    name: plan.name,
+    keepLabel: plan.keep.label,
+    changes: plan.changes.map(({ label, undo }) => ({ label, undo })),
+  };
+}
+
+async function reviewResolution({ discoveryId, groupKey, keep } = {}) {
+  const report = discoveredSkillCleanup.get(String(discoveryId || ''));
+  const group = report?.duplicateGroups?.get(String(groupKey || ''));
+  if (!group) return { ok: false, error: 'CCTI doesn’t have this duplicate on its latest list. Check this computer again, then choose Resolve.' };
+  return createResolutionReview({ discoveryId: String(discoveryId), report, group, keep });
+}
+
+const sameCopy = (left, right) => left.scope === right.scope && (left.projectPath || '') === (right.projectPath || '') && (left.id || '') === (right.id || '');
+
+async function recordDuplicateResolutions(group, copies) {
+  if (copies.length === 0) return;
+  try {
+    const resolvedAt = new Date().toISOString();
+    await inventoryLedger().recordResolutions(copies.map((copy) => (group.kind === 'mcp'
+      ? { kind: 'mcp', key: group.key, scope: copy.scope, projectPath: copy.projectPath || '', resolvedAt, action: 'remove' }
+      : { kind: 'plugin', key: copy.id, scope: copy.scope, projectPath: copy.projectPath || '', resolvedAt, action: 'disable' })));
+  } catch {
+    // The record is advisory. The change itself already happened and is reported to the user.
+  }
+}
+
+async function applyResolution({ reviewId } = {}) {
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: ACTION_LOCKED };
+  const review = reviewedResolutions.get(String(reviewId || ''));
+  if (!review) return { ok: false, error: 'This review is no longer available, so nothing was changed. Check this computer again, then choose Resolve.' };
+  const { plan, group } = review;
+  const groupKey = resolutionGroupKey(group);
+  // Take the lock before re-reading, so nothing else can change the setup between the check and the act.
+  activeInstall = true;
+  emit('installer:state', { running: true });
+  const completed = [];
+  try {
+    const claude = await claudeStatus();
+    if (!claude.installed) return { ok: false, error: 'Claude Code isn’t ready, so nothing was changed. Check this computer again once Claude Code is available.' };
+    const current = await currentDuplicateGroups({ claude, homePath: review.homePath, projectPath: review.projectPath, kinds: [group.kind] });
+    if (!current.readable) return { ok: false, error: 'CCTI couldn’t read your Claude Code settings right now, so nothing was changed. Try again in a moment.' };
+    const rebuilt = current.groups.find((candidate) => resolutionGroupKey(candidate) === groupKey);
+    if (!rebuilt || groupFingerprint(rebuilt) !== plan.fingerprint) {
+      reviewedResolutions.delete(String(reviewId));
+      const report = discoveredSkillCleanup.get(review.discoveryId);
+      if (report?.duplicateGroups) {
+        if (rebuilt) report.duplicateGroups.set(groupKey, rebuilt);
+        else report.duplicateGroups.delete(groupKey);
+      }
+      if (!rebuilt) {
+        return { ok: false, changed: true, error: 'This changed since you looked at it, so nothing was changed. It no longer has more than one copy, so nothing needs to change.', review: null, resolution: null };
+      }
+      // Re-plan with the same keeper when that copy is still there. A fixed keeper is
+      // whatever Claude Code uses now; a chosen add-on copy is matched by identity, not position.
+      const keptIndex = rebuilt.needsChoice ? rebuilt.copies.findIndex((copy) => sameCopy(copy, plan.keep)) : -1;
+      const next = createResolutionReview({ discoveryId: review.discoveryId, report, group: rebuilt, keep: keptIndex >= 0 ? keptIndex : undefined });
+      return {
+        ok: false,
+        changed: true,
+        error: 'This changed since you looked at it, so nothing was changed. Here is how it looks now.',
+        review: next.ok ? { reviewId: next.reviewId, name: next.name, keepLabel: next.keepLabel, changes: next.changes } : null,
+        resolution: resolutionSummary(rebuilt),
+      };
+    }
+
+    const home = app.getPath('home');
+    const others = group.copies.filter((copy) => copy !== plan.keep);
+    for (const [index, change] of plan.changes.entries()) {
+      const copy = others[index];
+      // Project and local scopes belong to a folder; run there so the CLI edits that folder's copy.
+      const cwd = copy.scope === 'user' ? home : copy.projectPath || home;
+      emit('installer:output', { stream: 'stdout', text: `[CCTI] ${change.label}: claude ${change.args.join(' ')}\n` });
+      let result;
+      try {
+        result = await runProcess(claude.path || 'claude', change.args, { cwd, env: claudeProcessEnv(), timeout: 20000 });
+      } catch (error) {
+        result = { code: -1, stdout: '', stderr: error.message };
+      }
+      if (result.stdout) emit('installer:output', { stream: 'stdout', text: result.stdout });
+      if (result.stderr) emit('installer:output', { stream: result.code === 0 ? 'stdout' : 'stderr', text: result.stderr });
+      if (result.code !== 0) break;
+      completed.push({ change, copy });
+    }
+    if (completed.length < plan.changes.length) {
+      const progress = completed.length === 0 ? 'Nothing was changed.' : `${completed.length} of ${plan.changes.length} changes were made.`;
+      return { ok: false, error: `Claude Code couldn’t finish resolving ${plan.name}. ${progress} Open the activity details to see why, then try again.`, completed: completed.map(({ change }) => change.label) };
+    }
+    reviewedResolutions.delete(String(reviewId));
+    discoveredSkillCleanup.get(review.discoveryId)?.duplicateGroups?.delete(groupKey);
+    const message = group.kind === 'mcp'
+      ? `Done. Claude Code keeps the copy of ${plan.name} saved for ${plan.keep.label}. If you need a removed copy back, add it again from the Claude Code tools list.`
+      : `Done. ${plan.name} from ${plan.keep.label} stays on. Nothing was uninstalled, so you can turn the other copy back on later if you need it.`;
+    return { ok: true, message };
+  } catch {
+    return { ok: false, error: `CCTI couldn’t finish resolving ${plan.name}. ${completed.length === 0 ? 'Nothing was changed.' : `${completed.length} of ${plan.changes.length} changes were made.`} Check this computer again, then try again.`, completed: completed.map(({ change }) => change.label) };
+  } finally {
+    await recordDuplicateResolutions(group, completed.map(({ copy }) => copy));
+    activeInstall = false;
+    emit('installer:state', { running: false });
+  }
 }
 
 async function reviewPluginChange({ discoveryId, findingId, action }) {
@@ -3577,6 +3783,8 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('telemetry:report-setup-success', async (_event, payload) => reportAnonymousSetupSuccess(payload));
   ipcMain.handle('inventory:reset-history', async () => resetInventoryHistory());
+  ipcMain.handle('inventory:review-resolution', async (_event, payload) => reviewResolution(payload || {}));
+  ipcMain.handle('inventory:apply-resolution', async (_event, payload) => applyResolution(payload || {}));
   ipcMain.handle('setup-manager:review-plugin-change', async (_event, payload) => reviewPluginChange(payload));
   ipcMain.handle('setup-manager:apply-plugin-change', async (_event, payload) => applyPluginChange(payload));
   ipcMain.handle('setup-manager:review-project-package-removal', async (_event, payload) => reviewProjectPackageRemoval(payload || {}));
