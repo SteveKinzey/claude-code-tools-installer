@@ -11,6 +11,7 @@ const INFORMATIONAL_DETAIL = {
   'team-shared': 'One copy is shared with everyone on the project, so CCTI won’t change it. Ask the project owner if you want to tidy it up.',
   'separate-folders': 'These copies are in different folders and don’t overlap, so nothing needs to change.',
   'project-unknown': 'One copy is saved for a specific folder. Choose that folder with “Also check a project” so CCTI can see it, then check again.',
+  'different-reach': 'These copies are saved in different places, so turning one off could remove it somewhere you still use it. CCTI won’t change them.',
 };
 
 function installedDate(value) {
@@ -47,7 +48,7 @@ function rowView(row) {
       const { groupKey, needsChoice, keeper, options } = row.resolution;
       const detail = needsChoice
         ? `This add-on is turned on from ${options.length} places. Claude Code doesn’t say which one it uses, so choose the one to keep.`
-        : `These copies are identical. Claude Code keeps using the one saved for ${options[keeper]}; Resolve removes the extra ${options.length - 1 === 1 ? 'copy' : 'copies'}, so nothing stops working.`;
+        : `These copies are identical. CCTI keeps the copy saved for ${options[keeper]}; Resolve removes the extra ${options.length - 1 === 1 ? 'copy' : 'copies'}, so nothing stops working.`;
       return {
         badge: `${row.copies.length} copies`,
         tone: 'attention',

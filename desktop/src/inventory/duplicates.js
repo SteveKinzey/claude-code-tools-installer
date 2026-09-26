@@ -3,14 +3,22 @@
 // project beats user for a connection inside one folder, and a personal skill beats a
 // project skill. CCTI never removes the copy Claude Code resolves at runtime, because a
 // local or project connection applies only in its own folder while a user copy applies
-// everywhere; identical local/user connection copies instead keep the broadest-reach copy
-// (user) and remove the narrower one, so nothing stops working anywhere. A group is left
-// alone (informational) when its copies are set up differently, when a project copy is
-// involved (team-shared: .mcp.json is shared with the team), or when local copies belong to
-// different folders that never meet (separate-folders) or to a folder CCTI can't identify
-// (project-unknown). Claude.ai-synced add-ons never join a group. Where Claude Code
-// documents no rule (the same add-on enabled from two marketplaces), CCTI does not guess:
-// the group needs the user's choice. Pure.
+// everywhere; identical local/user connection copies with the exact same saved name instead
+// keep the broadest-reach copy (user) and remove the narrower one, so nothing stops working
+// anywhere. A connection group is left alone (informational) when its copies are set up
+// differently or saved under names that differ only by letter case (tool names come from the
+// exact name), when a project copy is involved (team-shared: .mcp.json is shared with the
+// team), or when local copies belong to different folders that never meet
+// (separate-folders).
+//
+// Add-ons follow the same reach principle. Which of two marketplaces' copies loads is not
+// documented, so the user chooses, but only when every copy is saved for "Just you,
+// everywhere" (user scope) and each id appears once. Turning off a non-user copy either edits
+// the team-shared project settings or can remove the add-on from other folders, and turning
+// off a user copy while keeping a narrower copy removes it everywhere else. So a group with a
+// project copy is 'team-shared', and any other mix (a local copy, the same id at two scopes,
+// a copy whose folder is unknown) is 'different-reach'. Claude.ai-synced add-ons never join a
+// group. Pure.
 
 const MCP_SCOPE_PRECEDENCE = ['local', 'project', 'user'];
 const SKILL_SCOPE_PRECEDENCE = ['Just you', 'This project'];
@@ -35,8 +43,9 @@ function groupBy(items, keyOf) {
 // - identical copies that are all local or user: keep the user copy (the broadest reach) and
 //   remove the narrower local copies. In the folder, Claude Code then uses the user copy,
 //   which is the same definition, so behavior is unchanged everywhere;
-// - copies set up differently: removing either one changes behavior somewhere, so the group
-//   is informational ('different-setup');
+// - copies set up differently, or saved under names that differ only by letter case (tool
+//   names derive from the exact name): removing either one changes behavior somewhere, so
+//   the group is informational ('different-setup');
 // - a project copy (.mcp.json) is shared with the team, so a group with one is informational
 //   ('team-shared') and CCTI never removes it;
 // - local copies saved for different folders never meet ('separate-folders').
@@ -48,10 +57,11 @@ function mcpDuplicateGroups(definitions, { homePath } = {}) {
     .map(([key, copies]) => {
       const ordered = [...copies].sort((a, b) => MCP_SCOPE_PRECEDENCE.indexOf(a.scope) - MCP_SCOPE_PRECEDENCE.indexOf(b.scope));
       const identical = new Set(ordered.map((d) => d.fingerprint)).size === 1;
+      const sameName = new Set(ordered.map((d) => d.name)).size === 1;
       const userIndex = ordered.findIndex((d) => d.scope === 'user');
       const reason = ordered.some((d) => d.scope === 'project')
         ? 'team-shared'
-        : !identical
+        : !identical || !sameName
           ? 'different-setup'
           : userIndex === -1
             ? 'separate-folders'
@@ -75,24 +85,32 @@ const isSynced = (install) => install.scope === 'synced' || install.marketplace 
 // Claude.ai-synced add-ons (`name@synced`, scope "synced") never join a group. Per
 // docs/claude-code-precedence-2026-09-26.md, a synced plugin that shares a name with another
 // enabled plugin is already not loaded, and synced plugins are managed in the Claude.ai
-// account, not by CCTI. A project or local copy whose folder is unknown (no project was
-// checked) cannot be changed safely, so its group is informational ('project-unknown').
+// account, not by CCTI. A group is resolvable only when every copy is user scope and each id
+// appears once (see the header): a project copy makes it 'team-shared', and any other mix
+// (local, the same id at two scopes, an unknown folder) makes it 'different-reach'.
+function pluginReachReason(copies) {
+  if (copies.some((c) => c.scope === 'project')) return 'team-shared';
+  const allUser = copies.every((c) => c.scope === 'user');
+  const idsOnce = new Set(copies.map((c) => c.id)).size === copies.length;
+  return allUser && idsOnce ? '' : 'different-reach';
+}
+
 function pluginDuplicateGroups(installs) {
   const enabled = (Array.isArray(installs) ? installs : []).filter((install) => install.enabled && !isSynced(install));
   return [...groupBy(enabled, (install) => install.name)]
     .filter(([, copies]) => new Set(copies.map((c) => c.marketplace)).size > 1)
     .map(([name, copies]) => {
-      const folderUnknown = copies.some((c) => c.scope !== 'user' && !c.projectPath);
+      const reason = pluginReachReason(copies);
       return {
         kind: 'plugin',
         key: name,
         name,
         copies: copies.map((c) => ({ id: c.id, originalId: c.originalId || c.id, scope: c.scope, projectPath: c.projectPath, marketplace: c.marketplace, label: `${c.marketplace} (${PLUGIN_SCOPE_LABELS[c.scope] || c.scope})` })),
         keeper: null,
-        needsChoice: !folderUnknown,
+        needsChoice: !reason,
         identical: false,
-        informational: folderUnknown,
-        reason: folderUnknown ? 'project-unknown' : '',
+        informational: Boolean(reason),
+        reason,
       };
     });
 }

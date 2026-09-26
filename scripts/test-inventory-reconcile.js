@@ -171,7 +171,7 @@ assert.equal(connector.rows.find((row) => row.rowId === 'mcp:plugin:tools:playwr
 assert.equal(connector.rows.find((row) => row.rowId === 'mcp:playwright').state, 'duplicate');
 
 // Fix round 1: an informational group still shows as a duplicate, with a reason and no resolution.
-for (const reason of ['different-setup', 'team-shared', 'project-unknown']) {
+for (const reason of ['different-setup', 'team-shared', 'project-unknown', 'different-reach']) {
   const info = reconcileInventory({ scan: scan([mcpItem('playwright')], { duplicateGroups: [{ ...mcpGroup, keeper: null, informational: true, reason }] }), ledger: { entries: [], resolutions: [] }, catalog, tracked });
   const infoRow = info.rows.find((row) => row.rowId === 'mcp:playwright');
   assert.equal(infoRow.state, 'duplicate');

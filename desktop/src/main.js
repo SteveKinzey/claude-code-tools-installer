@@ -2513,6 +2513,7 @@ const INFORMATIONAL_REASONS = {
   'team-shared': 'One copy is shared with everyone on this project, so CCTI won’t change it. Nothing needs to be done here.',
   'separate-folders': 'These copies are saved for different folders, so they don’t conflict. Nothing needs to change.',
   'project-unknown': 'One copy is saved for a specific folder. Choose that folder with “Also check a project” so CCTI can see it, then check again.',
+  'different-reach': 'These copies are saved in different places, so turning one off could remove it somewhere you still use it. CCTI won’t change them.',
 };
 const KEEPER_REACH = { user: 'you everywhere', local: 'you in this folder', project: 'everyone on this project' };
 const ACTION_LOCKED = 'Another CCTI action is running. Wait for it to finish, then try again.';
@@ -2544,6 +2545,10 @@ function mcpGroupsByFolder(definitions, homePath, projectPath) {
 async function currentDuplicateGroups({ claude, homePath, projectPath = '', kinds = ['mcp', 'plugin'] }) {
   const groups = [];
   let readable = true;
+  // The underlying copies are returned too, so apply can confirm afterwards that each
+  // targeted copy is gone and the kept one is still there, even once the group dissolves.
+  let definitions = [];
+  let installs = [];
   if (kinds.includes('mcp')) {
     try {
       const [claudeJson, projectMcpJson] = await Promise.all([
@@ -2552,6 +2557,7 @@ async function currentDuplicateGroups({ claude, homePath, projectPath = '', kind
       ]);
       const scanned = mcpDefinitions({ claudeJsonText: claudeJson.text, projectMcpJsonText: projectMcpJson.text, homePath, projectPath });
       if (claudeJson.unreadable || projectMcpJson.unreadable || !scanned.ok) readable = false;
+      definitions = scanned.definitions;
       groups.push(...mcpGroupsByFolder(scanned.definitions, homePath, projectPath));
     } catch {
       readable = false;
@@ -2567,12 +2573,22 @@ async function currentDuplicateGroups({ claude, homePath, projectPath = '', kind
         : null;
       const listed = result && !result.timedOut && result.code === 0 ? pluginInstalls(result.stdout, { projectPath }) : { ok: false, installs: [] };
       if (!listed.ok) readable = false;
+      installs = listed.installs;
       groups.push(...pluginDuplicateGroups(listed.installs));
     } catch {
       readable = false;
     }
   }
-  return { readable, groups };
+  return { readable, groups, definitions, installs };
+}
+
+// True when a copy from a duplicate group is still active in a fresh read: a connection is
+// still saved at that scope and folder under that name; an add-on is still turned on there.
+function copyStillActive(kind, copy, current) {
+  if (kind === 'mcp') {
+    return current.definitions.some((definition) => definition.name === copy.name && definition.scope === copy.scope && (definition.projectPath || '') === (copy.projectPath || ''));
+  }
+  return current.installs.some((install) => install.id === copy.id && install.scope === copy.scope && install.enabled);
 }
 
 const resolutionGroupKey = (group) => `${group.kind}:${group.key}`;
@@ -2603,6 +2619,7 @@ function createResolutionReview({ discoveryId, report, group, keep }) {
     projectPath: report?.projectPath || '',
     createdAt: Date.now(),
   });
+  while (reviewedResolutions.size > 20) reviewedResolutions.delete(reviewedResolutions.keys().next().value);
   return {
     ok: true,
     reviewId,
@@ -2675,9 +2692,8 @@ async function applyResolution({ reviewId } = {}) {
     }
 
     const home = app.getPath('home');
-    const others = group.copies.filter((copy) => copy !== plan.keep);
-    for (const [index, change] of plan.changes.entries()) {
-      const copy = others[index];
+    for (const change of plan.changes) {
+      const { copy } = change;
       // Project and local scopes belong to a folder; run there so the CLI edits that folder's copy.
       const cwd = copy.scope === 'user' ? home : copy.projectPath || home;
       emit('installer:output', { stream: 'stdout', text: `[CCTI] ${change.label}: claude ${change.args.join(' ')}\n` });
@@ -2698,8 +2714,24 @@ async function applyResolution({ reviewId } = {}) {
     }
     reviewedResolutions.delete(String(reviewId));
     discoveredSkillCleanup.get(review.discoveryId)?.duplicateGroups?.delete(groupKey);
+    // Every command succeeded. Read the setup once more and confirm it looks as reviewed:
+    // each targeted copy is gone and the kept copy is still there.
+    const after = await currentDuplicateGroups({ claude, homePath: review.homePath, projectPath: review.projectPath, kinds: [group.kind] });
+    const stillThere = after.readable ? completed.filter(({ copy }) => copyStillActive(group.kind, copy, after)) : completed;
+    const keptGone = !after.readable || !copyStillActive(group.kind, plan.keep, after);
+    if (stillThere.length > 0 || keptGone) {
+      const details = !after.readable
+        ? 'could not re-read the settings after the change'
+        : [...stillThere.map(({ change }) => `still present: ${change.label}`), keptGone ? `kept copy missing: ${plan.keep.label}` : ''].filter(Boolean).join('; ');
+      emit('installer:output', { stream: 'stderr', text: `[CCTI] After resolving ${plan.name}, the setup doesn’t match the review (${details}).\n` });
+      const ran = completed.map(({ change }) => change.label);
+      // Only copies confirmed gone are recorded as resolved.
+      const confirmed = after.readable ? completed.filter((item) => !stillThere.includes(item)) : [];
+      completed.splice(0, completed.length, ...confirmed);
+      return { ok: false, error: 'CCTI made the change, but Claude Code’s setup doesn’t look the way it expected. Check this computer again to see how it looks now.', completed: ran };
+    }
     const message = group.kind === 'mcp'
-      ? `Removed the extra copy of ${plan.name}. Claude Code keeps using the one saved for ${KEEPER_REACH[plan.keep.scope] || 'you'}, so nothing stops working.`
+      ? `Removed the extra copy of ${plan.name}. The same connection stays saved for ${KEEPER_REACH[plan.keep.scope] || 'you'}, so nothing stops working.`
       : `Turned off the extra copy of ${plan.name}. The one from ${plan.keep.marketplace} stays on. Nothing was uninstalled, so you can turn the other one back on later if you need it.`;
     return { ok: true, message };
   } catch {

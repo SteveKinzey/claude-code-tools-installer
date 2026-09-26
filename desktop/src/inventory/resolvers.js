@@ -37,12 +37,19 @@ function planResolution(group, { keep } = {}) {
     keeper = group.keeper;
   }
   if (!Number.isInteger(keeper) || keeper < 0 || keeper >= copies.length) return { ok: false, reason: 'invalid-choice' };
+  const kept = copies[keeper];
+  // Defensive: never turn off a copy that shares the kept copy's id (the same add-on saved at
+  // another scope), since that would turn off the add-on CCTI keeps. duplicates.js already
+  // makes such groups informational. Each change carries its copy so callers never realign.
+  const idOf = (copy) => String(copy.id || copy.originalId || '').toLowerCase();
+  const targets = copies.filter((copy, index) => index !== keeper && !(idOf(kept) && idOf(copy) === idOf(kept)));
+  if (targets.length === 0) return { ok: false, reason: 'nothing-to-do' };
   return {
     ok: true,
     kind: group.kind,
     name: group.name,
-    keep: copies[keeper],
-    changes: copies.filter((_, index) => index !== keeper).map((copy) => changeFor(group, copy, copies[keeper])),
+    keep: kept,
+    changes: targets.map((copy) => ({ ...changeFor(group, copy, kept), copy })),
     fingerprint: groupFingerprint(group),
   };
 }

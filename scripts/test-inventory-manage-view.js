@@ -40,6 +40,10 @@ const inventory = {
       copies: [{ scope: 'm (This project)', path: '' }, { scope: 'n (Just you)', path: '' }],
       informational: { reason: 'project-unknown' },
     }),
+    row('info-different-reach', 'plugin', 'duplicate', {
+      copies: [{ scope: 'a (Just you)', path: '' }, { scope: 'b (Only you in this project)', path: '' }],
+      informational: { reason: 'different-reach' },
+    }),
   ],
 };
 const view = manageSections(inventory);
@@ -67,7 +71,7 @@ assert.match(find('proj').detail, /Also check a project/);
 // A resolvable connection duplicate (needsChoice false): Resolve names the keeper and says
 // what happens to the rest, and the action carries everything the dialog needs.
 assert.deepEqual(find('connection-dup').action, { type: 'resolve-duplicate', label: 'Resolve', groupKey: 'mcp:connection-dup', needsChoice: false, options: ['Only you, in this folder', 'Just you, everywhere'], keeper: 1 });
-assert.equal(find('connection-dup').detail, 'These copies are identical. Claude Code keeps using the one saved for Just you, everywhere; Resolve removes the extra copy, so nothing stops working.');
+assert.equal(find('connection-dup').detail, 'These copies are identical. CCTI keeps the copy saved for Just you, everywhere; Resolve removes the extra copy, so nothing stops working.');
 
 // A resolvable add-on duplicate (needsChoice true): the user must choose.
 assert.deepEqual(find('addon-dup').action, { type: 'resolve-duplicate', label: 'Resolve', groupKey: 'plugin:addon-dup', needsChoice: true, options: ['market-a (Just you)', 'market-b (Just you)', 'market-c (Just you)'], keeper: null });
@@ -81,12 +85,14 @@ assert.equal(find('info-team-shared').detail, 'One copy is shared with everyone 
 assert.equal(find('info-separate-folders').action, null);
 assert.equal(find('info-separate-folders').detail, 'These copies are in different folders and don’t overlap, so nothing needs to change.');
 assert.equal(find('info-project-unknown').action, null);
+assert.equal(find('info-different-reach').action, null);
+assert.equal(find('info-different-reach').detail, 'These copies are saved in different places, so turning one off could remove it somewhere you still use it. CCTI won’t change them.');
 assert.equal(find('info-project-unknown').detail, 'One copy is saved for a specific folder. Choose that folder with “Also check a project” so CCTI can see it, then check again.');
 
 assert.equal(view.notice, null);
-assert.match(view.summary, /16 items/);
+assert.match(view.summary, /17 items/);
 assert.match(view.summary, /3 missing/);
-assert.match(view.summary, /8 with extra copies/);
+assert.match(view.summary, /9 with extra copies/);
 
 // No terminal surface: details never show a path or a command.
 for (const item of allRows(view)) {
@@ -95,7 +101,7 @@ for (const item of allRows(view)) {
 }
 
 const plugins = view.sections.find((section) => section.kind === 'plugin');
-assert.deepEqual(plugins.rows.map((item) => item.rowId).sort(), ['addon-dup', 'info-project-unknown'], 'external add-ons are folded, but duplicate rows stay visible');
+assert.deepEqual(plugins.rows.map((item) => item.rowId).sort(), ['addon-dup', 'info-different-reach', 'info-project-unknown'], 'external add-ons are folded, but duplicate rows stay visible');
 assert.equal(plugins.foldedRows.length, 2);
 assert.equal(plugins.foldedLabel, 'Show 2 more you already had');
 const skills = view.sections.find((section) => section.kind === 'skill');

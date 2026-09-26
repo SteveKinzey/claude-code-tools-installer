@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const assert = require('node:assert/strict');
 const { MCP_SCOPE_PRECEDENCE, mcpDuplicateGroups, pluginDuplicateGroups, compareSkillKeeper } = require('../desktop/src/inventory/duplicates');
+const { planResolution } = require('../desktop/src/inventory/resolvers');
 
 assert.deepEqual(MCP_SCOPE_PRECEDENCE, ['local', 'project', 'user']);
 const home = '/Users/me';
@@ -47,10 +48,15 @@ const folders = mcpDuplicateGroups([
   { name: 'z', key: 'z', scope: 'local', projectPath: '/work/app', fingerprint: 'a' },
 ], { homePath: home })[0];
 assert.deepEqual([folders.informational, folders.reason], [true, 'separate-folders']);
+const caseOnly = mcpDuplicateGroups([
+  { name: 'Context7', key: 'context7', scope: 'local', projectPath: home, fingerprint: 'a' },
+  { name: 'context7', key: 'context7', scope: 'user', projectPath: '', fingerprint: 'a' },
+], { homePath: home })[0];
+assert.deepEqual([caseOnly.informational, caseOnly.reason, caseOnly.keeper, caseOnly.needsChoice], [true, 'different-setup', null, false], 'identical copies whose names differ only by letter case are informational: tool names derive from the exact name');
 
 const installs = [
   { id: 'foo@market-a', name: 'foo', marketplace: 'market-a', scope: 'user', enabled: true, projectPath: '' },
-  { id: 'foo@market-b', name: 'foo', marketplace: 'market-b', scope: 'project', enabled: true, projectPath: '/work/app' },
+  { id: 'foo@market-b', name: 'foo', marketplace: 'market-b', scope: 'user', enabled: true, projectPath: '' },
   { id: 'bar@one', name: 'bar', marketplace: 'one', scope: 'user', enabled: true, projectPath: '' },
   { id: 'bar@two', name: 'bar', marketplace: 'two', scope: 'user', enabled: false, projectPath: '' },
   { id: 'baz@m', name: 'baz', marketplace: 'm', scope: 'user', enabled: true, projectPath: '' },
@@ -59,16 +65,47 @@ const installs = [
   { id: 'figma@claude-plugins-official', name: 'figma', marketplace: 'claude-plugins-official', scope: 'user', enabled: true, projectPath: '' },
 ];
 const pgroups = pluginDuplicateGroups(installs);
-assert.deepEqual(pgroups.map((g) => g.key), ['foo'], 'only enabled installs from two marketplaces are duplicates; one id at two scopes is not; synced add-ons never join');
-assert.equal(pgroups[0].needsChoice, true, 'there is no documented rule, so the user chooses');
+assert.deepEqual(pgroups.map((g) => g.key), ['foo'], 'only enabled installs from two marketplaces are duplicates; one id at two scopes alone is not; synced add-ons never join');
+assert.equal(pgroups[0].needsChoice, true, 'all user-scope copies, each id once: there is no documented rule, so the user chooses');
 assert.equal(pgroups[0].informational, false);
+assert.equal(pgroups[0].reason, '');
 assert.equal(pgroups[0].keeper, null);
-assert.deepEqual(pgroups[0].copies.map((c) => c.label), ['market-a (Just you)', 'market-b (This project)']);
+assert.deepEqual(pgroups[0].copies.map((c) => c.label), ['market-a (Just you)', 'market-b (Just you)']);
+
+// Reach rule: only all-user groups with each id once are resolvable.
+const reasonOf = (list) => pluginDuplicateGroups(list).map((g) => [g.key, g.informational, g.reason, g.needsChoice]);
+assert.deepEqual(reasonOf([
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@b', name: 'foo', marketplace: 'b', scope: 'project', enabled: true, projectPath: '/work/app' },
+]), [['foo', true, 'team-shared', false]], 'a user copy and a project copy: the project settings are shared with the team');
+assert.deepEqual(reasonOf([
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@b', name: 'foo', marketplace: 'b', scope: 'local', enabled: true, projectPath: '/work/app' },
+]), [['foo', true, 'different-reach', false]], 'a user copy and a local copy reach different places');
+assert.deepEqual(reasonOf([
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'local', enabled: true, projectPath: '/work/app' },
+  { id: 'foo@b', name: 'foo', marketplace: 'b', scope: 'user', enabled: true, projectPath: '' },
+]), [['foo', true, 'different-reach', false]], 'the same id at two scopes plus another marketplace is informational');
+const twoScopes = pluginDuplicateGroups([
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'project', enabled: true, projectPath: '/work/app' },
+  { id: 'foo@b', name: 'foo', marketplace: 'b', scope: 'user', enabled: true, projectPath: '' },
+]);
+assert.deepEqual(twoScopes.map((g) => [g.informational, g.reason, g.needsChoice]), [[true, 'team-shared', false]], 'the same id at user and project scope plus another is team-shared');
+for (const keep of [0, 1, 2]) {
+  assert.deepEqual(planResolution(twoScopes[0], { keep }), { ok: false, reason: 'informational' }, 'no plan ever disables the keeper id');
+}
 const unknownFolder = pluginDuplicateGroups([
+  { id: 'bar@m', name: 'bar', marketplace: 'm', scope: 'local', enabled: true, projectPath: '' },
+  { id: 'bar@n', name: 'bar', marketplace: 'n', scope: 'user', enabled: true, projectPath: '' },
+]);
+assert.deepEqual(unknownFolder.map((g) => [g.key, g.informational, g.reason, g.needsChoice]), [['bar', true, 'different-reach', false]], 'a local copy with no known folder is informational');
+const unknownProject = pluginDuplicateGroups([
   { id: 'bar@m', name: 'bar', marketplace: 'm', scope: 'project', enabled: true, projectPath: '' },
   { id: 'bar@n', name: 'bar', marketplace: 'n', scope: 'user', enabled: true, projectPath: '' },
 ]);
-assert.deepEqual(unknownFolder.map((g) => [g.key, g.informational, g.reason, g.needsChoice]), [['bar', true, 'project-unknown', false]], 'a project copy with no known folder is informational');
+assert.deepEqual(unknownProject.map((g) => g.reason), ['team-shared'], 'a project copy is team-shared whether or not its folder is known');
 
 const personal = { scope: 'Just you', updatedAt: '2026-01-01T00:00:00Z', path: '/h/s' };
 const projectNewer = { scope: 'This project', updatedAt: '2026-09-01T00:00:00Z', path: '/p/s' };
@@ -79,4 +116,4 @@ assert.ok(compareSkillKeeper(newer, older) < 0, 'within one scope the newer copy
 
 assert.deepEqual(mcpDuplicateGroups([]), []);
 assert.deepEqual(pluginDuplicateGroups(undefined), []);
-console.log('Inventory duplicates passed: broadest-reach keeper for identical connections, informational reasons, synced add-ons excluded, add-on choice, and the personal-first skill keeper.');
+console.log('Inventory duplicates passed: broadest-reach keeper for identical connections, case-only name differences informational, add-on reach rule (all user copies resolvable; project team-shared; other mixes different-reach), synced add-ons excluded, and the personal-first skill keeper.');

@@ -97,6 +97,8 @@ if (a === 'mcp' && b === 'list') {
 if (a === 'mcp' && b === 'get') process.exit(state.userMcp[c] || state.localMcp[c] ? 0 : 1);
 if (a === 'mcp' && b === 'remove') {
   if (state.mcpRemoveFails) { console.error('Injected remove failure for ' + c); process.exit(1); }
+  // Reports success but changes nothing, so apply's after-check must notice.
+  if (state.mcpRemoveNoop) process.exit(0);
   const scope = scopeArg();
   const bucket = scope === 'user' ? state.userMcp : scope === 'local' && inFolder(homePath) ? state.localMcp : null;
   if (!bucket || !bucket[c]) { console.error('No MCP server named ' + c + ' at scope ' + scope); process.exit(1); }
@@ -115,7 +117,7 @@ const realWorldLocal = { repomix: { command: 'npx', args: ['-y', 'repomix', '--m
 const realWorldUser = { MCP_DOCKER: { command: 'docker', args: ['mcp', 'gateway', 'run'] }, playwright: { ...playwrightDefinition } };
 
 async function setFakeClaude(state) {
-  const full = { userMcp: {}, localMcp: {}, plugins: [], pluginJsonFails: false, mcpRemoveFails: false, ...state };
+  const full = { userMcp: {}, localMcp: {}, plugins: [], pluginJsonFails: false, mcpRemoveFails: false, mcpRemoveNoop: false, ...state };
   await fsp.writeFile(fakeLog, '', 'utf8');
   await fsp.writeFile(fakeState, JSON.stringify(full), 'utf8');
   await fsp.writeFile(claudeJson, JSON.stringify({ mcpServers: full.userMcp, projects: { [home]: { mcpServers: full.localMcp } } }), 'utf8');
@@ -204,7 +206,7 @@ async function run() {
   let applied = await apply(null, { reviewId: reviewed.reviewId });
   assert.equal(applied.ok, true, applied.error);
   noCliArgs(applied);
-  assert.equal(applied.message, 'Removed the extra copy of playwright. Claude Code keeps using the one saved for you everywhere, so nothing stops working.');
+  assert.equal(applied.message, 'Removed the extra copy of playwright. The same connection stays saved for you everywhere, so nothing stops working.');
   assert.deepEqual(await changingCalls(), ['mcp remove playwright --scope local'], 'exactly the local copy is removed');
   const localRemoval = (await loggedCalls()).find((call) => call.args === 'mcp remove playwright --scope local');
   assert.equal(fs.realpathSync(localRemoval.cwd), fs.realpathSync(home), 'the home-folder local copy is removed from the home folder');
@@ -379,46 +381,95 @@ async function run() {
   assert.equal(rowFor(report, 'plugin:figma'), undefined, 'no plugin:figma group');
   assert.equal(report.inventory.rows.some((item) => item.kind === 'plugin' && (item.resolution || item.informational)), false);
 
-  // Case 12a: no project checked. `plugin list --json` has no project folder, so a project
-  // install's folder is unknown and the group is informational.
+  // Case 12a: no project checked. `plugin list --json` has no project folder, and a project
+  // install's settings are shared with the team, so the group is informational.
   const projectBar = { id: 'bar@m', scope: 'project', enabled: true, folder: project };
   await setFakeClaude({ plugins: [projectBar, { id: 'bar@n', scope: 'user', enabled: true }] });
   report = await discover(null, {});
   row = rowFor(report, 'plugin:bar');
   assert.equal(row.state, 'duplicate');
   assert.equal(row.resolution, undefined);
-  assert.deepEqual(row.informational, { reason: 'project-unknown' });
+  assert.deepEqual(row.informational, { reason: 'team-shared' });
   const listCalls = (await loggedCalls()).filter((call) => call.args === 'plugin list --json');
   assert.ok(listCalls.length > 0 && listCalls.every((call) => fs.realpathSync(call.cwd) === fs.realpathSync(home)), 'with no project, the list runs from the home folder');
   assert.equal((await review(null, { discoveryId: report.discoveryId, groupKey: 'plugin:bar', keep: 1 })).ok, false);
   assert.deepEqual(await changingCalls(), []);
 
-  // Case 12b: the project is checked, so the list runs from it and the project install
-  // belongs to it. Keeping bar@n disables bar@m from the checked project's folder.
+  // Case 12b (final-review ruling): the project is checked, so the list runs from it, but a
+  // project add-on copy is still team-shared. CCTI shows it and never turns it off.
   await setFakeClaude({ plugins: [projectBar, { id: 'bar@n', scope: 'user', enabled: true }] });
   report = await discover(null, { projectPath: project });
   row = rowFor(report, 'plugin:bar');
-  assert.deepEqual(row.resolution, { groupKey: 'plugin:bar', needsChoice: true, keeper: null, options: ['m (This project)', 'n (Just you)'] });
+  assert.equal(row.resolution, undefined);
+  assert.deepEqual(row.informational, { reason: 'team-shared' });
   assert.ok((await loggedCalls()).filter((call) => call.args === 'plugin list --json').every((call) => fs.realpathSync(call.cwd) === fs.realpathSync(project)), 'the list runs from the checked project');
-  reviewed = await review(null, { discoveryId: report.discoveryId, groupKey: 'plugin:bar', keep: 1 });
-  assert.equal(reviewed.ok, true, reviewed.error);
-  applied = await apply(null, { reviewId: reviewed.reviewId });
-  assert.equal(applied.ok, true, applied.error);
-  const disables = (await loggedCalls()).filter((call) => /^plugin disable/.test(call.args));
-  assert.deepEqual(disables.map((call) => call.args), ['plugin disable bar@m --scope project']);
-  assert.equal(fs.realpathSync(disables[0].cwd), fs.realpathSync(project), 'the project copy is disabled from the checked project');
-  assert.ok((await loggedCalls()).filter((call) => call.args === 'plugin list --json').length >= 2, 'apply re-read the list');
-  assert.ok((await loggedCalls()).filter((call) => call.args === 'plugin list --json').every((call) => fs.realpathSync(call.cwd) === fs.realpathSync(project)), 'apply re-reads from the same folder');
+  for (const keep of [0, 1]) {
+    assert.deepEqual(await review(null, { discoveryId: report.discoveryId, groupKey: 'plugin:bar', keep }), { ok: false, error: 'One copy is shared with everyone on this project, so CCTI won’t change it. Nothing needs to be done here.' });
+  }
+  assert.deepEqual(await changingCalls(), [], 'no plugin disable runs for a team-shared group');
 
-  // Case 13: each removed copy uses its own saved spelling.
+  // Case 12c (final-review Critical): the same add-on id is installed at two scopes (user and
+  // local) plus another marketplace. Turning off either scope could turn off the add-on CCTI
+  // keeps, so the group is informational and no `plugin disable` ever runs.
+  await setFakeClaude({ plugins: [
+    { id: 'foo@a', scope: 'user', enabled: true },
+    { id: 'foo@a', scope: 'local', enabled: true, folder: project },
+    { id: 'foo@b', scope: 'user', enabled: true },
+  ] });
+  report = await discover(null, { projectPath: project });
+  row = rowFor(report, 'plugin:foo');
+  assert.equal(row.state, 'duplicate');
+  assert.equal(row.resolution, undefined);
+  assert.deepEqual(row.informational, { reason: 'different-reach' });
+  for (const keep of [undefined, 0, 1, 2]) {
+    assert.deepEqual(await review(null, { discoveryId: report.discoveryId, groupKey: 'plugin:foo', keep }), { ok: false, error: 'These copies are saved in different places, so turning one off could remove it somewhere you still use it. CCTI won’t change them.' });
+  }
+  assert.ok(!(await loggedCalls()).some((call) => /^plugin disable/.test(call.args)), 'no plugin disable runs');
+
+  // Case 13 (final-review Minor 5): copies whose names differ only by letter case are not
+  // resolvable, because tool names derive from the exact name.
   await setFakeClaude({ userMcp: { context7: { command: 'npx', args: ['c7'] } }, localMcp: { Context7: { command: 'npx', args: ['c7'] } } });
   report = await discover(null, {});
-  reviewed = await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:context7' });
-  applied = await apply(null, { reviewId: reviewed.reviewId });
-  assert.equal(applied.ok, true, applied.error);
-  assert.deepEqual(await changingCalls(), ['mcp remove Context7 --scope local']);
+  row = rowFor(report, 'mcp:context7');
+  assert.equal(row.state, 'duplicate');
+  assert.equal(row.resolution, undefined);
+  assert.deepEqual(row.informational, { reason: 'different-setup' });
+  assert.equal((await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:context7' })).ok, false);
+  assert.deepEqual(await changingCalls(), []);
 
-  console.log('Inventory resolution main wiring passed: identical local copy removed in favour of the user copy, add-on choice and disable, check-then-act, invalid keeper, unreadable config, failed list, failed change, the action lock, per-folder grouping, informational groups, synced add-ons, project add-on folders, and saved spellings.');
+  // Case 14 (final-review Minor 6): at most 20 reviews are kept; the oldest is dropped.
+  await setFakeClaude({ userMcp: realWorldUser, localMcp: realWorldLocal });
+  report = await discover(null, {});
+  const reviewIds = [];
+  for (let index = 0; index < 21; index += 1) {
+    const next = await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:playwright' });
+    assert.equal(next.ok, true, next.error);
+    reviewIds.push(next.reviewId);
+  }
+  assert.deepEqual(await apply(null, { reviewId: reviewIds[0] }), { ok: false, error: 'This review is no longer available, so nothing was changed. Check this computer again, then choose Resolve.' }, 'the oldest review was dropped');
+  assert.deepEqual(await changingCalls(), []);
+  applied = await apply(null, { reviewId: reviewIds[20] });
+  assert.equal(applied.ok, true, applied.error);
+
+  // Case 15 (final-review Minor 7): the remove command reports success but changes nothing.
+  // Apply re-reads once, notices the targeted copy is still there, says so, logs details,
+  // and does not record the copy as resolved.
+  await setFakeClaude({ userMcp: realWorldUser, localMcp: realWorldLocal, mcpRemoveNoop: true });
+  const resolutionsBeforeNoop = JSON.parse(await fsp.readFile(ledgerFile, 'utf8')).resolutions.length;
+  report = await discover(null, {});
+  reviewed = await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:playwright' });
+  const emittedBeforeNoop = emittedEvents.length;
+  applied = await apply(null, { reviewId: reviewed.reviewId });
+  assert.deepEqual(applied, {
+    ok: false,
+    error: 'CCTI made the change, but Claude Code’s setup doesn’t look the way it expected. Check this computer again to see how it looks now.',
+    completed: [reviewed.changes[0].label],
+  });
+  assert.deepEqual(await changingCalls(), ['mcp remove playwright --scope local']);
+  assert.ok(emittedEvents.slice(emittedBeforeNoop).some((event) => event.channel === 'installer:output' && /doesn’t match the review \(still present: Remove the copy saved for Only you, in this folder\)/.test(event.payload?.text || '')), 'the mismatch details reach the activity log');
+  assert.equal(JSON.parse(await fsp.readFile(ledgerFile, 'utf8')).resolutions.length, resolutionsBeforeNoop, 'a copy that is still there is not recorded as resolved');
+
+  console.log('Inventory resolution main wiring passed: identical local copy removed in favour of the user copy, add-on choice and disable, check-then-act, invalid keeper, unreadable config, failed list, failed change, the action lock, per-folder grouping, informational groups, synced add-ons, the add-on reach rule, case-only names, the review cap, and the after-apply check.');
 }
 
 run()

@@ -139,6 +139,7 @@ const resolveDuplicateDialogChoiceElement = document.querySelector('#resolve-dup
 const resolveDuplicateDialogOptionsElement = document.querySelector('#resolve-duplicate-dialog-options');
 const resolveDuplicateDialogChangesElement = document.querySelector('#resolve-duplicate-dialog-changes');
 const resolveDuplicateDialogChangesListElement = document.querySelector('#resolve-duplicate-dialog-changes-list');
+const resolveDuplicateDialogKeepElement = document.querySelector('#resolve-duplicate-dialog-keep');
 const resolveDuplicateDialogStatusElement = document.querySelector('#resolve-duplicate-dialog-status');
 const reviewResolveDuplicateButton = document.querySelector('#review-resolve-duplicate-button');
 const applyResolveDuplicateButton = document.querySelector('#apply-resolve-duplicate-button');
@@ -1900,6 +1901,13 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
   focusDuplicateDialog(duplicateSkillDialogHeadingElement);
 }
 
+// The review step always names the copy CCTI keeps, from the review itself, so the person
+// sees what stays even when the setup changed after they chose.
+function renderResolveDuplicateReview(review) {
+  resolveDuplicateDialogKeepElement.textContent = review?.keepLabel ? `CCTI keeps: ${review.keepLabel}` : '';
+  renderResolveDuplicateChanges(review?.changes || []);
+}
+
 function renderResolveDuplicateChanges(changes) {
   resolveDuplicateDialogChangesListElement.replaceChildren(...(changes || []).map((change) => {
     const item = document.createElement('li');
@@ -1912,19 +1920,18 @@ function renderResolveDuplicateChanges(changes) {
   }));
 }
 
-function openResolveDuplicateDialog(action, name, button) {
-  if (typeof resolveDuplicateDialogElement?.showModal !== 'function') return;
-  if (document.activeElement instanceof HTMLElement) state.resolveDuplicateInvoker = document.activeElement;
-  state.resolveDuplicate = { discoveryId: state.managerReport?.discoveryId, groupKey: action.groupKey, needsChoice: Boolean(action.needsChoice), reviewId: null };
-  resolveDuplicateDialogHeadingElement.textContent = `Resolve ${name}`;
-  resolveDuplicateDialogCopyElement.textContent = action.needsChoice
+// Draws the intro, the keeper, and (when a choice is needed) the radio options from a
+// resolution summary { groupKey, needsChoice, keeper, options }. Any earlier selection is
+// cleared, so a person never reviews with a choice made against an older list.
+function renderResolveDuplicateOptions(resolution, name) {
+  resolveDuplicateDialogCopyElement.textContent = resolution.needsChoice
     ? `Choose which copy of ${name} to keep. CCTI turns off the others; nothing is uninstalled, so you can turn one back on later.`
-    : `These copies are identical. CCTI keeps the one saved for ${action.options[action.keeper]} and removes the extra ${action.options.length - 1 === 1 ? 'copy' : 'copies'}, so nothing stops working.`;
-  resolveDuplicateDialogChoiceElement.hidden = !action.needsChoice;
+    : `These copies are identical. CCTI keeps the one saved for ${resolution.options[resolution.keeper]} and removes the extra ${resolution.options.length - 1 === 1 ? 'copy' : 'copies'}, so nothing stops working.`;
+  resolveDuplicateDialogChoiceElement.hidden = !resolution.needsChoice;
   resolveDuplicateDialogOptionsElement.replaceChildren();
-  reviewResolveDuplicateButton.disabled = Boolean(action.needsChoice);
-  if (action.needsChoice) {
-    (action.options || []).forEach((label, index) => {
+  reviewResolveDuplicateButton.disabled = Boolean(resolution.needsChoice);
+  if (resolution.needsChoice) {
+    (resolution.options || []).forEach((label, index) => {
       const wrapper = document.createElement('label');
       wrapper.className = 'resolve-duplicate-option';
       const radio = document.createElement('input');
@@ -1940,8 +1947,17 @@ function openResolveDuplicateDialog(action, name, button) {
       resolveDuplicateDialogOptionsElement.append(wrapper);
     });
   }
+}
+
+function openResolveDuplicateDialog(action, name, button) {
+  if (typeof resolveDuplicateDialogElement?.showModal !== 'function') return;
+  if (document.activeElement instanceof HTMLElement) state.resolveDuplicateInvoker = document.activeElement;
+  state.resolveDuplicate = { discoveryId: state.managerReport?.discoveryId, groupKey: action.groupKey, needsChoice: Boolean(action.needsChoice), name, reviewId: null };
+  resolveDuplicateDialogHeadingElement.textContent = `Resolve ${name}`;
+  renderResolveDuplicateOptions(action, name);
+  reviewResolveDuplicateButton.disabled = Boolean(action.needsChoice);
   resolveDuplicateDialogChangesElement.hidden = true;
-  renderResolveDuplicateChanges([]);
+  renderResolveDuplicateReview(null);
   resolveDuplicateDialogStatusElement.textContent = '';
   reviewResolveDuplicateButton.hidden = false;
   reviewResolveDuplicateButton.textContent = 'Review changes';
@@ -1970,7 +1986,7 @@ async function reviewResolveDuplicateChanges() {
       return;
     }
     state.resolveDuplicate = { ...pending, reviewId: result.reviewId };
-    renderResolveDuplicateChanges(result.changes);
+    renderResolveDuplicateReview(result);
     resolveDuplicateDialogChangesElement.hidden = false;
     resolveDuplicateDialogStatusElement.textContent = result.changes.length
       ? `Review ${result.changes.length} change${result.changes.length === 1 ? '' : 's'} for ${result.name}, then choose Make these changes.`
@@ -2004,7 +2020,7 @@ async function applyResolveDuplicateChanges() {
       if (result.informational) {
         resolveDuplicateDialogStatusElement.textContent = result.informational.message || result.error;
         state.resolveDuplicate = { ...pending, reviewId: null };
-        renderResolveDuplicateChanges([]);
+        renderResolveDuplicateReview(null);
         resolveDuplicateDialogChangesElement.hidden = true;
         reviewResolveDuplicateButton.hidden = true;
         applyResolveDuplicateButton.hidden = true;
@@ -2012,18 +2028,28 @@ async function applyResolveDuplicateChanges() {
         return;
       }
       resolveDuplicateDialogStatusElement.textContent = result.error;
-      if (result.review) {
-        state.resolveDuplicate = { ...pending, reviewId: result.review.reviewId };
-        renderResolveDuplicateChanges(result.review.changes);
+      // Redraw the copies from how the setup looks now, so no stale option or keeper stays on
+      // screen. When a choice is needed, the earlier choice is cleared and must be made again.
+      const current = result.resolution
+        ? { ...pending, groupKey: result.resolution.groupKey, needsChoice: Boolean(result.resolution.needsChoice) }
+        : pending;
+      if (result.resolution) renderResolveDuplicateOptions(result.resolution, pending.name);
+      if (result.review && !current.needsChoice) {
+        state.resolveDuplicate = { ...current, reviewId: result.review.reviewId };
+        renderResolveDuplicateReview(result.review);
         resolveDuplicateDialogChangesElement.hidden = false;
+        reviewResolveDuplicateButton.hidden = true;
         applyResolveDuplicateButton.hidden = false;
         applyResolveDuplicateButton.disabled = result.review.changes.length === 0;
       } else {
-        state.resolveDuplicate = { ...pending, reviewId: null };
+        state.resolveDuplicate = { ...current, reviewId: null };
+        renderResolveDuplicateReview(null);
         resolveDuplicateDialogChangesElement.hidden = true;
         applyResolveDuplicateButton.hidden = true;
-        reviewResolveDuplicateButton.hidden = false;
-        reviewResolveDuplicateButton.disabled = pending.needsChoice;
+        applyResolveDuplicateButton.disabled = true;
+        // With no resolution left there is nothing to review; otherwise review again once ready.
+        reviewResolveDuplicateButton.hidden = !result.resolution;
+        reviewResolveDuplicateButton.disabled = current.needsChoice || !result.resolution;
       }
       return;
     }
