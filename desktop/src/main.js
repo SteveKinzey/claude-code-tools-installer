@@ -954,27 +954,73 @@ async function installReviewedPlugins(selectedIds) {
   }
 }
 
+// Tri-state: an id is "present" when observed installed, "unknown" when Claude Code is
+// installed but the probe for it could not answer (the plugin list call failed/timed out,
+// or a specific `mcp get` call threw/timed out), and otherwise absent. A tracked item is
+// never claimed as a fresh CCTI install off the back of an "unknown" read: recordCctiInstalls
+// folds present+unknown into the "before" set, so a degraded before-probe can never make an
+// already-present tool look newly installed. Skills are never unknown: pathExists is a plain
+// filesystem check with no partial-failure mode worth distinguishing.
 async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '' } = {}) {
   const tracked = [...new Set(ids)].map((id) => [id, trackedItem(id)]).filter(([, item]) => item);
   const present = new Set();
-  if (tracked.length === 0) return present;
+  const unknown = new Set();
+  if (tracked.length === 0) return { present, unknown };
   const skillRoot = skillScope === 'project' && projectPath
     ? path.join(projectPath, '.claude', 'skills')
     : path.join(app.getPath('home'), '.claude', 'skills');
   const claude = await claudeStatus();
-  const pluginIds = tracked.some(([, item]) => item.kind === 'plugin') ? await installedClaudePluginIds() : [];
-  for (const [id, item] of tracked) {
-    if (item.kind === 'skill' && await pathExists(path.join(skillRoot, item.key, 'SKILL.md'))) present.add(id);
-    if (item.kind === 'plugin' && pluginIsInstalled(pluginIds, item.key)) present.add(id);
-    if (item.kind === 'mcp' && await configuredMcpReady(item.key, claude)) present.add(id);
+  const claudeCommand = claude.path || 'claude';
+  const pluginTracked = tracked.filter(([, item]) => item.kind === 'plugin');
+  const mcpTracked = tracked.filter(([, item]) => item.kind === 'mcp');
+
+  let pluginIds = [];
+  let pluginsUnknown = false;
+  if (pluginTracked.length > 0 && claude.installed) {
+    try {
+      const result = await runProcess(claudeCommand, ['plugin', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 8000 });
+      if (result.timedOut || result.code !== 0) pluginsUnknown = true;
+      else pluginIds = pluginIdsFromList(result.stdout);
+    } catch {
+      pluginsUnknown = true;
+    }
   }
-  return present;
+
+  const mcpState = new Map(await Promise.all(mcpTracked.map(async ([id, item]) => {
+    if (!claude.installed) return [id, 'absent'];
+    try {
+      const result = await runProcess(claudeCommand, ['mcp', 'get', item.key], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
+      if (result.timedOut) return [id, 'unknown'];
+      return [id, result.code === 0 ? 'present' : 'absent'];
+    } catch {
+      return [id, 'unknown'];
+    }
+  })));
+
+  for (const [id, item] of tracked) {
+    if (item.kind === 'skill') {
+      if (await pathExists(path.join(skillRoot, item.key, 'SKILL.md'))) present.add(id);
+      continue;
+    }
+    if (item.kind === 'plugin') {
+      if (pluginsUnknown) unknown.add(id);
+      else if (pluginIsInstalled(pluginIds, item.key)) present.add(id);
+      continue;
+    }
+    if (item.kind === 'mcp') {
+      const state = mcpState.get(id);
+      if (state === 'unknown') unknown.add(id);
+      else if (state === 'present') present.add(id);
+    }
+  }
+  return { present, unknown };
 }
 
 async function recordCctiInstalls(ids, before, scope = {}) {
   try {
     const after = await presentTrackedItems(ids, scope);
-    const entries = newlyInstalledEntries(ids, before, after, { tracked: TRACKED_ITEMS, catalog: await readCatalog(), skillScope: scope.skillScope, projectPath: scope.projectPath });
+    const beforeSet = new Set([...before.present, ...before.unknown]);
+    const entries = newlyInstalledEntries(ids, beforeSet, after.present, { tracked: TRACKED_ITEMS, catalog: await readCatalog(), skillScope: scope.skillScope, projectPath: scope.projectPath });
     if (entries.length > 0) await inventoryLedger().recordInstalls(entries);
   } catch (error) {
     emit('installer:output', { stream: 'stderr', text: `[CCTI] Your tools were installed, but CCTI could not update its record of them: ${error.message}. Check this computer again to see them.\n` });
@@ -990,8 +1036,9 @@ async function recordSkillResolutions(moves, projectPath = '') {
   }
 }
 
-async function inventoryFromScan(scan) {
+async function inventoryFromScan({ findings, pluginList, mcpList, projectPath }) {
   try {
+    const scan = buildScan({ findings, pluginList, mcpList, projectPath });
     const [history, catalog] = await Promise.all([inventoryLedger().read(), readCatalog()]);
     return reconcileInventory({ scan, ledger: history.ledger, ledgerStatus: history.status, catalog, tracked: TRACKED_ITEMS });
   } catch {
@@ -2419,7 +2466,7 @@ async function discoverClaudeSetup(projectPath = '') {
     projectPath: resolvedProjectPath,
     findings: uniqueFindings,
     duplicates,
-    inventory: await inventoryFromScan(buildScan({ findings: uniqueFindings, pluginList, mcpList, projectPath: resolvedProjectPath })),
+    inventory: await inventoryFromScan({ findings: uniqueFindings, pluginList, mcpList, projectPath: resolvedProjectPath }),
     managedExtras: {
       actionCount: managedExtras.actions.length,
       manualCount: managedExtras.manualItems.length,
@@ -3316,7 +3363,7 @@ app.whenReady().then(async () => {
     activeInstall = true;
     emit('installer:state', { running: true });
     const trackedIds = Object.keys(TRACKED_ITEMS);
-    const trackedBefore = fresh ? new Set() : await presentTrackedItems(trackedIds, setupScope).catch(() => null);
+    const trackedBefore = await presentTrackedItems(trackedIds, setupScope).catch(() => null);
     try {
       const result = await spawnInstaller(fresh ? 'fresh-complete' : 'complete', [], false, setupScope);
       const after = await claudeStatus();

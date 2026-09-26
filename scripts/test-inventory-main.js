@@ -45,6 +45,11 @@ const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
 const [a, b, c] = process.argv.slice(2);
 if (a === '--version') { console.log('claude test'); process.exit(0); }
 if (a === 'plugin' && b === 'list') {
+  if (state.pluginListFailsOnce) {
+    state.pluginListFailsOnce = false;
+    fs.writeFileSync(statePath, JSON.stringify(state));
+    process.exit(1);
+  }
   console.log('Installed plugins:\\n');
   for (const id of state.plugins) console.log('  \\u276f ' + id + '\\n    Version: 1.0.0\\n    Scope: user\\n    Status: \\u2714 enabled\\n');
   process.exit(0);
@@ -71,7 +76,7 @@ async function writeSkill(folder, body = '# Skill\n') {
 }
 
 async function setFakeClaude(state) {
-  await fsp.writeFile(fakeState, JSON.stringify({ plugins: [], mcp: [], mcpFails: false, ...state }), 'utf8');
+  await fsp.writeFile(fakeState, JSON.stringify({ plugins: [], mcp: [], mcpFails: false, pluginListFailsOnce: false, ...state }), 'utf8');
 }
 
 async function installFakeClaude() {
@@ -143,6 +148,18 @@ async function run() {
   assert.equal(applied.ok, true, applied.error);
   const afterBackup = JSON.parse(await fsp.readFile(ledgerFile, 'utf8'));
   assert.ok(afterBackup.resolutions.some((item) => item.key === 'twin' && item.action === 'backup'), 'the backup is recorded as a resolution');
+
+  // Fix round 1, finding 1: a before-probe that cannot reach Claude Code (the fake's
+  // `plugin list` fails once) must not turn an already-present plugin into a claimed CCTI
+  // install just because a later, successful after-probe sees it. The tri-state probe marks
+  // it "unknown" rather than "absent", so newlyInstalledEntries never treats it as new.
+  await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'], pluginListFailsOnce: true });
+  const beforeDegradedProbe = JSON.parse(await fsp.readFile(ledgerFile, 'utf8'));
+  const degraded = await handlers.get('install:run')(null, { selectedIds: ['superpowers'], dryRun: false });
+  assert.equal(degraded.ok, true, degraded.error);
+  const afterDegradedProbe = JSON.parse(await fsp.readFile(ledgerFile, 'utf8'));
+  assert.deepEqual(afterDegradedProbe, beforeDegradedProbe, 'a plugin already present must not be recorded just because the before-probe failed once');
+  await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'] });
 
   // Review Focus 4 and 2: install:run records only newly present tracked items, and an
   // unreadable record (a directory where the file should be) is kept aside, not fatal.
