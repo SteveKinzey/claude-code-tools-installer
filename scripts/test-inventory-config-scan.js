@@ -59,4 +59,30 @@ assert.deepEqual(fromProject.installs.map((i) => i.projectPath), ['', project, '
 assert.equal(pluginInstalls('not json').ok, false);
 assert.equal(pluginInstalls('{"id":"x"}').ok, false, 'a non-array is not a plugin list');
 
+// Real Windows ~/.claude.json keys use forward slashes (Claude Code on windows-2022, 2026-09-26).
+const windowsJson = JSON.stringify({
+  mcpServers: { 'probe-home': { command: 'npx', args: ['-y', '@playwright/mcp@latest'] } },
+  projects: {
+    'C:/Users/runneradmin': { mcpServers: { 'probe-home': { command: 'npx', args: ['-y', '@playwright/mcp@latest'] } } },
+    'D:/a/_temp/my project & co': { mcpServers: { 'probe-project': { command: 'npx', args: ['-y', 'example-mcp'] } } },
+  },
+});
+const windowsDefinitions = mcpDefinitions({ claudeJsonText: windowsJson, projectMcpJsonText: null, homePath: 'C:\\Users\\runneradmin', projectPath: 'D:\\a\\_temp\\my project & co' }).definitions;
+assert.deepEqual(windowsDefinitions.filter((d) => d.scope === 'local').map((d) => [d.key, d.projectPath]), [
+  ['probe-home', 'C:\\Users\\runneradmin'],
+  ['probe-project', 'D:\\a\\_temp\\my project & co'],
+], 'forward-slash Windows keys match backslash paths; the caller path is kept so commands run in the real folder');
+const driveCase = mcpDefinitions({ claudeJsonText: JSON.stringify({ projects: { 'c:/Work/App': { mcpServers: { x: { command: 'y' } } } } }), projectMcpJsonText: null, homePath: 'C:\\Work\\App', projectPath: '' }).definitions;
+assert.equal(driveCase.length, 1, 'drive letters match regardless of case');
+const posixCase = mcpDefinitions({ claudeJsonText: JSON.stringify({ projects: { '/Users/Me/App': { mcpServers: { x: { command: 'y' } } } } }), projectMcpJsonText: null, homePath: '/users/me/app', projectPath: '' }).definitions;
+assert.equal(posixCase.length, 0, 'POSIX paths stay case-sensitive');
+const driveRoot = mcpDefinitions({ claudeJsonText: JSON.stringify({ projects: { 'c:/': { mcpServers: { x: { command: 'y' } } } } }), projectMcpJsonText: null, homePath: 'C:\\', projectPath: '' }).definitions;
+assert.equal(driveRoot.length, 1, 'a drive root keeps its separator, so C:\\ matches c:/');
+const posixBackslash = mcpDefinitions({ claudeJsonText: JSON.stringify({ projects: { '/work/a/b': { mcpServers: { x: { command: 'y' } } } } }), projectMcpJsonText: null, homePath: '/work/a\\b', projectPath: '' }).definitions;
+assert.equal(posixBackslash.length, 0, 'on POSIX a backslash is part of the folder name, not a separator');
+const posixRoot = mcpDefinitions({ claudeJsonText: JSON.stringify({ projects: { '/': { mcpServers: { x: { command: 'y' } } } } }), projectMcpJsonText: null, homePath: '/', projectPath: '' }).definitions;
+assert.equal(posixRoot.length, 1, 'the POSIX root still matches itself');
+const uncShare = mcpDefinitions({ claudeJsonText: JSON.stringify({ projects: { '//Server/Share/App': { mcpServers: { x: { command: 'y' } } } } }), projectMcpJsonText: null, homePath: '\\\\server\\share\\app', projectPath: '' }).definitions;
+assert.equal(uncShare.length, 1, 'a Windows network share matches with either separator and any case');
+
 console.log('Inventory config scan passed: MCP scopes from config files and add-on installs from plugin list --json.');

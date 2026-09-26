@@ -72,7 +72,9 @@ const ADD_ON_CONNECTION = /^plugin:([^:]+):/;
 // ⏸ Pending approval) or are one of a few plain phrases ("Not configured").
 // Requiring that shape keeps an error sentence such as
 // "Failed to connect: server - error" from becoming a connection.
-const LISTED_LINE = /^(.+?):\s+\S.*?\s+-\s+(?:[✔✓✗✘!⏸⚠]|(?:not configured|pending approval|connected|failed|needs authentication|disabled)\b)/i;
+// The status symbol differs by platform: macOS and Linux print ✔ / ✗, Windows prints √ / ×.
+// Any symbol (not a letter, digit or space) counts, as do the plain-word statuses.
+const LISTED_LINE = /^(.+?):\s+\S.*?\s+-\s+(?:[^\p{L}\p{N}\s]|(?:not configured|pending approval|connected|failed|needs authentication|disabled)\b)/iu;
 
 function parseMcpList(text) {
   const connections = new Map();

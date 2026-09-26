@@ -30,6 +30,27 @@ function serversOf(container, scope, projectPath) {
   }));
 }
 
+// Claude Code keys local-scope servers by folder path. On Windows it writes those keys with
+// forward slashes ("C:/Users/jane", "D:/work/my project") while Node paths use backslashes, and
+// drive letters can differ in case. Compare normalized forms so a folder is found either way.
+// Only Windows-shaped paths (a drive letter or a \\server share) are rewritten: on macOS and
+// Linux a backslash is an ordinary file-name character and letter case is significant. A root
+// keeps its separator, so "C:\\" and "c:/" still match each other.
+const WINDOWS_PATH = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
+function folderKey(value) {
+  const text = String(value || '');
+  if (!WINDOWS_PATH.test(text)) return text.replace(/(.)\/+$/, '$1');
+  const forward = text.replace(/\\/g, '/').replace(/\/+$/, '');
+  return (/^[A-Za-z]:$/.test(forward) ? `${forward}/` : forward).toLowerCase();
+}
+
+function projectEntry(projects, folder) {
+  if (Object.prototype.hasOwnProperty.call(projects, folder)) return projects[folder];
+  const wanted = folderKey(folder);
+  const match = Object.keys(projects).find((key) => folderKey(key) === wanted);
+  return match === undefined ? undefined : projects[match];
+}
+
 function mcpDefinitions({ claudeJsonText = null, projectMcpJsonText = null, homePath = '', projectPath = '' } = {}) {
   const claudeJson = parseObject(claudeJsonText);
   const projectJson = parseObject(projectMcpJsonText);
@@ -39,7 +60,7 @@ function mcpDefinitions({ claudeJsonText = null, projectMcpJsonText = null, home
     definitions.push(...serversOf(config, 'user', ''));
     const projects = config.projects && typeof config.projects === 'object' ? config.projects : {};
     for (const localPath of [...new Set([homePath, projectPath].filter(Boolean))]) {
-      definitions.push(...serversOf(projects[localPath], 'local', localPath));
+      definitions.push(...serversOf(projectEntry(projects, localPath), 'local', localPath));
     }
   }
   if (projectPath && projectJson.value) definitions.push(...serversOf(projectJson.value, 'project', projectPath));
