@@ -140,9 +140,12 @@ function compareSkillKeeper(left, right) {
 
 // The id a duplicate group is reviewed and resolved by. A connection can be duplicated in the
 // home folder and, separately, in the checked project under the same name; those are two
-// groups, so a project group carries its folder in its id.
+// groups, so a project group carries its folder in its id. A connection name may itself
+// contain ":" (a home connection named "foo:project"), so the name is percent-encoded first;
+// the ":project" marker then can never be confused with part of a name.
 function duplicateGroupId(group) {
-  return `${group.kind}:${group.key}${group.folder === 'project' ? ':project' : ''}`;
+  if (group.kind !== 'mcp') return `${group.kind}:${group.key}`;
+  return `mcp:${encodeURIComponent(group.key)}${group.folder === 'project' ? ':project' : ''}`;
 }
 
 module.exports = { duplicateGroupId, MCP_SCOPE_PRECEDENCE, SKILL_SCOPE_PRECEDENCE, mcpDuplicateGroups, pluginDuplicateGroups, compareSkillKeeper, isSafeMcpName, isSafePluginId };

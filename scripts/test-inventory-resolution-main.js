@@ -518,7 +518,8 @@ async function run() {
   assert.ok(unsafeRow, 'the unsafe-named connection is still listed');
   assert.equal(unsafeRow.resolution, undefined, 'it is never resolvable');
   assert.equal(unsafeRow.informational?.reason, 'unusual-name');
-  reviewed = await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:evil&calc' });
+  assert.equal(unsafeRow.rowId, 'mcp:evil%26calc', 'the name is encoded in the group id');
+  reviewed = await review(null, { discoveryId: report.discoveryId, groupKey: unsafeRow.rowId });
   assert.equal(reviewed.ok, false);
   assert.match(reviewed.error, /can’t safely pass to Claude Code/);
   assert.deepEqual(await changingCalls(), [], 'no command ran for an unsafe name');

@@ -135,4 +135,12 @@ const unsafePlugin = pluginDuplicateGroups([
 assert.equal(unsafePlugin.reason, 'unusual-name', 'an add-on group with an unsafe id is never resolvable');
 assert.equal(unsafePlugin.needsChoice, false);
 
+
+// Group ids: a project group gets a ":project" marker, and connection names are encoded so a
+// home connection named "foo:project" can never share an id with the project group for "foo".
+const { duplicateGroupId } = require('../desktop/src/inventory/duplicates');
+assert.equal(duplicateGroupId({ kind: 'mcp', key: 'playwright' }), 'mcp:playwright');
+assert.equal(duplicateGroupId({ kind: 'mcp', key: 'playwright', folder: 'project' }), 'mcp:playwright:project');
+assert.notEqual(duplicateGroupId({ kind: 'mcp', key: 'foo:project' }), duplicateGroupId({ kind: 'mcp', key: 'foo', folder: 'project' }), 'a name containing ":project" never collides with a project group');
+assert.equal(duplicateGroupId({ kind: 'plugin', key: 'foo' }), 'plugin:foo', 'add-on ids are unchanged');
 console.log('Inventory duplicates passed: broadest-reach keeper for identical connections, case-only name differences informational, add-on reach rule (all user copies resolvable; project team-shared; other mixes different-reach), synced add-ons excluded, unsafe names never resolvable, and the personal-first skill keeper.');
