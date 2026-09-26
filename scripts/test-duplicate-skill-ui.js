@@ -204,7 +204,7 @@ function injectedBridge() {
       applyCleanup: async (payload) => { record('applyCleanup', payload); return { ok: true, message: 'Moved the selected skill to a backup folder.' }; },
       reviewProjectPackageRemoval: async (payload) => {
         record('reviewProjectPackageRemoval', payload);
-        return { ok: true, reviewId: 'project-package-removal-review', name: '@convex-dev/agent', projectPath: '/fixture-project', packageJsonPath: '/fixture-project/package.json', command: 'npm uninstall --ignore-scripts --no-audit --no-fund @convex-dev/agent' };
+        return { ok: true, reviewId: 'project-package-removal-review', name: '@convex-dev/agent', projectPath: '/fixture-project', packageJsonPath: '/fixture-project/package.json', command: 'npm uninstall --ignore-scripts --no-audit --no-fund -- @convex-dev/agent' };
       },
       applyProjectPackageRemoval: async (payload) => { record('applyProjectPackageRemoval', payload); return { ok: false, error: 'Fixture stopped before package removal.' }; },
       reviewManagedExtrasRemoval: async () => ({ ok: true, reviewId: 'managed-extras-removal-review', actions: [{ label: 'CCTI reference folder: learn-claude-code' }], manualItems: [{ label: 'claude-mem: Use docs' }], description: 'Removes only reviewed CCTI-managed extras.' }),

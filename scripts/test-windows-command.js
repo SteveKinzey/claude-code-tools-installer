@@ -40,11 +40,15 @@ assert.deepEqual(
   { command: '"C:\\Users\\Jane Doe\\AppData\\Roaming\\npm\\claude.cmd"', args: ['plugin', 'marketplace', 'add', '"C:\\Work\\R&D market"'] },
 );
 
+const { quoteCommand } = require(path.join(__dirname, '..', 'desktop', 'src', 'windows-command.js'));
+assert.equal(quoteCommand('npm.cmd'), '"npm.cmd"', 'the command token is always quoted');
+assert.equal(quoteCommand('C:\\a,b\\claude.cmd'), '"C:\\a,b\\claude.cmd"');
+
 // 2. spawnSafely decisions, with a recording spawn so nothing runs.
 const calls = [];
 const recordSpawn = (command, args, options) => { calls.push({ command, args, options }); return { recorded: true }; };
 spawnSafely('npm.cmd', ['uninstall', 'x&calc'], { cwd: 'C:\\p' }, { platform: 'win32', spawn: recordSpawn });
-assert.deepEqual(calls.pop(), { command: 'npm.cmd uninstall "x&calc"', args: [], options: { cwd: 'C:\\p', shell: true } }, 'a Windows .cmd target must run through cmd.exe with every argument quoted');
+assert.deepEqual(calls.pop(), { command: '"npm.cmd" uninstall "x&calc"', args: [], options: { cwd: 'C:\\p', shell: true } }, 'a Windows .cmd target must run through cmd.exe with every argument quoted');
 spawnSafely('C:\\Users\\Jane Doe\\claude.CMD', ['--version'], {}, { platform: 'win32', spawn: recordSpawn });
 assert.equal(calls.pop().command, '"C:\\Users\\Jane Doe\\claude.CMD" --version', 'a .cmd path with a space must be quoted');
 spawnSafely('C:\\Program Files\\Claude\\claude.exe', ['a&b'], { windowsHide: true }, { platform: 'win32', spawn: recordSpawn });
@@ -88,7 +92,8 @@ async function run() {
     fs.writeFileSync(path.join(dir, 'probe.js'), 'process.stdout.write(JSON.stringify(process.argv.slice(2)));\n', 'utf8');
     fs.writeFileSync(path.join(dir, 'probe.cmd'), `@"${process.execPath}" "%~dp0probe.js" %*\r\n`, 'utf8');
     const probe = path.join(dir, 'probe.cmd');
-    const args = ['plain', 'x y', 'a&echo pwned>marker.txt', 'R&D', '(x)', 'a^b', 'a|b', 'https://h/marketplace.json?a=1&b=2', 'C:\\trail dir\\', '--depth=0'];
+    // The last argument is quoted and ends in a backslash, and `a,b` / `+x` pass through %* unquoted.
+    const args = ['plain', 'x y', 'a&echo pwned>marker.txt', 'R&D', '(x)', 'a^b', 'a|b', 'https://h/marketplace.json?a=1&b=2', '--depth=0', 'a,b', '+x', 'C:\\trail dir\\'];
     const result = await collect(spawnSafely(probe, args, { cwd: dir, windowsHide: true }));
     assert.equal(result.code, 0, `probe should exit cleanly: ${result.stderr}`);
     assert.deepEqual(JSON.parse(result.stdout.trim()), args, 'every argument must reach the program exactly as given');

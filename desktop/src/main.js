@@ -2824,7 +2824,10 @@ function isValidNpmPackageName(name) {
   const value = String(name ?? '');
   return value.length > 0
     && value.length <= 214
-    && /^(?:@[A-Za-z0-9-~][A-Za-z0-9-._~]*\/)?[A-Za-z0-9-~][A-Za-z0-9-._~]*$/.test(value);
+    // A leading '-' would make npm read the name as an option (e.g. `-g` from a hostile
+    // package.json would uninstall a global package), so names must start with a letter,
+    // digit, or '~'. The call also passes `--` before the name as a second guard.
+    && /^(?:@[A-Za-z0-9~][A-Za-z0-9-._~]*\/)?[A-Za-z0-9~][A-Za-z0-9-._~]*$/.test(value);
 }
 
 function invalidProjectPackageNameResult(name) {
@@ -2862,7 +2865,7 @@ async function reviewProjectPackageRemoval({ discoveryId, findingId }) {
     return {
       ok: true,
       ...plan,
-      command: `npm uninstall --ignore-scripts --no-audit --no-fund ${finding.name}`,
+      command: `npm uninstall --ignore-scripts --no-audit --no-fund -- ${finding.name}`,
       description: 'Removes this one reviewed package from the selected project only. Package scripts remain disabled. CCTI will not touch your global tools, skills, add-ons, or any other project.',
     };
   } catch (error) {
@@ -2886,7 +2889,7 @@ async function applyProjectPackageRemoval({ reviewId, confirmation }) {
     emit('component:state', { running: true });
     emit('component:output', { stream: 'stdout', text: `[CCTI] Removing reviewed project package ${plan.name} with package scripts disabled…\n` });
     const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const result = await runProcess(npmCommand, ['uninstall', '--ignore-scripts', '--no-audit', '--no-fund', plan.name], { cwd: plan.projectPath, env: claudeProcessEnv() });
+    const result = await runProcess(npmCommand, ['uninstall', '--ignore-scripts', '--no-audit', '--no-fund', '--', plan.name], { cwd: plan.projectPath, env: claudeProcessEnv() });
     if (result.code !== 0) return { ok: false, error: result.stderr.trim() || `CCTI could not remove ${plan.name} from this project.` };
     reviewedProjectPackageRemovalPlans.delete(plan.reviewId);
     return { ok: true, message: `${plan.name} was removed from the selected project. Package scripts were disabled; global tools, skills, add-ons, and other projects were not changed.` };
@@ -3075,7 +3078,7 @@ function validRepository(value) {
 
 // Characters that cmd.exe cannot be kept from interpreting (or that break a command line).
 // eslint-disable-next-line no-control-regex
-const UNSAFE_ADD_ON_SOURCE = /["%!\u0000-\u001f\u007f]/;
+const UNSAFE_ADD_ON_SOURCE = process.platform === 'win32' ? /["%!\u0000-\u001f\u007f]/ : /[\u0000-\u001f\u007f]/;
 
 function unsafeAddOnSourceResult(source) {
   emit('installer:output', { stream: 'stderr', text: `[CCTI] Refused add-on source ${JSON.stringify(String(source ?? ''))}: it contains a quote, %, !, or a control character.\n` });

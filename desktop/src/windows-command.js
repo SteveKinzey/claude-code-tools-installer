@@ -41,8 +41,15 @@ function cmdQuote(value) {
   return `"${value.replace(/(\\+)$/, '$1$1')}"`;
 }
 
+// The command token is always quoted: cmd.exe ends an unquoted command name at `/ , ; =`, so a
+// path such as `C:\a,b\claude.cmd` would otherwise fail to launch.
+function quoteCommand(command) {
+  const quoted = cmdQuote(command);
+  return quoted.startsWith('"') ? quoted : `"${quoted}"`;
+}
+
 function windowsShellInvocation(command, args) {
-  return { command: cmdQuote(command), args: (args || []).map(cmdQuote) };
+  return { command: quoteCommand(command), args: (args || []).map(cmdQuote) };
 }
 
 function usesWindowsCommandShell(command, platform = process.platform) {
@@ -68,4 +75,4 @@ function spawnSafely(command, args, options = {}, internals = {}) {
   return spawnImpl(commandLine, [], { ...options, shell: true });
 }
 
-module.exports = { cmdQuote, windowsShellInvocation, usesWindowsCommandShell, spawnSafely };
+module.exports = { cmdQuote, quoteCommand, windowsShellInvocation, usesWindowsCommandShell, spawnSafely };
