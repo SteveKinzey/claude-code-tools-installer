@@ -370,6 +370,47 @@ async function run() {
   // duplicate-skill and safe-backup counts asserted further down.
   await fsp.rm(path.join(home, '.claude', 'skills', 'age-check-a'), { recursive: true, force: true });
   await fsp.rm(ageCheckBulkPlan.moves[0].destination, { recursive: true, force: true });
+
+  // Coordinator fix round 1, item 1: applyAllDuplicateSkills must re-verify the copy each
+  // group would KEEP, not just the copies it moves. If the kept copy changed after review,
+  // moving every other copy would leave no active copy of that skill at all. Again isolated
+  // through a project-free discovery.
+  await writeSkill(path.join(home, '.claude', 'skills', 'keeper-edited-a'), 'Keeper edited', { contents: '# Keeper edited\n' });
+  await writeSkill(path.join(home, '.claude', 'skills', 'keeper-edited-b'), 'Keeper edited', { contents: '# Keeper edited\n' });
+  const keeperEditedReport = await discover(null, {});
+  const keeperEditedPlan = await reviewAllDuplicates(null, { discoveryId: keeperEditedReport.discoveryId });
+  assert.equal(keeperEditedPlan.ok, true, keeperEditedPlan.error);
+  assert.equal(keeperEditedPlan.groups.length, 1, 'the project-free discovery should isolate this duplicate pair from other fixtures');
+  const keeperEditedGroup = keeperEditedPlan.groups[0];
+  // Edit the copy the plan says it will KEEP (not either move target) after review.
+  await fsp.writeFile(path.join(keeperEditedGroup.keep.path, 'SKILL.md'), '# Keeper edited (changed after review)\n', 'utf8');
+  const keeperEditedResult = await applyAllDuplicates(null, { reviewId: keeperEditedPlan.reviewId });
+  assert.equal(keeperEditedResult.ok, false, 'apply must refuse when the copy it would keep changed after review');
+  assert.match(keeperEditedResult.error, /copy CCTI would keep changed/i);
+  await fsp.access(path.join(home, '.claude', 'skills', 'keeper-edited-a', 'SKILL.md'));
+  await fsp.access(path.join(home, '.claude', 'skills', 'keeper-edited-b', 'SKILL.md'));
+  assert.equal(keeperEditedPlan.moves.length, 1);
+  await assert.rejects(fsp.access(keeperEditedPlan.moves[0].destination), 'no backup should be created when the kept copy changed after review');
+  await fsp.rm(path.join(home, '.claude', 'skills', 'keeper-edited-a'), { recursive: true, force: true });
+  await fsp.rm(path.join(home, '.claude', 'skills', 'keeper-edited-b'), { recursive: true, force: true });
+
+  // Same rule, but the kept copy is deleted entirely after review rather than edited.
+  await writeSkill(path.join(home, '.claude', 'skills', 'keeper-deleted-a'), 'Keeper deleted', { contents: '# Keeper deleted\n' });
+  await writeSkill(path.join(home, '.claude', 'skills', 'keeper-deleted-b'), 'Keeper deleted', { contents: '# Keeper deleted\n' });
+  const keeperDeletedReport = await discover(null, {});
+  const keeperDeletedPlan = await reviewAllDuplicates(null, { discoveryId: keeperDeletedReport.discoveryId });
+  assert.equal(keeperDeletedPlan.ok, true, keeperDeletedPlan.error);
+  assert.equal(keeperDeletedPlan.groups.length, 1, 'the project-free discovery should isolate this duplicate pair from other fixtures');
+  const keeperDeletedGroup = keeperDeletedPlan.groups[0];
+  await fsp.rm(keeperDeletedGroup.keep.path, { recursive: true, force: true });
+  const keeperDeletedResult = await applyAllDuplicates(null, { reviewId: keeperDeletedPlan.reviewId });
+  assert.equal(keeperDeletedResult.ok, false, 'apply must refuse when the copy it would keep was deleted after review');
+  assert.match(keeperDeletedResult.error, /copy CCTI would keep changed/i);
+  await fsp.access(path.join(keeperDeletedPlan.moves[0].source, 'SKILL.md'));
+  await assert.rejects(fsp.access(keeperDeletedPlan.moves[0].destination), 'no backup should be created when the kept copy no longer exists');
+  await fsp.rm(path.join(home, '.claude', 'skills', 'keeper-deleted-a'), { recursive: true, force: true }).catch(() => {});
+  await fsp.rm(path.join(home, '.claude', 'skills', 'keeper-deleted-b'), { recursive: true, force: true }).catch(() => {});
+
   await fsp.access(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'));
 
   // The personal copy ('global-revenue-playbook') is now the keeper and is never a move

@@ -16,6 +16,10 @@ const handlers = new Map();
 let readyCallback;
 const originalAppData = process.env.APPDATA;
 const originalLocalAppData = process.env.LOCALAPPDATA;
+// Fix round 1, item 3(c): captures every emit() the main process sends to the renderer
+// (mainWindow.webContents.send), so a test can confirm raw stderr reaches installer:output
+// even though the returned error is a plain-language message.
+const emittedEvents = [];
 
 const electronStub = {
   app: {
@@ -27,7 +31,7 @@ const electronStub = {
   },
   BrowserWindow: class {
     static getAllWindows() { return []; }
-    constructor() { this.webContents = { send: () => {}, setWindowOpenHandler: () => {}, on: () => {} }; }
+    constructor() { this.webContents = { send: (channel, payload) => emittedEvents.push({ channel, payload }), setWindowOpenHandler: () => {}, on: () => {} }; }
     async loadFile() {}
     isDestroyed() { return false; }
   },
@@ -71,6 +75,21 @@ if (a === 'plugin' && b === 'install') {
   process.exit(0);
 }
 if (a === 'plugin' && b === 'marketplace') process.exit(0);
+if (a === 'plugin' && (b === 'enable' || b === 'disable')) {
+  // Fix round 1, item 3(c): logs every attempted enable/disable so a test can prove the CLI
+  // was actually invoked, independent of whether it then succeeds or is made to fail.
+  state.pluginActionCalls = state.pluginActionCalls || [];
+  state.pluginActionCalls.push({ action: b, name: c });
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  if (state.pluginActionFails) {
+    console.error('Injected plugin ' + b + ' failure for ' + c);
+    process.exit(1);
+  }
+  if (b === 'enable' && !state.plugins.includes(c)) state.plugins.push(c);
+  if (b === 'disable') state.plugins = state.plugins.filter((id) => id !== c);
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  process.exit(0);
+}
 if (a === 'mcp' && b === 'list') {
   if (state.mcpFails) process.exit(1);
   console.log('Checking MCP server health\\u2026\\n');
@@ -94,7 +113,7 @@ async function writeSkill(folder, body = '# Skill\n') {
 }
 
 async function setFakeClaude(state) {
-  await fsp.writeFile(fakeState, JSON.stringify({ plugins: [], mcp: [], mcpFails: false, pluginListFailsOnce: false, versionHangsOnce: false, mcpRemoveFails: [], ...state }), 'utf8');
+  await fsp.writeFile(fakeState, JSON.stringify({ plugins: [], mcp: [], mcpFails: false, pluginListFailsOnce: false, versionHangsOnce: false, mcpRemoveFails: [], pluginActionFails: false, pluginActionCalls: [], ...state }), 'utf8');
 }
 
 async function installFakeClaude() {
@@ -220,6 +239,21 @@ async function run() {
   await assert.rejects(fsp.access(staleFinding.path), 'the skill should have moved to backup even though the review was over 10 minutes old');
   await fsp.access(path.join(staleReview.destination, 'SKILL.md'));
 
+  // Coordinator fix round 1, item 3(a): applyCleanup must refuse when the reviewed skill's
+  // content changed after review, leaving the skill in place and creating no backup.
+  await writeSkill(path.join(home, '.claude', 'skills', 'content-changed-check'), '# Content changed check\n');
+  report = await discover(null, { projectPath: project });
+  const contentChangedFinding = report.findings.find((item) => item.type === 'skill' && item.name === 'content-changed-check');
+  assert.ok(contentChangedFinding, 'discovery must report the newly written content-changed-check skill');
+  const contentChangedReview = await handlers.get('setup-manager:review-cleanup')(null, { discoveryId: report.discoveryId, findingId: contentChangedFinding.id });
+  assert.equal(contentChangedReview.ok, true, contentChangedReview.error);
+  await fsp.writeFile(path.join(home, '.claude', 'skills', 'content-changed-check', 'SKILL.md'), '# Content changed check (edited)\n', 'utf8');
+  const contentChangedApplied = await handlers.get('setup-manager:apply-cleanup')(null, { reviewId: contentChangedReview.reviewId });
+  assert.equal(contentChangedApplied.ok, false, 'apply must refuse when the reviewed skill changed after review');
+  assert.match(contentChangedApplied.error, /changed after you looked at it/i);
+  await fsp.access(contentChangedFinding.path);
+  await assert.rejects(fsp.access(contentChangedReview.destination), 'no backup should be created when the reviewed content no longer matches');
+
   // Fix round 1, finding 1: a before-probe that cannot reach Claude Code (the fake's
   // `plugin list` fails once) must not turn an already-present plugin into a claimed CCTI
   // install just because a later, successful after-probe sees it. The tri-state probe marks
@@ -326,6 +360,59 @@ async function run() {
   assert.equal(rowFor(report, 'playwright'), undefined, 'a deliberately removed connection is not Missing');
   assert.equal(rowFor(report, 'repomix').state, 'installed', 'the connection that failed to remove is still there');
   assert.equal(rowFor(report, 'graphify').state, 'installed', 'the skill after the failure was never touched');
+
+  // Coordinator fix round 1, items 3(b) and 3(c): applyPluginChange must re-verify the add-on
+  // is still installed (by asking Claude Code directly, not trusting the stale review), and it
+  // must never show raw CLI stderr as the returned error.
+  await fsp.mkdir(path.join(home, '.claude'), { recursive: true });
+  await fsp.writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({
+    enabledPlugins: { 'sample-addon@sample-marketplace': true, 'superpowers@superpowers-marketplace': true },
+  }), 'utf8');
+  await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'] });
+  report = await discover(null, {});
+  const sampleAddonFinding = report.findings.find((item) => item.type === 'plugin' && item.scope === 'Just you' && item.name === 'sample-addon@sample-marketplace');
+  assert.ok(sampleAddonFinding, 'the settings.json-only plugin should be discovered as a manageable, user-scope add-on');
+  const installedAddonFinding = report.findings.find((item) => item.type === 'plugin' && item.scope === 'Just you' && item.name === 'superpowers@superpowers-marketplace');
+  assert.ok(installedAddonFinding, 'the settings.json plugin that Claude Code also reports installed should be discovered as a manageable, user-scope add-on');
+
+  // 3(b): sample-addon is declared in settings.json but never shows up on Claude Code's own
+  // `plugin list`, so apply must refuse without running any enable/disable command.
+  const missingAddonReview = await handlers.get('setup-manager:review-plugin-change')(null, { discoveryId: report.discoveryId, findingId: sampleAddonFinding.id, action: 'disable' });
+  assert.equal(missingAddonReview.ok, true, missingAddonReview.error);
+  const missingAddonApplied = await handlers.get('setup-manager:apply-plugin-change')(null, { reviewId: missingAddonReview.reviewId });
+  assert.equal(missingAddonApplied.ok, false, 'apply must refuse an add-on that is not on the current plugin list');
+  assert.match(missingAddonApplied.error, /no longer installed/i);
+  assert.deepEqual(JSON.parse(await fsp.readFile(fakeState, 'utf8')).pluginActionCalls, [], 'no enable/disable command should run for an add-on that is no longer installed');
+
+  // 3(c): superpowers IS on the plugin list, so apply proceeds to call the CLI, which is made
+  // to fail. The returned error must be a plain next-action message, never the raw CLI stderr;
+  // the stderr itself must still reach the activity log via installer:output.
+  const installedAddonReview = await handlers.get('setup-manager:review-plugin-change')(null, { discoveryId: report.discoveryId, findingId: installedAddonFinding.id, action: 'disable' });
+  assert.equal(installedAddonReview.ok, true, installedAddonReview.error);
+  await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'], pluginActionFails: true });
+  const emittedBeforeFailure = emittedEvents.length;
+  const installedAddonApplied = await handlers.get('setup-manager:apply-plugin-change')(null, { reviewId: installedAddonReview.reviewId });
+  assert.equal(installedAddonApplied.ok, false, 'apply must report failure when the CLI enable/disable command fails');
+  assert.match(installedAddonApplied.error, /could not disable this add-on/i);
+  assert.doesNotMatch(installedAddonApplied.error, /Injected plugin/i, 'the returned error must never be the raw CLI stderr');
+  const stderrEvents = emittedEvents.slice(emittedBeforeFailure).filter((event) => event.channel === 'installer:output' && event.payload?.stream === 'stderr');
+  assert.ok(stderrEvents.some((event) => /Injected plugin disable failure/.test(event.payload.text)), 'the raw stderr must still reach the activity log via installer:output');
+  const stateAfterFailure = JSON.parse(await fsp.readFile(fakeState, 'utf8'));
+  assert.deepEqual(stateAfterFailure.pluginActionCalls, [{ action: 'disable', name: 'superpowers@superpowers-marketplace' }], 'the CLI enable/disable command must actually run once the add-on is confirmed installed');
+  await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'] });
+
+  // Item 5: when `claude plugin list` itself fails, apply must not claim the add-on is "no
+  // longer installed" (detection failed, it is not proof of absence) and must not run enable
+  // or disable.
+  const listFailureReview = await handlers.get('setup-manager:review-plugin-change')(null, { discoveryId: report.discoveryId, findingId: installedAddonFinding.id, action: 'disable' });
+  assert.equal(listFailureReview.ok, true, listFailureReview.error);
+  await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'], pluginListFailsOnce: true });
+  const listFailureApplied = await handlers.get('setup-manager:apply-plugin-change')(null, { reviewId: listFailureReview.reviewId });
+  assert.equal(listFailureApplied.ok, false, 'apply must refuse when Claude Code cannot be asked whether the add-on is installed');
+  assert.match(listFailureApplied.error, /couldn.t check your add-ons/i);
+  assert.doesNotMatch(listFailureApplied.error, /no longer installed/i, 'a failed list call must never be reported as "no longer installed"');
+  assert.deepEqual(JSON.parse(await fsp.readFile(fakeState, 'utf8')).pluginActionCalls, [], 'no enable/disable command should run when the list check itself failed');
+  await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'] });
 
   console.log('Inventory main wiring passed: discovery rows, unobserved connections, backup resolutions, verified install recording, record reset, and extras removal.');
 }

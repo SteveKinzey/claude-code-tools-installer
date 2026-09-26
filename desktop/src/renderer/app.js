@@ -1867,7 +1867,7 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
       location.className = 'duplicate-skill-dialog-location';
       const label = document.createElement('span');
       const isKeeper = index === 0;
-      label.textContent = `${canBackUp && duplicate.match === 'content-hash' ? (isKeeper ? 'Keep this copy · the one Claude Code uses' : 'Available for backup review') : (index === 0 ? 'Older local copy by date' : 'Another local copy')} · ${item.scope} · ${localSkillDate(item)}\n${item.path}`;
+      label.textContent = `${canBackUp && duplicate.match === 'content-hash' ? (isKeeper ? 'Keep this copy · the one Claude Code uses' : 'Available for backup review') : (isKeeper ? 'The copy Claude Code uses' : 'Another local copy')} · ${item.scope} · ${localSkillDate(item)}\n${item.path}`;
       location.append(label);
       if (canBackUp && duplicate.match === 'content-hash' && ['Just you', 'This project'].includes(item.scope)) {
         const singleButton = document.createElement('button');

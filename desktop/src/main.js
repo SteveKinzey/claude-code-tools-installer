@@ -2497,6 +2497,9 @@ async function reviewPluginChange({ discoveryId, findingId, action }) {
   const scope = finding.scope === 'This project' ? 'project' : finding.scope === 'Only you in this project' ? 'local' : 'user';
   const reviewId = randomUUID();
   reviewedPluginChanges.set(reviewId, { name: finding.name, scope, action, createdAt: Date.now() });
+  for (const [id, review] of reviewedPluginChanges) {
+    if (Date.now() - review.createdAt > 24 * 60 * 60 * 1000) reviewedPluginChanges.delete(id);
+  }
   return { ok: true, reviewId, name: finding.name, scope: finding.scope, action, description: `${action === 'enable' ? 'Turn on' : 'Turn off'} this add-on for ${finding.scope.toLowerCase()}. This does not uninstall it.` };
 }
 
@@ -2507,7 +2510,20 @@ async function applyPluginChange({ reviewId }) {
   try {
     const claude = await claudeStatus();
     if (!claude.installed) return { ok: false, error: 'Claude Code is not ready. Check this computer again after Claude Code is available.' };
-    const installedIds = await installedClaudePluginIds();
+    // Distinguish "the list call itself failed or timed out" (detection failed, so we cannot
+    // say the add-on is absent) from "the list succeeded and the add-on is not on it" (the
+    // add-on really is gone). Run the list directly, the same way presentTrackedItems does,
+    // instead of installedClaudePluginIds(), which folds both cases into an empty list.
+    let listResult = null;
+    try {
+      listResult = await runProcess(claude.path || 'claude', ['plugin', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 8000 });
+    } catch {
+      listResult = null;
+    }
+    if (!listResult || listResult.timedOut || listResult.code !== 0) {
+      return { ok: false, error: 'CCTI couldn’t check your add-ons right now, so nothing was changed. Try again in a moment.' };
+    }
+    const installedIds = pluginIdsFromList(listResult.stdout);
     if (!pluginIsInstalled(installedIds, plan.name)) {
       return { ok: false, error: 'That add-on is no longer installed, so nothing was changed. Check this computer again to see the current list.' };
     }
@@ -2932,6 +2948,9 @@ async function reviewCleanup({ discoveryId, findingId }) {
   for (const [id, review] of reviewedCleanupPlans) {
     if (Date.now() - review.createdAt > 24 * 60 * 60 * 1000) reviewedCleanupPlans.delete(id);
   }
+  while (reviewedCleanupPlans.size > 20) {
+    reviewedCleanupPlans.delete(reviewedCleanupPlans.keys().next().value);
+  }
   return plan;
 }
 
@@ -2947,7 +2966,7 @@ async function applyCleanup({ reviewId }) {
       return { ok: false, error: 'This skill changed after you looked at it, so nothing was moved. Check this computer again to see it as it is now.' };
     }
   } catch {
-    return { ok: false, error: 'The selected skill could not be moved. It may already be gone or no longer be a skill folder.' };
+    return { ok: false, error: 'The selected skill could not be moved. It may already be gone or no longer be a skill folder. Check this computer again to see it as it is now.' };
   }
   try {
     await fs.access(path.join(plan.source, 'SKILL.md'));
@@ -2997,6 +3016,9 @@ async function reviewAllDuplicateSkills({ discoveryId } = {}) {
   for (const [id, review] of reviewedBulkCleanupPlans) {
     if (Date.now() - review.createdAt > 24 * 60 * 60 * 1000) reviewedBulkCleanupPlans.delete(id);
   }
+  while (reviewedBulkCleanupPlans.size > 20) {
+    reviewedBulkCleanupPlans.delete(reviewedBulkCleanupPlans.keys().next().value);
+  }
   return plan;
 }
 
@@ -3008,6 +3030,20 @@ async function applyAllDuplicateSkills({ reviewId } = {}) {
   }
   if (activeInstall || activeComponentInstall || activeSkillCleanup) {
     return { ok: false, error: 'Another CCTI action is running. Wait for it to finish before removing duplicate skills.' };
+  }
+
+  // Re-verify the copy each group would KEEP, not just the copies it would move. The plan can
+  // sit for up to 24 hours; if the kept copy was deleted or edited after review, moving every
+  // other copy in its group would leave no active copy of that skill at all.
+  for (const group of plan.groups) {
+    try {
+      const keeperManifest = await skillContentManifest(group.keep.path);
+      if (keeperManifest.identity !== group.keep.contentHash) {
+        return { ok: false, error: 'The copy CCTI would keep changed after you looked at it, so nothing was moved. Check this computer again to see the current copies.' };
+      }
+    } catch {
+      return { ok: false, error: 'The copy CCTI would keep changed after you looked at it, so nothing was moved. Check this computer again to see the current copies.' };
+    }
   }
 
   for (const move of plan.moves) {
