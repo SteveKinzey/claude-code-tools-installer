@@ -62,7 +62,7 @@ assert.equal(repomix.reinstall.changed, true, 'a changed catalog entry is flagge
 assert.match(repomix.reinstall.message, /differently/);
 const retired = rowFor(result, 'retired-tool');
 assert.equal(retired.reinstall.available, false, 'an id no longer in the catalog cannot be reinstalled');
-assert.match(retired.reinstall.message, /no longer offered/);
+assert.equal(retired.reinstall.message, 'retired-tool is no longer offered by CCTI, so it can’t be reinstalled from here.');
 
 const graphify = rowFor(result, 'graphify');
 assert.equal(graphify.state, 'duplicate');
@@ -86,7 +86,10 @@ for (const key of ['claude-hud', 'playwright', 'repomix']) {
 const projectLedger = { entries: [entry('ponytail', 'skill', 'ponytail', { scope: 'project', projectPath: '/work' })], resolutions: [] };
 assert.equal(rowFor(reconcileInventory({ scan: scan([]), ledger: projectLedger, catalog, tracked }), 'ponytail').uncheckedReason, 'project');
 assert.equal(rowFor(reconcileInventory({ scan: scan([], { projectPath: '/other' }), ledger: projectLedger, catalog, tracked }), 'ponytail').state, 'unchecked');
-assert.equal(rowFor(reconcileInventory({ scan: scan([], { projectPath: '/work' }), ledger: projectLedger, catalog, tracked }), 'ponytail').state, 'missing');
+const missingProjectSkill = rowFor(reconcileInventory({ scan: scan([], { projectPath: '/work' }), ledger: projectLedger, catalog, tracked }), 'ponytail');
+assert.equal(missingProjectSkill.state, 'missing');
+// Final review, finding 3: Reinstall installs skills for the user, so a project skill is not offered it.
+assert.deepEqual(missingProjectSkill.reinstall, { id: 'ponytail', available: false, changed: false, message: 'Ponytail was installed into a project. Run Complete setup for that project to put it back.' });
 assert.equal(rowFor(reconcileInventory({ scan: scan([skill('ponytail', 'This project')], { projectPath: '/work' }), ledger: projectLedger, catalog, tracked }), 'ponytail').state, 'installed');
 const otherScope = reconcileInventory({ scan: scan([skill('ponytail', 'Just you')], { projectPath: '/work' }), ledger: projectLedger, catalog, tracked });
 assert.deepEqual(otherScope.rows.map((row) => row.state).sort(), ['external', 'missing'], 'a same-named skill in another scope is not the one CCTI installed');
@@ -99,6 +102,13 @@ assert.equal(rowFor(reconcileInventory({ scan: scan([]), ledger: backedUp, catal
 assert.equal(rowFor(reconcileInventory({ scan: scan([skill('graphify', 'This project')], { projectPath: '/work' }), ledger: backedUp, catalog, tracked }), 'graphify').state, 'external', 'the surviving copy still shows');
 const reinstalledAfter = { entries: [entry('graphify', 'skill', 'graphify', { installedAt: '2026-09-25T00:00:00.000Z' })], resolutions: backedUp.resolutions };
 assert.equal(rowFor(reconcileInventory({ scan: scan([]), ledger: reinstalledAfter, catalog, tracked }), 'graphify').state, 'missing', 'a backup from before the latest install does not excuse a later loss');
+
+// Final review, finding 2: removing CCTI's extras records a 'remove' resolution, so the
+// deliberately removed connection does not come back as Missing.
+const removedMcp = { entries: [entry('playwright-mcp', 'mcp', 'playwright')], resolutions: [{ kind: 'mcp', key: 'playwright', scope: 'user', projectPath: '', resolvedAt: '2026-09-20T00:00:00.000Z', action: 'remove' }] };
+assert.equal(rowFor(reconcileInventory({ scan: scan([]), ledger: removedMcp, catalog, tracked }), 'playwright'), undefined, 'no Missing row after a deliberate removal');
+const removedThenReinstalled = { entries: [entry('playwright-mcp', 'mcp', 'playwright', { installedAt: '2026-09-25T00:00:00.000Z' })], resolutions: removedMcp.resolutions };
+assert.equal(rowFor(reconcileInventory({ scan: scan([]), ledger: removedThenReinstalled, catalog, tracked }), 'playwright').state, 'missing', 'a removal from before the latest install does not excuse a later loss');
 
 // Review Focus 2: an unreadable record degrades to "found on this computer".
 const corrupt = reconcileInventory({ scan: scan(items), ledger, ledgerStatus: 'corrupt', catalog, tracked });

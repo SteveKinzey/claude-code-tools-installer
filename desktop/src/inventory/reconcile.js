@@ -32,7 +32,7 @@ function uncheckedReason(entry, scan) {
   return '';
 }
 
-function backedUpSinceInstall(entry, resolutions) {
+function resolvedSinceInstall(entry, resolutions) {
   const installed = Date.parse(entry.installedAt) || 0;
   return resolutions.some((item) => item.kind === entry.kind
     && item.key === entry.key
@@ -46,7 +46,12 @@ function reinstallPlan(entry, catalog, tracked) {
   const current = Object.prototype.hasOwnProperty.call(tracked, entry.id) ? tracked[entry.id] : null;
   const name = entry.name || entry.id;
   if (!item || !current) {
-    return { id: entry.id, available: false, changed: false, message: `${name} is no longer offered by CCTI, so it can't be reinstalled from here.` };
+    return { id: entry.id, available: false, changed: false, message: `${name} is no longer offered by CCTI, so it can’t be reinstalled from here.` };
+  }
+  // Reinstall runs the normal install, which puts skills in ~/.claude/skills. A project
+  // skill would stay missing there, so point the user at that project's Complete setup.
+  if (entry.scope === 'project') {
+    return { id: entry.id, available: false, changed: false, message: `${name} was installed into a project. Run Complete setup for that project to put it back.` };
   }
   const changed = current.key !== entry.key || (Boolean(entry.catalogAction) && item.action !== entry.catalogAction);
   return {
@@ -103,7 +108,7 @@ function reconcileInventory({ scan, ledger, ledgerStatus = 'ok', catalog = [], t
   for (const entry of entries) {
     if (entryPresent(entry, items, view)) continue;
     const reason = uncheckedReason(entry, view);
-    if (!reason && backedUpSinceInstall(entry, resolutions)) continue;
+    if (!reason && resolvedSinceInstall(entry, resolutions)) continue;
     rows.push({
       rowId: `record:${entry.id}:${entry.scope}:${entry.projectPath || ''}`,
       kind: entry.kind,
