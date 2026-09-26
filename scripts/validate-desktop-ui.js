@@ -321,6 +321,12 @@ const inventoryContract = [
   [/async function runInventoryAction[\s\S]*?catch \(error\)[\s\S]*?Open the activity details/.test(renderer), 'a failed Reinstall call must tell the user what to do next'],
   [/async function resetToolInventoryRecord\(\) \{\s*if \(state\.running\) \{[\s\S]*?return;\s*\}/.test(renderer), 'reset must not run while an install is running, and must say why'],
   [/toolInventoryResetButton\.hidden = !view\.notice\?\.action;/.test(renderer), 'the reset button must hide unless the notice offers an action'],
+  [html.includes('id="resolve-duplicate-dialog"') && html.includes('aria-labelledby="resolve-duplicate-dialog-heading"'), 'the Resolve dialog for duplicate add-ons and connections must exist'],
+  [/window\.installer\.reviewResolution\(/.test(renderer), 'the renderer must call reviewResolution to preview a duplicate resolution'],
+  [/window\.installer\.applyResolution\(/.test(renderer), 'the renderer must call applyResolution to make the reviewed changes'],
+  [/reviewResolveDuplicateButton\.disabled = Boolean\(action\.needsChoice\)/.test(renderer), 'the confirm button must start disabled until a copy is chosen when a choice is needed'],
+  [/action\.type === 'resolve-duplicate'[\s\S]*?openResolveDuplicateDialog\(/.test(renderer), 'Resolve on a duplicate add-on or connection must open the Resolve dialog'],
+  [main.includes("ipcMain.handle('inventory:review-resolution'") && main.includes("ipcMain.handle('inventory:apply-resolution'"), 'main must handle both duplicate-resolution IPC channels'],
 ];
 for (const [ok, message] of inventoryContract) if (!ok) throw new Error(message);
 

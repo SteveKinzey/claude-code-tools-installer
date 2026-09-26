@@ -4,6 +4,15 @@
 
 const MANAGE_SECTIONS = [['skill', 'Skills'], ['plugin', 'Add-ons'], ['mcp', 'Connections']];
 
+// Plain-language detail for a duplicate CCTI won't touch, keyed by reconcile's
+// `informational.reason` (see docs/claude-code-precedence-2026-09-26.md).
+const INFORMATIONAL_DETAIL = {
+  'different-setup': 'These copies are set up differently, so removing either one would change how Claude Code behaves somewhere. CCTI won’t change them.',
+  'team-shared': 'One copy is shared with everyone on the project, so CCTI won’t change it. Ask the project owner if you want to tidy it up.',
+  'separate-folders': 'These copies are in different folders and don’t overlap, so nothing needs to change.',
+  'project-unknown': 'One copy is saved for a specific folder. Choose that folder with “Also check a project” so CCTI can see it, then check again.',
+};
+
 function installedDate(value) {
   const time = Date.parse(value || '');
   return Number.isFinite(time) ? new Date(time).toISOString().slice(0, 10) : '';
@@ -34,6 +43,26 @@ function rowView(row) {
     };
   }
   if (row.state === 'duplicate') {
+    if (row.resolution) {
+      const { groupKey, needsChoice, keeper, options } = row.resolution;
+      const detail = needsChoice
+        ? `This add-on is turned on from ${options.length} places. Claude Code doesn’t say which one it uses, so choose the one to keep.`
+        : `These copies are identical. Claude Code keeps using the one saved for ${options[keeper]}; Resolve removes the extra ${options.length - 1 === 1 ? 'copy' : 'copies'}, so nothing stops working.`;
+      return {
+        badge: `${row.copies.length} copies`,
+        tone: 'attention',
+        detail,
+        action: { type: 'resolve-duplicate', label: 'Resolve', groupKey, needsChoice, options, keeper },
+      };
+    }
+    if (row.informational) {
+      return {
+        badge: `${row.copies.length} copies`,
+        tone: 'attention',
+        detail: INFORMATIONAL_DETAIL[row.informational.reason] || INFORMATIONAL_DETAIL['different-setup'],
+        action: null,
+      };
+    }
     return {
       badge: `${row.copies.length} copies`,
       tone: 'attention',

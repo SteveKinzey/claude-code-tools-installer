@@ -508,6 +508,28 @@
       </form>
     </dialog>
 
+    <dialog id="resolve-duplicate-dialog" class="duplicate-skill-dialog" aria-labelledby="resolve-duplicate-dialog-heading" aria-describedby="resolve-duplicate-dialog-copy" aria-modal="true">
+      <form method="dialog" class="duplicate-skill-dialog-content">
+        <p class="eyebrow">RESOLVE DUPLICATE</p>
+        <h2 id="resolve-duplicate-dialog-heading" tabindex="-1">Resolve</h2>
+        <p id="resolve-duplicate-dialog-copy"></p>
+        <fieldset id="resolve-duplicate-dialog-choice" class="resolve-duplicate-choice" hidden>
+          <legend>Choose the copy to keep</legend>
+          <div id="resolve-duplicate-dialog-options" class="resolve-duplicate-options"></div>
+        </fieldset>
+        <div id="resolve-duplicate-dialog-changes" class="resolve-duplicate-changes" hidden>
+          <h3 id="resolve-duplicate-dialog-changes-heading">Changes CCTI will make</h3>
+          <ul id="resolve-duplicate-dialog-changes-list" class="resolve-duplicate-changes-list"></ul>
+        </div>
+        <p id="resolve-duplicate-dialog-status" role="status" aria-live="polite"></p>
+        <div class="duplicate-skill-dialog-actions">
+          <button id="review-resolve-duplicate-button" class="button button-secondary" type="button">Review changes</button>
+          <button id="apply-resolve-duplicate-button" class="button button-danger" type="button" hidden disabled>Make these changes</button>
+          <button id="cancel-resolve-duplicate-button" class="button button-ghost" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="../tool-matcher.js"></script>
     <script src="../project-interview.js"></script>
     <script src="../inventory/manage-view.js"></script>

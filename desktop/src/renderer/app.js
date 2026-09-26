@@ -22,6 +22,8 @@ const state = {
   selectedSkillCleanupReview: null,
   selectedSkillCleanupOrigin: null,
   duplicateDialogInvoker: null,
+  resolveDuplicateInvoker: null,
+  resolveDuplicate: null,
   customAddOnReview: null,
   compass: { online: false, history: [], opened: false },
   projectInterview: { active: false, step: 0, answers: {}, result: null, checked: new Set() },
@@ -130,6 +132,17 @@ const duplicateBackupPreviewSummaryElement = document.querySelector('#duplicate-
 const duplicateBackupPreviewListElement = document.querySelector('#duplicate-backup-preview-list');
 const restoreListedSkillBackupsButton = document.querySelector('#restore-listed-skill-backups-button');
 const cancelDeduplicatePreviewButton = document.querySelector('#cancel-deduplicate-preview-button');
+const resolveDuplicateDialogElement = document.querySelector('#resolve-duplicate-dialog');
+const resolveDuplicateDialogHeadingElement = document.querySelector('#resolve-duplicate-dialog-heading');
+const resolveDuplicateDialogCopyElement = document.querySelector('#resolve-duplicate-dialog-copy');
+const resolveDuplicateDialogChoiceElement = document.querySelector('#resolve-duplicate-dialog-choice');
+const resolveDuplicateDialogOptionsElement = document.querySelector('#resolve-duplicate-dialog-options');
+const resolveDuplicateDialogChangesElement = document.querySelector('#resolve-duplicate-dialog-changes');
+const resolveDuplicateDialogChangesListElement = document.querySelector('#resolve-duplicate-dialog-changes-list');
+const resolveDuplicateDialogStatusElement = document.querySelector('#resolve-duplicate-dialog-status');
+const reviewResolveDuplicateButton = document.querySelector('#review-resolve-duplicate-button');
+const applyResolveDuplicateButton = document.querySelector('#apply-resolve-duplicate-button');
+const cancelResolveDuplicateButton = document.querySelector('#cancel-resolve-duplicate-button');
 const skillBackupReviewElement = document.querySelector('#skill-backup-review');
 const skillBackupReviewSummaryElement = document.querySelector('#skill-backup-review-summary');
 const skillBackupReviewListElement = document.querySelector('#skill-backup-review-list');
@@ -1887,6 +1900,129 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
   focusDuplicateDialog(duplicateSkillDialogHeadingElement);
 }
 
+function renderResolveDuplicateChanges(changes) {
+  resolveDuplicateDialogChangesListElement.replaceChildren(...(changes || []).map((change) => {
+    const item = document.createElement('li');
+    const label = document.createElement('strong');
+    label.textContent = change.label;
+    const undo = document.createElement('span');
+    undo.textContent = change.undo;
+    item.append(label, undo);
+    return item;
+  }));
+}
+
+function openResolveDuplicateDialog(action, name, button) {
+  if (typeof resolveDuplicateDialogElement?.showModal !== 'function') return;
+  if (document.activeElement instanceof HTMLElement) state.resolveDuplicateInvoker = document.activeElement;
+  state.resolveDuplicate = { discoveryId: state.managerReport?.discoveryId, groupKey: action.groupKey, needsChoice: Boolean(action.needsChoice), reviewId: null };
+  resolveDuplicateDialogHeadingElement.textContent = `Resolve ${name}`;
+  resolveDuplicateDialogCopyElement.textContent = action.needsChoice
+    ? `Choose which copy of ${name} to keep. CCTI turns off the others; nothing is uninstalled, so you can turn one back on later.`
+    : `Claude Code uses the copy saved for ${action.options[action.keeper]}. Resolve removes the other ${action.options.length - 1 === 1 ? 'copy' : 'copies'}.`;
+  resolveDuplicateDialogChoiceElement.hidden = !action.needsChoice;
+  resolveDuplicateDialogOptionsElement.replaceChildren();
+  reviewResolveDuplicateButton.disabled = Boolean(action.needsChoice);
+  if (action.needsChoice) {
+    (action.options || []).forEach((label, index) => {
+      const wrapper = document.createElement('label');
+      wrapper.className = 'resolve-duplicate-option';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'resolve-duplicate-keep';
+      radio.value = String(index);
+      radio.addEventListener('change', () => {
+        reviewResolveDuplicateButton.disabled = false;
+      });
+      const text = document.createElement('span');
+      text.textContent = label;
+      wrapper.append(radio, text);
+      resolveDuplicateDialogOptionsElement.append(wrapper);
+    });
+  }
+  resolveDuplicateDialogChangesElement.hidden = true;
+  renderResolveDuplicateChanges([]);
+  resolveDuplicateDialogStatusElement.textContent = '';
+  reviewResolveDuplicateButton.hidden = false;
+  reviewResolveDuplicateButton.textContent = 'Review changes';
+  applyResolveDuplicateButton.hidden = true;
+  applyResolveDuplicateButton.disabled = true;
+  if (!resolveDuplicateDialogElement.open) resolveDuplicateDialogElement.showModal();
+  focusDuplicateDialog(resolveDuplicateDialogHeadingElement);
+}
+
+async function reviewResolveDuplicateChanges() {
+  const pending = state.resolveDuplicate;
+  if (!pending) return;
+  let keep;
+  if (pending.needsChoice) {
+    const checked = resolveDuplicateDialogOptionsElement.querySelector('input[name="resolve-duplicate-keep"]:checked');
+    if (!checked) return;
+    keep = Number(checked.value);
+  }
+  reviewResolveDuplicateButton.disabled = true;
+  resolveDuplicateDialogStatusElement.textContent = 'Checking for changes…';
+  try {
+    const result = await window.installer.reviewResolution({ discoveryId: pending.discoveryId, groupKey: pending.groupKey, keep });
+    if (!result.ok) {
+      resolveDuplicateDialogStatusElement.textContent = result.error;
+      reviewResolveDuplicateButton.disabled = false;
+      return;
+    }
+    state.resolveDuplicate = { ...pending, reviewId: result.reviewId };
+    renderResolveDuplicateChanges(result.changes);
+    resolveDuplicateDialogChangesElement.hidden = false;
+    resolveDuplicateDialogStatusElement.textContent = result.changes.length
+      ? `Review ${result.changes.length} change${result.changes.length === 1 ? '' : 's'} for ${result.name}, then choose Make these changes.`
+      : `Nothing needs to change for ${result.name}.`;
+    reviewResolveDuplicateButton.hidden = true;
+    applyResolveDuplicateButton.hidden = false;
+    applyResolveDuplicateButton.disabled = result.changes.length === 0;
+  } catch (error) {
+    resolveDuplicateDialogStatusElement.textContent = 'CCTI couldn’t check this right now. Try again in a moment.';
+    reviewResolveDuplicateButton.disabled = false;
+    appendOutput(`[Manage] ${error?.message || 'Reviewing the duplicate failed.'}\n`, 'stderr');
+  }
+}
+
+async function applyResolveDuplicateChanges() {
+  const pending = state.resolveDuplicate;
+  if (!pending?.reviewId) return;
+  applyResolveDuplicateButton.disabled = true;
+  resolveDuplicateDialogStatusElement.textContent = 'Making these changes…';
+  try {
+    const result = await window.installer.applyResolution({ reviewId: pending.reviewId });
+    if (result.ok) {
+      resolveDuplicateDialogElement.close();
+      await scanSetup();
+      return;
+    }
+    if (result.changed) {
+      resolveDuplicateDialogStatusElement.textContent = result.error;
+      if (result.review) {
+        state.resolveDuplicate = { ...pending, reviewId: result.review.reviewId };
+        renderResolveDuplicateChanges(result.review.changes);
+        resolveDuplicateDialogChangesElement.hidden = false;
+        applyResolveDuplicateButton.hidden = false;
+        applyResolveDuplicateButton.disabled = result.review.changes.length === 0;
+      } else {
+        state.resolveDuplicate = { ...pending, reviewId: null };
+        resolveDuplicateDialogChangesElement.hidden = true;
+        applyResolveDuplicateButton.hidden = true;
+        reviewResolveDuplicateButton.hidden = false;
+        reviewResolveDuplicateButton.disabled = pending.needsChoice;
+      }
+      return;
+    }
+    resolveDuplicateDialogStatusElement.textContent = result.error;
+    applyResolveDuplicateButton.disabled = false;
+  } catch (error) {
+    resolveDuplicateDialogStatusElement.textContent = 'CCTI couldn’t finish this right now. Try again in a moment.';
+    applyResolveDuplicateButton.disabled = false;
+    appendOutput(`[Manage] ${error?.message || 'Resolving the duplicate failed.'}\n`, 'stderr');
+  }
+}
+
 function revealSetupManagerInventory(selector) {
   setupManagerInventoryElement.open = true;
   window.requestAnimationFrame(() => {
@@ -1957,6 +2093,10 @@ function renderToolInventory(inventory) {
 async function runInventoryAction(action, name, button) {
   if (action.type === 'resolve') {
     openDuplicateSkillDialog(state.managerReport?.duplicates || []);
+    return;
+  }
+  if (action.type === 'resolve-duplicate') {
+    openResolveDuplicateDialog(action, name, button);
     return;
   }
   if (action.type !== 'reinstall' || state.running) return;
@@ -2679,6 +2819,17 @@ duplicateSkillDialogElement.addEventListener('close', () => {
   state.duplicateDialogInvoker = null;
   setTimeout(() => {
     if (invoker?.isConnected) invoker.focus();
+  }, 0);
+});
+reviewResolveDuplicateButton.addEventListener('click', reviewResolveDuplicateChanges);
+applyResolveDuplicateButton.addEventListener('click', applyResolveDuplicateChanges);
+cancelResolveDuplicateButton.addEventListener('click', () => resolveDuplicateDialogElement.close());
+resolveDuplicateDialogElement.addEventListener('close', () => {
+  state.resolveDuplicate = null;
+  const resolveInvoker = state.resolveDuplicateInvoker;
+  state.resolveDuplicateInvoker = null;
+  setTimeout(() => {
+    if (resolveInvoker?.isConnected) resolveInvoker.focus();
   }, 0);
 });
 document.querySelector('#choose-custom-source-button').addEventListener('click', chooseCustomSource);

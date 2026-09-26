@@ -284,6 +284,14 @@ h3 { margin: 0; font-size: 1rem; }
 .duplicate-skill-dialog-location > span { color: #b8cde2; font: .74rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
 .duplicate-skill-dialog-location .button { justify-self: start; }
 .duplicate-skill-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+.resolve-duplicate-choice { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.resolve-duplicate-choice legend { padding: 0; color: #c6d6e8; font-size: .84rem; }
+.resolve-duplicate-options { display: grid; gap: 8px; }
+.resolve-duplicate-option { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid #33445f; border-radius: 8px; color: #dce9ff; }
+.resolve-duplicate-changes-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.resolve-duplicate-changes-list li { display: grid; gap: 2px; padding: 10px; border: 1px solid #33445f; border-radius: 8px; }
+.resolve-duplicate-changes-list li strong { color: #ffe4a6; }
+.resolve-duplicate-changes-list li span { color: #c6d6e8; font-size: .84rem; }
 .duplicate-backup-preview { display: grid; gap: 8px; padding: 14px; border: 1px solid #497a85; border-radius: 10px; background: #10282c; }
 .duplicate-backup-preview h3 { color: #bdf2e9; }
 .duplicate-backup-preview > p { margin: 0; color: #c5dedc; font-size: .82rem; line-height: 1.45; }
