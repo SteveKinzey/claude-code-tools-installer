@@ -43,7 +43,7 @@ Sources: https://code.claude.com/docs/en/plugins/loading.md, https://code.claude
 - **Enable state across settings files:** the value from the highest-precedence source that mentions the id wins. The order is user < project < local < flag < managed.
 - **CLI:**
   - `claude plugin disable <name@marketplace> --scope <user|project|local> [--json]`. It is reversible with `claude plugin enable … --scope …`, so CCTI's plugin resolution **disables**; it never uninstalls.
-  - `claude plugin list --json` gives `id`, `version`, `scope`, `enabled`, `installPath`, `projectPath`, `mcpServers`, `errors`, and more.
+  - `claude plugin list --json`: the documentation lists more fields, but the installed CLI returned only `id`, `version`, `scope`, `enabled`, `installPath`, `installedAt` and `lastUpdated` when checked on 2026-09-26. There is no `projectPath`, and synced add-ons show `scope: "synced"`. CCTI relies only on `id`, `scope` and `enabled`.
 
 ## Skills
 
