@@ -67,13 +67,19 @@ function parsePluginList(text) {
 // target. Older builds printed bare names only; those are accepted only when the
 // whole output is in that bare format.
 const ADD_ON_CONNECTION = /^plugin:([^:]+):/;
+// A server line ends with " - <status>". Claude Code's statuses either start with
+// a status symbol (✔ Connected, ✗ Failed to connect, ! Needs authentication,
+// ⏸ Pending approval) or are one of a few plain phrases ("Not configured").
+// Requiring that shape keeps an error sentence such as
+// "Failed to connect: server - error" from becoming a connection.
+const LISTED_LINE = /^(.+?):\s+\S.*?\s+-\s+(?:[✔✓✗✘!⏸⚠]|(?:not configured|pending approval|connected|failed|needs authentication|disabled)\b)/i;
 
 function parseMcpList(text) {
   const connections = new Map();
   const lines = textLines(text).filter((line) => !/^checking mcp server health/i.test(line) && !/^no mcp servers/i.test(line));
-  const listedFormat = lines.some((line) => /^(.+?):\s+\S.*?\s+-\s+\S/.test(line));
+  const listedFormat = lines.some((line) => LISTED_LINE.test(line));
   for (const line of lines) {
-    const listed = line.match(/^(.+?):\s+\S.*?\s+-\s+\S/);
+    const listed = line.match(LISTED_LINE);
     const name = listed ? listed[1].trim() : !listedFormat && /^[\w.@-]+$/.test(line) ? line : '';
     if (!name || isNoiseWord(name)) continue;
     const key = name.toLowerCase();

@@ -41,4 +41,4 @@ Source: https://code.claude.com/docs/en/skills.md
 
 - **Personal beats project.** "Enterprise over personal, and personal over project. With `deploy` in both `~/.claude/skills/` and the project's `.claude/skills/`, `/deploy` runs the personal one."
 - **Plugin skills never collide.** They are namespaced as `/plugin-name:skill-name`, so both load.
-- **Consequence for cleanup:** when a personal copy and a project copy are identical, CCTI keeps the personal copy. Moving the personal copy would remove the skill from every other project.
+- **Consequence for cleanup:** when a personal copy and a project copy are identical, CCTI should keep the personal copy. Moving the personal copy would remove the skill from every other project. The existing cleanup keeps the newest copy instead; plan 3 (`docs/superpowers/plans/2026-09-26-ccti-duplicate-resolution.md`, Task 4) changes it to this rule.

@@ -98,4 +98,6 @@ assert.deepEqual(fromAddOn.map((item) => [item.name, item.origin, item.addOn, it
 ]);
 assert.equal(parseMcpList('playwright: npx x - ✔ Connected')[0].addOn, '', 'ordinary connections have no add-on');
 
+// Statuses without a symbol are real entries; error sentences shaped like an entry are not.
+assert.deepEqual(parseMcpList(['Checking MCP server health…', 'plugin:data:hex: https://x.test/mcp - Not configured', 'playwright: npx x - ✔ Connected', 'Failed to connect: server - error'].join('\n')).map((item) => item.key), ['plugin:data:hex', 'playwright'], 'plain-word statuses parse; an error sentence does not');
 console.log('Inventory scanner passed: real Claude Code output, CRLF, Claude.ai items, and unobserved sources.');

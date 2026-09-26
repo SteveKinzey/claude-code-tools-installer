@@ -2402,7 +2402,7 @@ async function discoverClaudeSetup(projectPath = '') {
     pluginList = { ok: plugins.code === 0, text: plugins.stdout || '' };
     mcpList = { ok: connections.code === 0, text: connections.stdout || '' };
     if (plugins.code === 0) parsePluginList(plugins.stdout).forEach((item) => findings.push({ id: `plugin-cli:${item.key}`, type: 'plugin', name: item.name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
-    if (connections.code === 0) parseMcpList(connections.stdout).forEach((item) => findings.push({ id: `connection-cli:${item.key}`, type: 'connection', name: item.name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
+    if (connections.code === 0) parseMcpList(connections.stdout).forEach((item) => findings.push({ id: `connection-cli:${item.key}`, type: 'connection', name: item.name, scope: item.origin === 'plugin' ? item.scope : 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
   }
 
   const uniqueFindings = uniqueDiscoveryFindings(findings);
