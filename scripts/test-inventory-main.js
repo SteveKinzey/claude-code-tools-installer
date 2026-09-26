@@ -414,7 +414,25 @@ async function run() {
   assert.deepEqual(JSON.parse(await fsp.readFile(fakeState, 'utf8')).pluginActionCalls, [], 'no enable/disable command should run when the list check itself failed');
   await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'] });
 
-  console.log('Inventory main wiring passed: discovery rows, unobserved connections, backup resolutions, verified install recording, record reset, and extras removal.');
+  // PR review (security): the older add-on on/off change takes its name from settings files and
+  // doesn't go through duplicate grouping, so its own guard is its only protection. An installed
+  // add-on whose id contains shell characters is refused and nothing reaches the CLI.
+  await fsp.writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({
+    enabledPlugins: { 'foo@x&calc': true },
+  }), 'utf8');
+  await setFakeClaude({ plugins: ['foo@x&calc'], mcp: ['repomix'] });
+  report = await discover(null, {});
+  const unsafeAddonFinding = report.findings.find((item) => item.type === 'plugin' && item.scope === 'Just you' && item.name === 'foo@x&calc');
+  assert.ok(unsafeAddonFinding, 'the unsafe-named add-on is still listed');
+  const unsafeAddonReview = await handlers.get('setup-manager:review-plugin-change')(null, { discoveryId: report.discoveryId, findingId: unsafeAddonFinding.id, action: 'disable' });
+  assert.equal(unsafeAddonReview.ok, true, unsafeAddonReview.error);
+  const unsafeAddonApplied = await handlers.get('setup-manager:apply-plugin-change')(null, { reviewId: unsafeAddonReview.reviewId });
+  assert.equal(unsafeAddonApplied.ok, false);
+  assert.match(unsafeAddonApplied.error, /can’t safely pass to Claude Code/);
+  assert.deepEqual(JSON.parse(await fsp.readFile(fakeState, 'utf8')).pluginActionCalls, [], 'no enable/disable command runs for an unsafe add-on id');
+  await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'] });
+
+  console.log('Inventory main wiring passed: discovery rows, unobserved connections, backup resolutions, verified install recording, record reset, extras removal, and unsafe add-on ids refused.');
 }
 
 run()

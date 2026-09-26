@@ -483,6 +483,19 @@ async function run() {
   assert.match(reviewed.error, /can’t safely pass to Claude Code/);
   assert.deepEqual(await changingCalls(), [], 'no command ran for an unsafe name');
 
+  // Case 16b: the same for an add-on id with shell characters in real plugin list --json output.
+  await setFakeClaude({ plugins: [
+    { id: 'foo@a&calc', scope: 'user', enabled: true },
+    { id: 'foo@b', scope: 'user', enabled: true },
+  ] });
+  report = await discover(null, {});
+  const unsafeAddonRow = report.inventory.rows.find((row) => row.informational?.reason === 'unusual-name' && row.kind === 'plugin');
+  assert.ok(unsafeAddonRow, 'an add-on group with an unsafe id is listed as informational');
+  reviewed = await review(null, { discoveryId: report.discoveryId, groupKey: 'plugin:foo', keep: 1 });
+  assert.equal(reviewed.ok, false);
+  assert.match(reviewed.error, /can’t safely pass to Claude Code/);
+  assert.deepEqual(await changingCalls(), [], 'no plugin disable ran for an unsafe add-on id');
+
   console.log('Inventory resolution main wiring passed: identical local copy removed in favour of the user copy, add-on choice and disable, check-then-act, invalid keeper, unreadable config, failed list, failed change, the action lock, per-folder grouping, informational groups, synced add-ons, the add-on reach rule, case-only names, the review cap, the after-apply check, and unsafe names never reaching the CLI.');
 }
 
