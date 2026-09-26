@@ -16,12 +16,19 @@ Source: https://code.claude.com/docs/en/mcp.md
   - Omitting `--scope` "removes from whichever scope it exists in". What happens when the name exists at several scopes is **not documented**, so CCTI always passes `--scope`.
   - `claude mcp list` / `get` have **no documented JSON output** and **do not document printing the scope**. CCTI reads the scope from the config files.
 
+- **What CCTI does about MCP duplicates.** The precedence order above only decides the winner *inside the folder where the copies meet*. Local and project copies apply only in their folder, while a user copy applies everywhere. Removing the user copy would therefore make the connection disappear from every other folder, which is the "silently change behavior" outcome the spec forbids. So CCTI:
+  - removes a **local** copy only when it is **identical** to the user copy it duplicates. The user copy stays, and nothing changes anywhere;
+  - treats copies that are **set up differently** as information only;
+  - never removes a **project** copy, because `.mcp.json` is shared with the team.
+
 ## Plugins
 
 Sources: https://code.claude.com/docs/en/plugins/loading.md, https://code.claude.com/docs/en/plugins/cli-reference.md
 
 - **A plugin is identified as `name@marketplace`.** "When two marketplaces offer the same name, use the qualified form." Two installs such as `foo@market-a` and `foo@market-b` are separate installs.
 - **Which of them loads when both are enabled is not documented.** CCTI asks the user which one to keep.
+- **Synced copies are left out.** A synced copy that shares a name with another enabled plugin is already not loaded, and synced plugins are managed in the Claude.ai account. CCTI never offers to change them.
+- **The folder must be known.** `plugin list --json` does not include `projectPath`, so a project- or local-scope copy can be changed only when CCTI listed plugins from inside the project the user checked.
 - **Name conflicts across origin types**, highest first:
   1. managed `enabledPlugins`
   2. `--plugin-dir` / `--plugin-url`
