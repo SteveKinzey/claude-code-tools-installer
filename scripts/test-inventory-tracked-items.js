@@ -65,4 +65,24 @@ const reviewedIds = [...mainSource.matchAll(/\n\s*'?([a-z0-9-]+)'?: \[.*'plugin'
 assert.ok(reviewedIds.length >= 9, 'the reviewedPluginPlans scan must find the plugin installs');
 for (const id of reviewedIds) assert.equal(trackedItem(id)?.kind, 'plugin', `${id} installs a plugin inside CCTI and must be tracked`);
 
+// No silent gaps: every adapter branch that installs a skill or registers an MCP server is tracked.
+// The id must start a line of its own (`id)\n`) so this only matches multi-line install branches,
+// never a same-line case arm such as `--dry-run) DRY_RUN=1 ;;` or `arm64) arch="arm64" ;;` --
+// those have no preceding newline before their own `;;`, so a looser regex swallows forward past
+// them to the next multi-line branch's `;;`, misattributing that branch's body to the wrong id.
+for (const [file, source] of shellAdapters) {
+  for (const match of source.matchAll(/\r?\n\s*([a-z0-9][a-z0-9-]*)\)\r?\n([\s\S]*?)\r?\n\s*;;/g)) {
+    const [, id, body] = match;
+    if (/\binstall_skill\b|\binstall_mcp(?:_after_dashdash)?\b/.test(body)) {
+      assert.ok(trackedItem(id), `${file} installs a skill or connection for "${id}", so TRACKED_ITEMS must include it`);
+    }
+  }
+}
+for (const match of powershell.matchAll(/\r?\n\s*"([a-z0-9-]+)"\s*\{([\s\S]*?)\r?\n {4}\}/g)) {
+  const [, id, body] = match;
+  if (/\bInstall-Skill\b|\bInstall-Mcp(?:AfterDashDash)?\b/.test(body)) {
+    assert.ok(trackedItem(id), `setup-my-claude.ps1 installs a skill or connection for "${id}", so TRACKED_ITEMS must include it`);
+  }
+}
+
 console.log(`Inventory tracked items passed: ${Object.keys(TRACKED_ITEMS).length} catalog items match all three adapters and the in-app plugin plans.`);
