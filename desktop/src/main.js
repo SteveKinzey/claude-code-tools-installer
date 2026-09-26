@@ -1065,7 +1065,8 @@ async function resetInventoryHistory() {
   try {
     const result = await inventoryLedger().reset();
     return { ok: true, preserved: Boolean(result.preservedAs) };
-  } catch {
+  } catch (error) {
+    if (error.code === 'LEDGER_UNAVAILABLE') return { ok: false, error: 'CCTI could not open its record right now. Nothing was changed. Close anything that might be using it, then try again.' };
     return { ok: false, error: 'CCTI could not start a fresh record. Nothing else changed. Restart CCTI and try again.' };
   }
 }

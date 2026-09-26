@@ -118,4 +118,8 @@ assert.ok(corrupt.rows.every((row) => ['external', 'duplicate'].includes(row.sta
 assert.doesNotThrow(() => reconcileInventory());
 assert.deepEqual(reconcileInventory().rows, []);
 
+const unavailable = reconcileInventory({ scan: scan(items), ledger, ledgerStatus: 'unavailable', catalog, tracked });
+assert.equal(unavailable.historyStatus, 'unavailable');
+assert.ok(unavailable.rows.every((row) => !row.installedByCcti && row.state !== 'missing'), 'an unavailable record claims nothing and reports nothing missing');
+
 console.log('Inventory reconcile passed: all states, unobserved sources, project scope, backups, and unreadable records.');

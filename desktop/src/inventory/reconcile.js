@@ -69,7 +69,7 @@ function reconcileInventory({ scan, ledger, ledgerStatus = 'ok', catalog = [], t
     unreadableSkillScopes: Array.isArray(scan?.unreadableSkillScopes) ? scan.unreadableSkillScopes : [],
   };
   const items = Array.isArray(scan?.items) ? scan.items : [];
-  const record = ledgerStatus === 'corrupt' ? {} : ledger || {};
+  const record = ledgerStatus === 'corrupt' || ledgerStatus === 'unavailable' ? {} : ledger || {};
   const entries = Array.isArray(record.entries) ? record.entries : [];
   const resolutions = Array.isArray(record.resolutions) ? record.resolutions : [];
   const catalogItems = Array.isArray(catalog) ? catalog : [];

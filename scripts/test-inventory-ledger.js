@@ -29,6 +29,10 @@ async function run() {
   assert.deepEqual(mixed.ledger.entries.map((entry) => entry.id), ['a'], 'malformed entries are dropped, not fatal');
   assert.equal(mixed.ledger.resolutions.length, 1);
 
+  const kinds = parseLedger(JSON.stringify({ schemaVersion: 1, entries: [{ id: 'a', kind: 'skill', key: 'a', installedAt: now.toISOString() }, { id: 'b', kind: 'widget', key: 'b', installedAt: now.toISOString() }], resolutions: [{ kind: 'gadget', key: 'x', resolvedAt: now.toISOString() }] }));
+  assert.deepEqual(kinds.ledger.entries.map((entry) => entry.id), ['a'], 'entries of an unknown kind are dropped');
+  assert.equal(kinds.ledger.resolutions.length, 0, 'resolutions of an unknown kind are dropped');
+
   // Review Focus 4: only items absent before and present after are CCTI installs.
   const entries = newlyInstalledEntries(
     ['planning-with-files', 'claude-hud', 'playwright-mcp', 'playwright-mcp', 'learn-claude-code', 'constructor'],
@@ -119,6 +123,47 @@ async function run() {
     await fs.rm(blocked);
     await blockedStore.recordInstalls([plugin]);
     assert.equal((await blockedStore.read()).ledger.entries.length, 1, 'one failed write must not poison later writes');
+
+    // Review Focus 1: a temporary read error never moves the record aside or writes.
+    const lockedFile = path.join(dir, 'locked', 'inventory.json');
+    const realReadFile = fs.readFile;
+    const lockedStore = createLedgerStore(lockedFile, { now: () => now });
+    await fs.mkdir(path.dirname(lockedFile), { recursive: true });
+    await fs.writeFile(lockedFile, JSON.stringify({ schemaVersion: 1, entries: [], resolutions: [] }), 'utf8');
+    fs.readFile = async (target, ...rest) => {
+      if (target === lockedFile) throw Object.assign(new Error('busy'), { code: 'EBUSY' });
+      return realReadFile(target, ...rest);
+    };
+    try {
+      assert.equal((await lockedStore.read()).status, 'unavailable');
+      await assert.rejects(lockedStore.recordInstalls([plugin]), (error) => error.code === 'LEDGER_UNAVAILABLE');
+      await assert.rejects(lockedStore.reset(), (error) => error.code === 'LEDGER_UNAVAILABLE');
+    } finally {
+      fs.readFile = realReadFile;
+    }
+    assert.deepEqual((await fs.readdir(path.dirname(lockedFile))).sort(), ['inventory.json'], 'nothing was moved aside or left behind');
+    assert.equal((await lockedStore.read()).status, 'ok');
+
+    // reset() on a record that doesn't exist yet changes nothing.
+    const freshStore = createLedgerStore(path.join(dir, 'fresh', 'inventory.json'), { now: () => now });
+    assert.deepEqual(await freshStore.reset(), { ok: true, preservedAs: '', unchanged: true });
+
+    // A failed write leaves no temporary file behind.
+    const tmpDir = path.join(dir, 'tmp-check');
+    await fs.mkdir(path.join(tmpDir, 'inventory.json'), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, 'inventory.json', 'keep.txt'), 'x', 'utf8');
+    const realRename = fs.rename;
+    let failNextRename = true;
+    fs.rename = async (from, to) => {
+      if (failNextRename && String(from).endsWith('.tmp')) { failNextRename = false; throw Object.assign(new Error('denied'), { code: 'EPERM' }); }
+      return realRename(from, to);
+    };
+    try {
+      await assert.rejects(createLedgerStore(path.join(tmpDir, 'inventory.json'), { now: () => now }).recordInstalls([plugin]));
+    } finally {
+      fs.rename = realRename;
+    }
+    assert.ok(!(await fs.readdir(tmpDir)).some((name) => name.endsWith('.tmp')), 'a failed write removes its temporary file');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
