@@ -165,6 +165,20 @@
         </div>
         <p id="manager-project-note" class="project-path-note">No project folder selected. A computer check looks only in the usual Claude Code locations for this user.</p>
         <p id="setup-manager-summary" class="manager-summary">Nothing has been checked yet.</p>
+        <section id="tool-inventory" class="tool-inventory is-hidden" aria-labelledby="tool-inventory-heading">
+          <div class="tool-inventory-heading">
+            <p class="eyebrow">WHAT YOU HAVE</p>
+            <h3 id="tool-inventory-heading">Your skills, add-ons, and connections</h3>
+            <p id="tool-inventory-summary">Nothing has been checked yet.</p>
+          </div>
+          <div id="tool-inventory-notice" class="tool-inventory-notice" role="status" hidden>
+            <p id="tool-inventory-notice-text"></p>
+            <button id="tool-inventory-reset-button" class="button button-secondary" type="button">Start a fresh record</button>
+          </div>
+          <div id="tool-inventory-list" class="tool-inventory-list"></div>
+          <p class="tool-inventory-note">Settings files, runtimes, and project packages are listed read-only in the full checkup inventory below. Having several of them is normal.</p>
+          <p id="tool-inventory-status" class="cleanup-actions-status" role="status" aria-live="polite"></p>
+        </section>
         <section id="cleanup-actions" class="cleanup-actions is-hidden" aria-labelledby="cleanup-actions-heading">
           <div class="cleanup-actions-heading">
             <p class="eyebrow">MAKE A CHANGE, SAFELY</p>
@@ -496,6 +510,7 @@
 
     <script src="../tool-matcher.js"></script>
     <script src="../project-interview.js"></script>
+    <script src="../inventory/manage-view.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

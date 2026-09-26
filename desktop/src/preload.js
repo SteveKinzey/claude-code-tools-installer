@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('installer', {
   askCompass: (payload) => ipcRenderer.invoke('compass:ask', payload),
   chooseSetupManagerProject: () => ipcRenderer.invoke('setup-manager:choose-project'),
   discoverSetup: (payload) => ipcRenderer.invoke('setup-manager:discover', payload),
+  resetInventoryHistory: () => ipcRenderer.invoke('inventory:reset-history'),
   chooseCustomSource: () => ipcRenderer.invoke('setup-manager:choose-custom-source'),
   reviewCustomAddOn: (payload) => ipcRenderer.invoke('setup-manager:review-custom', payload),
   applyCustomAddOn: (payload) => ipcRenderer.invoke('setup-manager:apply-custom', payload),

@@ -177,6 +177,8 @@ async function run() {
       { id: 'setup-verification-results', role: null, live: 'polite', busy: null },
       { id: 'anonymous-success-message', role: null, live: 'polite', busy: null },
       { id: 'cleanup-actions-status', role: 'status', live: 'polite', busy: null },
+      { id: 'tool-inventory-notice', role: 'status', live: null, busy: null },
+      { id: 'tool-inventory-status', role: 'status', live: 'polite', busy: null },
       { id: 'terminal-preference-note', role: 'status', live: 'polite', busy: 'false' },
       { id: 'run-status', role: 'status', live: 'polite', busy: 'false' },
       { id: 'output', role: null, live: 'polite', busy: null },
