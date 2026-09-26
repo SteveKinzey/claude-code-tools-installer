@@ -12,6 +12,7 @@ const { reconcileInventory } = require('./inventory/reconcile');
 const { compareSkillKeeper, mcpDuplicateGroups, pluginDuplicateGroups, isSafeMcpName, isSafePluginId } = require('./inventory/duplicates');
 const { mcpDefinitions, pluginInstalls } = require('./inventory/config-scan');
 const { planResolution, groupFingerprint } = require('./inventory/resolvers');
+const { spawnSafely } = require('./windows-command');
 
 if (process.env.CCTI_ELECTRON_TEST === '1' && process.env.CCTI_TEST_HOME) {
   app.setPath('home', path.resolve(process.env.CCTI_TEST_HOME));
@@ -278,8 +279,16 @@ function runProcess(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     let timer = null;
     let settled = false;
-    const usesWindowsCommandShell = process.platform === 'win32' && /\.cmd$/i.test(String(command));
-    const child = spawn(command, args, { windowsHide: true, ...options, ...(usesWindowsCommandShell ? { shell: true } : {}) });
+    let child;
+    try {
+      // On Windows a .cmd target runs through cmd.exe with every argument quoted; values that
+      // cannot be passed safely are refused here, before anything is spawned.
+      child = spawnSafely(command, args, { windowsHide: true, ...options });
+    } catch (error) {
+      settled = true;
+      reject(error);
+      return;
+    }
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
@@ -2808,6 +2817,20 @@ async function applyPluginChange({ reviewId }) {
   }
 }
 
+// npm's package name rule: optional @scope/ then a lowercase name, at most 214 characters.
+// Anything else is refused before it can reach npm (or cmd.exe on Windows).
+function isValidNpmPackageName(name) {
+  const value = String(name ?? '');
+  return value.length > 0
+    && value.length <= 214
+    && /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(value);
+}
+
+function invalidProjectPackageNameResult(name) {
+  emit('installer:output', { stream: 'stderr', text: `[CCTI] Refused to remove project package ${JSON.stringify(String(name ?? ''))}: it is not a valid npm package name, so CCTI will not pass it to npm.\n` });
+  return { ok: false, error: 'CCTI will not remove this package because its name is not a valid npm package name. If you do not need it, remove it from package.json yourself.' };
+}
+
 function projectPackageVersion(manifest, name) {
   const dependency = manifest?.dependencies?.[name];
   const devDependency = manifest?.devDependencies?.[name];
@@ -2822,6 +2845,7 @@ async function reviewProjectPackageRemoval({ discoveryId, findingId }) {
   if (!finding || !report?.projectPath || finding.projectPath !== report.projectPath) {
     return { ok: false, error: 'Check this project again before removing a package.' };
   }
+  if (!isValidNpmPackageName(finding.name)) return invalidProjectPackageNameResult(finding.name);
   try {
     const projectPackage = await inspectProjectPackage(finding.projectPath);
     const currentVersion = projectPackage.packageState === 'existing' ? projectPackageVersion(projectPackage.manifest, finding.name) : '';
@@ -2850,6 +2874,7 @@ async function applyProjectPackageRemoval({ reviewId, confirmation }) {
   if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) return { ok: false, error: 'This package removal review has expired. Check this project again.' };
   if (confirmation !== 'REMOVE PROJECT PACKAGE') return { ok: false, error: 'Type REMOVE PROJECT PACKAGE exactly to remove the reviewed package.' };
   if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'Another CCTI action is running. Wait for it to finish before removing a project package.' };
+  if (!isValidNpmPackageName(plan.name)) return invalidProjectPackageNameResult(plan.name);
   try {
     const projectPackage = await inspectProjectPackage(plan.projectPath);
     const currentVersion = projectPackage.packageState === 'existing' ? projectPackageVersion(projectPackage.manifest, plan.name) : '';
@@ -3047,7 +3072,18 @@ function validRepository(value) {
   return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
 }
 
+// Characters that cmd.exe cannot be kept from interpreting (or that break a command line).
+// eslint-disable-next-line no-control-regex
+const UNSAFE_ADD_ON_SOURCE = /["%!\u0000-\u001f\u007f]/;
+
+function unsafeAddOnSourceResult(source) {
+  emit('installer:output', { stream: 'stderr', text: `[CCTI] Refused add-on source ${JSON.stringify(String(source ?? ''))}: it contains a quote, %, !, or a control character.\n` });
+  return { ok: false, error: 'CCTI cannot use this source because it contains a quote, %, !, or a hidden character. Rename the folder or use a link without those characters, then review it again.' };
+}
+
 function storeCustomAddOnReview(review, sourceManifest = null) {
+  // A marketplace source is handed to the claude command; a skill copy never reaches a shell.
+  if (review.kind === 'marketplace' && UNSAFE_ADD_ON_SOURCE.test(String(review.source ?? ''))) return unsafeAddOnSourceResult(review.source);
   const reviewId = randomUUID();
   const plan = {
     kind: review.kind,
@@ -3174,6 +3210,7 @@ async function applyCustomAddOn({ reviewId }) {
       }
     }
   }
+  if (UNSAFE_ADD_ON_SOURCE.test(String(plan.source ?? ''))) return unsafeAddOnSourceResult(plan.source);
   try {
     const claude = await claudeStatus();
     if (!claude.installed) return { ok: false, error: 'Claude Code is not ready. Check this computer again after Claude Code is available.' };
@@ -3827,7 +3864,9 @@ app.whenReady().then(async () => {
       const projectPackage = await prepareProjectPackage(projectInspection.projectPath);
       if (projectPackage.created) emit('component:output', { stream: 'stdout', text: `[CCTI] Created required project file: ${projectPackage.packageJsonPath}\n` });
       const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-      const child = spawn(npmCommand, ['install', ...packages], { cwd: projectPackage.projectPath, windowsHide: true, env: claudeProcessEnv() });
+      // spawnSafely runs npm.cmd through cmd.exe with quoted arguments on Windows (Node refuses to
+      // start a .cmd without a shell) and spawns npm directly everywhere else, as before.
+      const child = spawnSafely(npmCommand, ['install', ...packages], { cwd: projectPackage.projectPath, windowsHide: true, env: claudeProcessEnv() });
       child.stdout.on('data', (chunk) => emit('component:output', { stream: 'stdout', text: chunk.toString() }));
       child.stderr.on('data', (chunk) => emit('component:output', { stream: 'stderr', text: chunk.toString() }));
       const result = await new Promise((resolve, reject) => {

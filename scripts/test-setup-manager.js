@@ -51,6 +51,7 @@ const electronStub = {
   ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
 };
 
+const spawnLog = [];
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'electron') return electronStub;
@@ -123,6 +124,13 @@ async function run() {
   await fsp.mkdir(path.dirname(fakeClaudePath), { recursive: true });
   await fsp.writeFile(fakeClaudePath, fakeClaudeContents, process.platform === 'win32' ? 'utf8' : { mode: 0o755 });
 
+  // Records every process CCTI starts, so a test can prove a refused action never reached npm.
+  const childProcess = require('node:child_process');
+  const originalSpawn = childProcess.spawn;
+  childProcess.spawn = function recordingSpawn(command, args, options) {
+    spawnLog.push({ command: String(command), args: Array.isArray(args) ? args.map(String) : [] });
+    return originalSpawn.apply(this, arguments);
+  };
   require(path.join(root, 'desktop', 'src', 'main.js'));
   await readyCallback();
 
@@ -163,6 +171,18 @@ async function run() {
   assert.equal(componentPreview.packageState, 'missing');
   assert.match(componentPreview.note, /create package\.json/i);
   await assert.rejects(fsp.access(path.join(project, 'package.json')));
+
+  // Marketplace sources reach the claude command (cmd.exe on Windows); characters that quoting
+  // cannot neutralize are refused with a plain next action.
+  const percentMarketplace = await reviewCustom(null, { source: 'https://example.com/%PATH%/marketplace.json', scope: 'user' });
+  assert.equal(percentMarketplace.ok, false, 'a marketplace link containing % must be refused');
+  assert.match(percentMarketplace.error, /review it again/i);
+  const bangMarketplaceFolder = path.join(tempRoot, 'market!place');
+  await fsp.mkdir(path.join(bangMarketplaceFolder, '.claude-plugin'), { recursive: true });
+  await fsp.writeFile(path.join(bangMarketplaceFolder, '.claude-plugin', 'marketplace.json'), '{}', 'utf8');
+  const bangMarketplace = await reviewCustom(null, { source: bangMarketplaceFolder, scope: 'user' });
+  assert.equal(bangMarketplace.ok, false, 'a local marketplace folder containing ! must be refused');
+  assert.equal(bangMarketplace.reviewId, undefined);
 
   const missingProject = await reviewCustom(null, { source: sourceSkill, scope: 'project', projectPath: '' });
   assert.equal(missingProject.ok, false);
@@ -263,6 +283,23 @@ async function run() {
   assert.equal(projectPackageRemoval.ok, true, 'the confirmed reviewed project package should be removable with package scripts disabled');
   const changedProjectManifest = JSON.parse(await fsp.readFile(path.join(project, 'package.json'), 'utf8'));
   assert.equal(changedProjectManifest.dependencies?.['@convex-dev/agent'], undefined, 'project package removal must update only the selected project package file');
+  // A malicious project can name a dependency so that cmd.exe on Windows would run a command
+  // (`x&calc`). CCTI must refuse such a name before any npm call, on every platform.
+  const hostileManifest = { name: 'checked-project', private: true, dependencies: { 'x&calc': '1.0.0' } };
+  await fsp.writeFile(path.join(project, 'package.json'), JSON.stringify(hostileManifest, null, 2), 'utf8');
+  const hostileReport = await discover(null, { projectPath: project });
+  const hostilePackage = hostileReport.findings.find((item) => item.type === 'project-package' && item.name === 'x&calc');
+  assert.ok(hostilePackage, 'the hostile dependency should still be listed so the user can see it');
+  const spawnsBeforeHostile = spawnLog.length;
+  const hostileReview = await reviewProjectPackageRemoval(null, { discoveryId: hostileReport.discoveryId, findingId: hostilePackage.id });
+  assert.equal(hostileReview.ok, false, 'an invalid npm package name must be refused before removal');
+  assert.match(hostileReview.error, /not a valid npm package name/i);
+  assert.match(hostileReview.error, /package\.json/i, 'the refusal should state a plain next action');
+  assert.equal(hostileReview.reviewId, undefined, 'a refused name must not receive a removal plan');
+  const hostileApply = await applyProjectPackageRemoval(null, { reviewId: hostileReview.reviewId, confirmation: 'REMOVE PROJECT PACKAGE' });
+  assert.equal(hostileApply.ok, false, 'a refused name must not be removable');
+  assert.equal(spawnLog.slice(spawnsBeforeHostile).some((call) => /npm/i.test(call.command) || call.args.includes('uninstall')), false, 'no npm call may happen for an invalid package name');
+  assert.deepEqual(JSON.parse(await fsp.readFile(path.join(project, 'package.json'), 'utf8')), hostileManifest, 'a refused removal must not change package.json');
   const managedManifestPath = path.join(home, '.setup-my-claude', 'manifest.tsv');
   await fsp.mkdir(path.dirname(managedManifestPath), { recursive: true });
   await fsp.writeFile(managedManifestPath, [
