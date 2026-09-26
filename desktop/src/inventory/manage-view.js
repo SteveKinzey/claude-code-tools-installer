@@ -63,17 +63,24 @@ function rowView(row) {
 
 function manageSections(inventory) {
   const rows = Array.isArray(inventory?.rows) ? inventory.rows : [];
+  const historyStatus = inventory?.historyStatus;
+  const historyTrusted = historyStatus === 'ok' || historyStatus === 'missing';
   const view = (row) => ({ rowId: row.rowId, name: row.name, ...rowView(row) });
   const sections = MANAGE_SECTIONS
     .map(([kind, title]) => {
       const ofKind = rows.filter((row) => row.kind === kind);
       const foldedRows = ofKind.filter((row) => row.state === 'external').map(view);
+      const foldedLabel = foldedRows.length
+        ? historyTrusted
+          ? `Show ${foldedRows.length} more you already had`
+          : `Show ${foldedRows.length} more`
+        : '';
       return {
         kind,
         title,
         rows: ofKind.filter((row) => row.state !== 'external').map(view),
         foldedRows,
-        foldedLabel: foldedRows.length ? `Show ${foldedRows.length} more you already had` : '',
+        foldedLabel,
       };
     })
     .filter((section) => section.rows.length > 0 || section.foldedRows.length > 0);

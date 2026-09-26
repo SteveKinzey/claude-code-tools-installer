@@ -1899,6 +1899,8 @@ function renderToolInventory(inventory) {
   toolInventorySummaryElement.textContent = view.summary;
   toolInventoryNoticeElement.hidden = !view.notice;
   toolInventoryNoticeTextElement.textContent = view.notice?.text || '';
+  toolInventoryResetButton.hidden = !view.notice?.action;
+  if (view.notice?.action) toolInventoryResetButton.textContent = view.notice.action.label;
   toolInventoryListElement.replaceChildren(...view.sections.map((section) => {
     const group = document.createElement('section');
     group.className = 'tool-inventory-group';
@@ -1979,7 +1981,10 @@ async function runInventoryAction(action, name, button) {
 }
 
 async function resetToolInventoryRecord() {
-  if (state.running) return;
+  if (state.running) {
+    toolInventoryStatusElement.textContent = 'Wait for the current install to finish, then try again.';
+    return;
+  }
   toolInventoryResetButton.disabled = true;
   try {
     const result = await window.installer.resetInventoryHistory();
@@ -1989,6 +1994,8 @@ async function resetToolInventoryRecord() {
         ? 'Started a fresh record. A copy of the old one was kept.'
         : 'Your record is readable, so nothing was changed.';
     if (result.ok) await scanSetup();
+  } catch {
+    toolInventoryStatusElement.textContent = 'CCTI could not start a fresh record. Restart CCTI and try again.';
   } finally {
     toolInventoryResetButton.disabled = false;
   }

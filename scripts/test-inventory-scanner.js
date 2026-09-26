@@ -86,6 +86,10 @@ assert.deepEqual(parsePluginList(['Installed plugins:', '', '  ❯ claude-hud@cl
 assert.deepEqual(parseMcpList(['Checking MCP server health…', 'playwright: npx @playwright/mcp@latest - ✔ Connected', 'Error', 'warning'].join('\n')).map((item) => item.key), ['playwright'], 'a lone word inside real health output is not a connection');
 assert.deepEqual(parseMcpList('shared-connection\nother-one').map((item) => item.key), ['shared-connection', 'other-one'], 'bare names still parse when the whole output is the legacy bare format');
 
+// Review Focus 2b: a bulleted or bare noise word is never mistaken for a real name.
+assert.deepEqual(parsePluginList('- Error loading plugin'), [], 'a bulleted noise-word line is not a plugin');
+assert.deepEqual(parseMcpList('Error\nwarning'), [], 'bare-format noise words are not connections');
+
 // Review Focus 3: add-on-provided connections carry their add-on.
 const fromAddOn = parseMcpList('plugin:brand-voice:box: https://example.test/mcp - ✔ Connected\nplugin:data:google calendar: npx x - ✔ Connected');
 assert.deepEqual(fromAddOn.map((item) => [item.name, item.origin, item.addOn, item.scope]), [

@@ -1029,7 +1029,8 @@ async function recordCctiInstalls(ids, before, scope = {}) {
     const entries = newlyInstalledEntries(ids, beforeSet, after.present, { tracked: TRACKED_ITEMS, catalog: await readCatalog(), skillScope: scope.skillScope, projectPath: scope.projectPath });
     if (entries.length > 0) await inventoryLedger().recordInstalls(entries);
   } catch (error) {
-    emit('installer:output', { stream: 'stderr', text: `[CCTI] Your tools were installed, but CCTI could not update its record of them: ${error.message}. Check this computer again to see them.\n` });
+    const message = String(error.message || '').replace(/\.$/, '');
+    emit('installer:output', { stream: 'stderr', text: `[CCTI] Your tools were installed, but CCTI could not update its record of them: ${message}. Check this computer again to see them.\n` });
   }
 }
 
@@ -2406,10 +2407,13 @@ async function discoverClaudeSetup(projectPath = '') {
 
   const uniqueFindings = uniqueDiscoveryFindings(findings);
   const nonSkillGroups = new Map();
-  uniqueFindings.filter((item) => ['plugin', 'connection'].includes(item.type)).forEach((item) => {
-    const key = `${item.type}:${normalizedFindingName(item.name)}`;
-    nonSkillGroups.set(key, [...(nonSkillGroups.get(key) || []), item]);
-  });
+  uniqueFindings
+    .filter((item) => ['plugin', 'connection'].includes(item.type))
+    .filter((item) => !item.id.startsWith('plugin-cli:') && !item.id.startsWith('connection-cli:'))
+    .forEach((item) => {
+      const key = `${item.type}:${normalizedFindingName(item.name)}`;
+      nonSkillGroups.set(key, [...(nonSkillGroups.get(key) || []), item]);
+    });
   const skills = uniqueFindings.filter((item) => item.type === 'skill');
   const skillDuplicates = duplicateSkillGroups(skills).map((group) => {
     const sameName = group.names.length === 1;

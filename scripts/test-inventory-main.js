@@ -232,6 +232,23 @@ async function run() {
   report = await discover(null, {});
   assert.equal(report.inventory.historyStatus, 'ok');
 
+  // Final fix wave: a ledger read that fails with EBUSY (locked, not missing or corrupt) must
+  // surface as the LEDGER_UNAVAILABLE message, never a generic failure or a silent reset.
+  {
+    const originalReadFile = fsp.readFile;
+    fsp.readFile = async (target, ...rest) => {
+      if (target === ledgerFile) throw Object.assign(new Error('resource busy or locked'), { code: 'EBUSY' });
+      return originalReadFile.call(fsp, target, ...rest);
+    };
+    try {
+      const busyReset = await reset(null);
+      assert.equal(busyReset.ok, false, 'a locked ledger must not report success');
+      assert.match(busyReset.error, /CCTI could not open its record right now/, 'a locked ledger must surface the LEDGER_UNAVAILABLE message');
+    } finally {
+      fsp.readFile = originalReadFile;
+    }
+  }
+
   // Final review, finding 2: removing CCTI's extras (typed confirmation) records a 'remove'
   // resolution for each tracked skill and MCP connection it actually removed, so they do not
   // come back as Missing. A removal that stops partway records only what completed.

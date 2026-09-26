@@ -75,6 +75,7 @@ assert.match(unavailableView.notice.text, /check again/i);
 const corrupt = manageSections({ historyStatus: 'corrupt', rows: [row('mine', 'plugin', 'external')] });
 assert.deepEqual(corrupt.notice.action, { type: 'reset-history', label: 'Start a fresh record' });
 assert.match(corrupt.notice.text, /still works/);
+assert.equal(corrupt.sections[0].foldedLabel, 'Show 1 more', 'an unreadable record cannot vouch that you already had this');
 assert.equal(manageSections({ historyStatus: 'missing', rows: [] }).notice, null, 'a first run is not an error');
 
 const empty = manageSections({ historyStatus: 'ok', rows: [] });

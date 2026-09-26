@@ -319,7 +319,8 @@ const inventoryContract = [
   [main.includes("ipcMain.handle('inventory:reset-history'"), 'main must handle inventory:reset-history'],
   [/section\.foldedRows/.test(renderer) && /document\.createElement\('details'\)/.test(renderer), 'rows you already had must render folded inside a details element'],
   [/async function runInventoryAction[\s\S]*?catch \(error\)[\s\S]*?Open the activity details/.test(renderer), 'a failed Reinstall call must tell the user what to do next'],
-  [/async function resetToolInventoryRecord\(\) \{\s*if \(state\.running\) return;/.test(renderer), 'reset must not run while an install is running'],
+  [/async function resetToolInventoryRecord\(\) \{\s*if \(state\.running\) \{[\s\S]*?return;\s*\}/.test(renderer), 'reset must not run while an install is running, and must say why'],
+  [/toolInventoryResetButton\.hidden = !view\.notice\?\.action;/.test(renderer), 'the reset button must hide unless the notice offers an action'],
 ];
 for (const [ok, message] of inventoryContract) if (!ok) throw new Error(message);
 

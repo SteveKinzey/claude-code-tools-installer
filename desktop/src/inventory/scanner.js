@@ -5,6 +5,11 @@
 const PLUGIN_ID = /^[a-z0-9][a-z0-9._-]*(?:@[a-z0-9][a-z0-9._-]*)?$/i;
 const PLUGIN_SCOPES = { user: 'Just you', project: 'This project', local: 'Only you in this project' };
 const CLAUDE_AI_SCOPE = 'Your Claude.ai account';
+const NOISE_WORDS = new Set(['error', 'errors', 'warning', 'warnings', 'warn']);
+
+function isNoiseWord(name) {
+  return NOISE_WORDS.has(String(name || '').trim().toLowerCase());
+}
 
 function skillKey(name) {
   return String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -35,7 +40,7 @@ function parsePluginList(text) {
     }
     const bulleted = /^[❯•*+-]\s+/.test(line);
     const id = line.replace(/^[❯•*+-]\s+/, '').split(/\s+/)[0];
-    if (!PLUGIN_ID.test(id) || /^no$/i.test(id) || (!bulleted && !id.includes('@'))) {
+    if (!PLUGIN_ID.test(id) || /^no$/i.test(id) || isNoiseWord(id) || (!bulleted && !id.includes('@'))) {
       current = null;
       continue;
     }
@@ -70,7 +75,7 @@ function parseMcpList(text) {
   for (const line of lines) {
     const listed = line.match(/^(.+?):\s+\S.*?\s+-\s+\S/);
     const name = listed ? listed[1].trim() : !listedFormat && /^[\w.@-]+$/.test(line) ? line : '';
-    if (!name) continue;
+    if (!name || isNoiseWord(name)) continue;
     const key = name.toLowerCase();
     if (connections.has(key)) continue;
     const addOn = name.match(ADD_ON_CONNECTION)?.[1] || '';
