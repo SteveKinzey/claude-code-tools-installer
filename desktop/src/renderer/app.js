@@ -1967,9 +1967,11 @@ async function resetToolInventoryRecord() {
   toolInventoryResetButton.disabled = true;
   try {
     const result = await window.installer.resetInventoryHistory();
-    toolInventoryStatusElement.textContent = result.ok
-      ? 'Started a fresh record. A copy of the old one was kept.'
-      : result.error;
+    toolInventoryStatusElement.textContent = !result.ok
+      ? result.error
+      : result.preserved
+        ? 'Started a fresh record. A copy of the old one was kept.'
+        : 'Your record is readable, so nothing was changed.';
     if (result.ok) await scanSetup();
   } finally {
     toolInventoryResetButton.disabled = false;

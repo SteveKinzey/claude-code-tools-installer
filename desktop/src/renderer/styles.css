@@ -230,10 +230,10 @@ h3 { margin: 0; font-size: 1rem; }
 .tool-inventory-notice .button { justify-self: start; }
 .tool-inventory-group h4 { margin: 16px 0 8px; color: #d5f5f2; font-size: .92rem; }
 .tool-inventory-rows { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.tool-inventory-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; padding: 10px 12px; border: 1px solid #28495a; border-radius: 8px; background: #0b1d2a; }
+.tool-inventory-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 4px 12px; padding: 10px 12px; border: 1px solid #28495a; border-radius: 8px; background: #0b1d2a; }
 .tool-inventory-row strong { color: #e6f7f5; font-size: .88rem; overflow-wrap: anywhere; }
 .tool-inventory-row p { grid-column: 1 / -1; margin: 0; color: #b4d0d7; font-size: .8rem; line-height: 1.45; }
-.tool-inventory-row .button { grid-column: 2; grid-row: 1; }
+.tool-inventory-row .button { grid-column: 3; grid-row: 1; }
 .tool-inventory-badge { justify-self: start; padding: 2px 8px; border-radius: 999px; background: #1b3442; color: #cfe7ea; font-size: .74rem; }
 .tool-inventory-ok .tool-inventory-badge { background: #143a2f; color: #bdf0d9; }
 .tool-inventory-attention { border-color: #7a6a36; }
