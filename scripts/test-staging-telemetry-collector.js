@@ -122,7 +122,7 @@ async function run() {
     assert.match(renderer, /if \(!preview\) offerAnonymousSuccessCount\('selected_tools'\);/, 'Only a successful non-preview selected-tools action may offer an anonymous completion count.');
 
     const adapterSource = await fs.readFile(path.join(root, 'setup-my-claude.sh'), 'utf8');
-    const productivityBranch = adapterSource.match(/\n\s*productivity\)[\s\S]*?\n\s*;;\n\s*ui-ux-pro-max\)/);
+    const productivityBranch = adapterSource.match(/\r?\n\s*productivity\)[\s\S]*?\r?\n\s*;;\r?\n\s*ui-ux-pro-max\)/);
     assert.ok(productivityBranch, 'The macOS adapter must retain an explicit Productivity branch.');
     assert.doesNotMatch(productivityBranch[0], /append_plugin_command|run_cmd\s+claude\s+plugin\s+install|\/plugin\s+install/i, 'The Productivity adapter branch must not queue or run a local plugin installation.');
 
