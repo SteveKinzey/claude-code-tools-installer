@@ -62,6 +62,11 @@ const addOnRow = addOnView.sections[0].foldedRows[0];
 assert.equal(addOnRow.badge, 'Part of an add-on');
 assert.equal(addOnRow.detail, 'Comes with the brand-voice add-on. Manage it through that add-on.');
 
+const noAddOnView = manageSections({ historyStatus: 'ok', rows: [row('plugin:unknown:server', 'mcp', 'external', { origin: 'plugin', addOn: '' })] });
+const noAddOnRow = noAddOnView.sections[0].foldedRows[0];
+assert.equal(noAddOnRow.badge, 'Part of an add-on');
+assert.equal(noAddOnRow.detail, 'Comes with an add-on. Manage it through that add-on.', 'no grammatically wrong "the an add-on" when addOn is empty');
+
 const unavailableView = manageSections({ historyStatus: 'unavailable', rows: [] });
 assert.equal(unavailableView.notice.action, null, 'no reset is offered for a temporary problem');
 assert.match(unavailableView.notice.text, /check again/i);

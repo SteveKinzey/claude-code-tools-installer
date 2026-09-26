@@ -47,7 +47,10 @@ function rowView(row) {
     return { badge: 'Not checked', tone: 'neutral', detail: uncheckedDetail(row.uncheckedReason), action: null };
   }
   if (row.origin === 'plugin') {
-    return { badge: 'Part of an add-on', tone: 'neutral', detail: `Comes with the ${row.addOn || 'an'} add-on. Manage it through that add-on.`, action: null };
+    const detail = row.addOn
+      ? `Comes with the ${row.addOn} add-on. Manage it through that add-on.`
+      : 'Comes with an add-on. Manage it through that add-on.';
+    return { badge: 'Part of an add-on', tone: 'neutral', detail, action: null };
   }
   const fromAccount = row.origin === 'claude.ai';
   return {
