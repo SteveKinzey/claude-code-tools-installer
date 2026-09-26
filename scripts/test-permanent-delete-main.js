@@ -163,11 +163,13 @@ async function run() {
   assert.equal(typeof apply, 'function', 'setup-manager:apply-permanent-delete is handled');
 
   // Case 1: discovery lists turned-off user, project, and local add-ons (a project was
-  // checked), never an enabled one, a synced one, or a managed one.
+  // checked), never an enabled one, a synced one (by scope or by the @synced marketplace), or a
+  // managed one.
   await setFakeClaude({ plugins: [
     { id: 'Foo@market-a', scope: 'user', enabled: false },
     { id: 'on@market-a', scope: 'user', enabled: true },
     { id: 'figma@synced', scope: 'synced', enabled: false },
+    { id: 'slack@synced', scope: 'user', enabled: false },
     { id: 'policy@corp', scope: 'managed', enabled: false },
     { id: 'team@m', scope: 'project', enabled: false, folder: project },
     { id: 'mine@m', scope: 'local', enabled: false, folder: project },

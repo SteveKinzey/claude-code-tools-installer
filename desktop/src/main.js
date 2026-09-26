@@ -3448,6 +3448,9 @@ function turnedOffAddOnsFrom(installs) {
     if (install.scope !== 'user' && !install.projectPath) continue;
     const originalId = install.originalId || install.id;
     if (!isSafePluginId(originalId)) continue;
+    // Claude.ai-synced add-ons are managed by the account, never uninstalled here, whatever
+    // scope the list reports for them.
+    if (install.marketplace === 'synced' || /@synced$/i.test(originalId)) continue;
     const findingId = `add-on-off:${install.scope}:${install.id}`;
     if (seen.has(findingId)) continue;
     seen.add(findingId);
@@ -3539,9 +3542,11 @@ async function deleteSkillBackupPermanently(checkedRoots, item) {
   const backupRoot = path.dirname(item.path);
   const unsafe = stats.isSymbolicLink() || !stats.isDirectory() || !backupSourceWithinCheckedRoot(checkedRoots, item.path) || !(await isPlainDirectory(backupRoot));
   let realInside = false;
+  let realItem = '';
   if (!unsafe) {
     try {
-      const [realItem, realRoot] = await Promise.all([fs.realpath(item.path), fs.realpath(backupRoot)]);
+      let realRoot;
+      [realItem, realRoot] = await Promise.all([fs.realpath(item.path), fs.realpath(backupRoot)]);
       realInside = path.dirname(realItem) === realRoot && path.basename(realItem) === path.basename(item.path);
     } catch {
       realInside = false;
@@ -3551,9 +3556,18 @@ async function deleteSkillBackupPermanently(checkedRoots, item) {
     logRefusal('it is a link or is not inside CCTI’s backup folder');
     return { ok: false, error: `The skill backup ${item.name} is not a plain folder inside CCTI’s backup folder anymore, so CCTI will not delete it. Check this computer again, and remove it yourself only if you are sure.` };
   }
+  // Delete the resolved real path, re-checked just before removal, so a link swapped into the
+  // path after the checks above is not followed. These checks guard against mistakes and
+  // stale state; a program that can already rewrite the user's own home folder could delete
+  // those files itself, so this is not a boundary against such a program.
+  const lastCheck = await fs.lstat(realItem).catch(() => null);
+  if (!lastCheck || lastCheck.isSymbolicLink() || !lastCheck.isDirectory() || (await fs.realpath(realItem).catch(() => '')) !== realItem) {
+    logRefusal('it changed while CCTI was checking it');
+    return { ok: false, error: `The skill backup ${item.name} changed while CCTI was checking it, so it was not deleted. Check this computer again and try again.` };
+  }
   emit('installer:output', { stream: 'stdout', text: `[CCTI] Deleting the skill backup ${item.name}: ${item.path}\n` });
   try {
-    await fs.rm(item.path, { recursive: true, force: false });
+    await fs.rm(realItem, { recursive: true, force: false });
   } catch (error) {
     emit('installer:output', { stream: 'stderr', text: `[CCTI] Deleting ${item.path} failed: ${error.message}\n` });
   }
@@ -3581,7 +3595,7 @@ async function readPluginInstalls(claude, item) {
 // Check-then-act for one turned-off add-on: it must still be installed at the same scope
 // and still be turned off. One that was turned back on is skipped, never uninstalled.
 async function deleteTurnedOffAddOn(claude, item) {
-  if (!isSafePluginId(item.originalId) || !Object.prototype.hasOwnProperty.call(ADD_ON_SCOPE_LABELS, item.scope) || (item.scope !== 'user' && !item.projectPath)) {
+  if (!isSafePluginId(item.originalId) || /@synced$/i.test(item.originalId) || !Object.prototype.hasOwnProperty.call(ADD_ON_SCOPE_LABELS, item.scope) || (item.scope !== 'user' && !item.projectPath)) {
     emit('installer:output', { stream: 'stderr', text: '[CCTI] Refused to uninstall an add-on whose name or scope is not safe to pass to Claude Code.\n' });
     return { ok: false, error: `The add-on ${item.name} has a name CCTI can’t safely pass to Claude Code, so it was not deleted.` };
   }
