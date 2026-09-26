@@ -308,4 +308,16 @@ if (!main.includes('async function resolveAppUninstallPlan()') || !main.includes
   throw new Error('App uninstall must export a privacy-safe manifest, verify and compare it locally, require typed acknowledgment, notify post-uninstall cleanup, and leave Claude Code untouched.');
 }
 
+const inventoryContract = [
+  [html.includes('id="tool-inventory"'), 'the Manage list section must exist inside the Setup Manager'],
+  [html.indexOf('id="tool-inventory"') > html.indexOf('id="setup-manager"') && html.indexOf('id="tool-inventory"') < html.indexOf('id="cleanup-actions"'), 'the Manage list must sit above the cleanup actions'],
+  [/<script src="\.\.\/inventory\/manage-view\.js"><\/script>\s*<script src="app\.js">/.test(html), 'manage-view.js must load before app.js'],
+  [/renderToolInventory\(report\?\.inventory\)/.test(renderer), 'renderSetupManager must draw the Manage list from report.inventory'],
+  [/window\.CCTIManageView\.manageSections/.test(renderer), 'the renderer must use the tested view model'],
+  [/action\.type !== 'reinstall'[\s\S]*?window\.confirm\([\s\S]*?window\.installer\.runInstall\(\{ selectedIds: \[tool\.id\]/.test(renderer), 'Reinstall must confirm, then use the existing install path for that one tool'],
+  [/action\.type === 'resolve'[\s\S]*?openDuplicateSkillDialog\(/.test(renderer), 'Resolve must open the existing reviewed duplicate flow'],
+  [main.includes("ipcMain.handle('inventory:reset-history'"), 'main must handle inventory:reset-history'],
+];
+for (const [ok, message] of inventoryContract) if (!ok) throw new Error(message);
+
 console.log(`Desktop UI contract passed: ${selectorIds.size} renderer IDs and ${calledMethods.size} secure bridge methods verified.`);

@@ -110,6 +110,13 @@ const duplicateReviewElement = document.querySelector('#duplicate-review');
 const duplicateReviewListElement = document.querySelector('#duplicate-review-list');
 const duplicateReviewSummaryElement = document.querySelector('#duplicate-review-summary');
 const reviewDuplicateSkillsButton = document.querySelector('#review-duplicate-skills-button');
+const toolInventoryElement = document.querySelector('#tool-inventory');
+const toolInventorySummaryElement = document.querySelector('#tool-inventory-summary');
+const toolInventoryNoticeElement = document.querySelector('#tool-inventory-notice');
+const toolInventoryNoticeTextElement = document.querySelector('#tool-inventory-notice-text');
+const toolInventoryResetButton = document.querySelector('#tool-inventory-reset-button');
+const toolInventoryListElement = document.querySelector('#tool-inventory-list');
+const toolInventoryStatusElement = document.querySelector('#tool-inventory-status');
 const duplicateSkillDialogElement = document.querySelector('#duplicate-skill-dialog');
 const duplicateSkillDialogEyebrowElement = document.querySelector('#duplicate-skill-dialog-eyebrow');
 const duplicateSkillDialogHeadingElement = document.querySelector('#duplicate-skill-dialog-heading');
@@ -1882,8 +1889,96 @@ function revealSetupManagerInventory(selector) {
   });
 }
 
+function renderToolInventory(inventory) {
+  if (!inventory || !window.CCTIManageView) {
+    toolInventoryElement.classList.add('is-hidden');
+    return;
+  }
+  const view = window.CCTIManageView.manageSections(inventory);
+  toolInventoryElement.classList.remove('is-hidden');
+  toolInventorySummaryElement.textContent = view.summary;
+  toolInventoryNoticeElement.hidden = !view.notice;
+  toolInventoryNoticeTextElement.textContent = view.notice?.text || '';
+  toolInventoryListElement.replaceChildren(...view.sections.map((section) => {
+    const group = document.createElement('section');
+    group.className = 'tool-inventory-group';
+    const heading = document.createElement('h4');
+    heading.textContent = section.title;
+    const list = document.createElement('ul');
+    list.className = 'tool-inventory-rows';
+    list.append(...section.rows.map((row) => {
+      const item = document.createElement('li');
+      item.className = `tool-inventory-row tool-inventory-${row.tone}`;
+      const name = document.createElement('strong');
+      name.textContent = row.name;
+      const badge = document.createElement('span');
+      badge.className = 'tool-inventory-badge';
+      badge.textContent = row.badge;
+      const detail = document.createElement('p');
+      detail.textContent = row.detail;
+      item.append(name, badge, detail);
+      if (row.action) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'button button-secondary';
+        button.textContent = row.action.label;
+        button.setAttribute('aria-label', `${row.action.label} ${row.name}`);
+        button.addEventListener('click', () => runInventoryAction(row.action, row.name, button));
+        item.append(button);
+      }
+      return item;
+    }));
+    group.append(heading, list);
+    return group;
+  }));
+}
+
+async function runInventoryAction(action, name, button) {
+  if (action.type === 'resolve') {
+    openDuplicateSkillDialog(state.managerReport?.duplicates || []);
+    return;
+  }
+  if (action.type !== 'reinstall' || state.running) return;
+  const tool = state.catalog.find((item) => item.id === action.id);
+  if (!tool) {
+    toolInventoryStatusElement.textContent = `${name} is no longer offered by CCTI, so it can’t be reinstalled from here.`;
+    return;
+  }
+  const note = action.note ? `${action.note}\n\n` : '';
+  if (!window.confirm(`Reinstall ${tool.name}?\n\n${note}CCTI uses its current install steps for this one tool. Nothing else is changed.`)) return;
+  button.disabled = true;
+  state.running = true;
+  updateSummary();
+  toolInventoryStatusElement.textContent = `Reinstalling ${tool.name}…`;
+  appendOutput(`Reinstalling ${tool.name}…\n`);
+  try {
+    const result = await window.installer.runInstall({ selectedIds: [tool.id], dryRun: false });
+    toolInventoryStatusElement.textContent = result.ok
+      ? `${tool.name} was reinstalled.`
+      : `${tool.name} could not be reinstalled. Open the activity details to see what happened, then select Reinstall again.`;
+  } finally {
+    state.running = false;
+    updateSummary();
+    await scanSetup();
+  }
+}
+
+async function resetToolInventoryRecord() {
+  toolInventoryResetButton.disabled = true;
+  try {
+    const result = await window.installer.resetInventoryHistory();
+    toolInventoryStatusElement.textContent = result.ok
+      ? 'Started a fresh record. A copy of the old one was kept.'
+      : result.error;
+    if (result.ok) await scanSetup();
+  } finally {
+    toolInventoryResetButton.disabled = false;
+  }
+}
+
 function renderSetupManager(report) {
   state.managerReport = report;
+  renderToolInventory(report?.inventory);
   const items = Array.isArray(report?.findings) ? report.findings : [];
   const duplicates = Array.isArray(report?.duplicates) ? report.duplicates : [];
   const skills = items.filter((item) => item.type === 'skill').length;
@@ -2113,6 +2208,7 @@ function renderSetupManager(report) {
 async function scanSetup() {
   setupManagerSummaryElement.textContent = 'Checking the selected Claude Code locations. Nothing is being changed.';
   setupManagerResultsElement.replaceChildren();
+  toolInventoryElement.classList.add('is-hidden');
   cleanupActionsElement.classList.add('is-hidden');
   setupManagerInventoryElement.open = false;
   duplicateReviewElement.classList.add('is-hidden');
@@ -2519,6 +2615,7 @@ chooseProjectButton.addEventListener('click', chooseProjectFolder);
 previewComponentsButton.addEventListener('click', previewComponentPlan);
 installComponentsButton.addEventListener('click', installProjectComponents);
 document.querySelector('#scan-setup-button').addEventListener('click', scanSetup);
+toolInventoryResetButton.addEventListener('click', resetToolInventoryRecord);
 document.querySelector('#choose-manager-project-button').addEventListener('click', chooseManagerProject);
 deduplicateAllSkillsButton.addEventListener('click', deduplicateAllSkills);
 backupSelectedSkillButton.addEventListener('click', applySelectedSkillCleanup);
