@@ -51,6 +51,7 @@ const electronStub = {
   ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
 };
 
+const spawnLog = [];
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'electron') return electronStub;
@@ -123,6 +124,13 @@ async function run() {
   await fsp.mkdir(path.dirname(fakeClaudePath), { recursive: true });
   await fsp.writeFile(fakeClaudePath, fakeClaudeContents, process.platform === 'win32' ? 'utf8' : { mode: 0o755 });
 
+  // Records every process CCTI starts, so a test can prove a refused action never reached npm.
+  const childProcess = require('node:child_process');
+  const originalSpawn = childProcess.spawn;
+  childProcess.spawn = function recordingSpawn(command, args, options) {
+    spawnLog.push({ command: String(command), args: Array.isArray(args) ? args.map(String) : [] });
+    return originalSpawn.apply(this, arguments);
+  };
   require(path.join(root, 'desktop', 'src', 'main.js'));
   await readyCallback();
 
@@ -163,6 +171,27 @@ async function run() {
   assert.equal(componentPreview.packageState, 'missing');
   assert.match(componentPreview.note, /create package\.json/i);
   await assert.rejects(fsp.access(path.join(project, 'package.json')));
+
+  // Marketplace sources reach the claude command (cmd.exe on Windows); characters that quoting
+  // cannot neutralize are refused with a plain next action.
+  // % and ! only matter to cmd.exe, so they are refused on Windows and allowed elsewhere.
+  const percentMarketplace = await reviewCustom(null, { source: 'https://example.com/%PATH%/marketplace.json', scope: 'user' });
+  if (process.platform === 'win32') {
+    assert.equal(percentMarketplace.ok, false, 'a marketplace link containing % must be refused on Windows');
+    assert.match(percentMarketplace.error, /review it again/i);
+  } else {
+    assert.doesNotMatch(String(percentMarketplace.error || ''), /quote, %, !/, 'a % in a link is not refused outside Windows');
+  }
+  const bangMarketplaceFolder = path.join(tempRoot, 'market!place');
+  await fsp.mkdir(path.join(bangMarketplaceFolder, '.claude-plugin'), { recursive: true });
+  await fsp.writeFile(path.join(bangMarketplaceFolder, '.claude-plugin', 'marketplace.json'), '{}', 'utf8');
+  const bangMarketplace = await reviewCustom(null, { source: bangMarketplaceFolder, scope: 'user' });
+  if (process.platform === 'win32') {
+    assert.equal(bangMarketplace.ok, false, 'a local marketplace folder containing ! must be refused on Windows');
+    assert.equal(bangMarketplace.reviewId, undefined);
+  } else {
+    assert.equal(bangMarketplace.ok, true, 'a folder containing ! works outside Windows');
+  }
 
   const missingProject = await reviewCustom(null, { source: sourceSkill, scope: 'project', projectPath: '' });
   assert.equal(missingProject.ok, false);
@@ -256,13 +285,47 @@ async function run() {
   assert.equal(unchangedProjectManifest.dependencies?.['@convex-dev/agent'], '0.14.0', 'an expired review must not change the project package file');
   const projectPackageReview = await reviewProjectPackageRemoval(null, { discoveryId: packageReport.discoveryId, findingId: projectPackage.id });
   assert.equal(projectPackageReview.ok, true, 'a checked project package should have a reviewed removal plan');
-  assert.match(projectPackageReview.command, /^npm uninstall --ignore-scripts --no-audit --no-fund @convex-dev\/agent$/);
+  assert.match(projectPackageReview.command, /^npm uninstall --ignore-scripts --no-audit --no-fund -- @convex-dev\/agent$/);
   const invalidProjectPackageApply = await applyProjectPackageRemoval(null, { reviewId: projectPackageReview.reviewId, confirmation: 'WRONG_CONFIRMATION' });
   assert.equal(invalidProjectPackageApply.ok, false, 'project package removal must require the explicit confirmation phrase');
   const projectPackageRemoval = await applyProjectPackageRemoval(null, { reviewId: projectPackageReview.reviewId, confirmation: 'REMOVE PROJECT PACKAGE' });
   assert.equal(projectPackageRemoval.ok, true, 'the confirmed reviewed project package should be removable with package scripts disabled');
   const changedProjectManifest = JSON.parse(await fsp.readFile(path.join(project, 'package.json'), 'utf8'));
   assert.equal(changedProjectManifest.dependencies?.['@convex-dev/agent'], undefined, 'project package removal must update only the selected project package file');
+  // A malicious project can name a dependency so that cmd.exe on Windows would run a command
+  // (`x&calc`). CCTI must refuse such a name before any npm call, on every platform.
+  const hostileManifest = { name: 'checked-project', private: true, dependencies: { 'x&calc': '1.0.0', '-g': '1.0.0', JSONStream: '1.3.5', '@Scope/Legacy-Pkg': '2.0.0' } };
+  await fsp.writeFile(path.join(project, 'package.json'), JSON.stringify(hostileManifest, null, 2), 'utf8');
+  const hostileReport = await discover(null, { projectPath: project });
+  const hostilePackage = hostileReport.findings.find((item) => item.type === 'project-package' && item.name === 'x&calc');
+  assert.ok(hostilePackage, 'the hostile dependency should still be listed so the user can see it');
+  const spawnsBeforeHostile = spawnLog.length;
+  const hostileReview = await reviewProjectPackageRemoval(null, { discoveryId: hostileReport.discoveryId, findingId: hostilePackage.id });
+  assert.equal(hostileReview.ok, false, 'an invalid npm package name must be refused before removal');
+  assert.match(hostileReview.error, /not a valid npm package name/i);
+  assert.match(hostileReview.error, /package\.json/i, 'the refusal should state a plain next action');
+  assert.equal(hostileReview.reviewId, undefined, 'a refused name must not receive a removal plan');
+  const hostileApply = await applyProjectPackageRemoval(null, { reviewId: hostileReview.reviewId, confirmation: 'REMOVE PROJECT PACKAGE' });
+  assert.equal(hostileApply.ok, false, 'a refused name must not be removable');
+  assert.equal(spawnLog.slice(spawnsBeforeHostile).some((call) => /npm/i.test(call.command) || call.args.includes('uninstall')), false, 'no npm call may happen for an invalid package name');
+  assert.deepEqual(JSON.parse(await fsp.readFile(path.join(project, 'package.json'), 'utf8')), hostileManifest, 'a refused removal must not change package.json');
+  // Legacy names with uppercase letters are legitimate and stay removable (quoting keeps them inert).
+  for (const legacyName of ['JSONStream', '@Scope/Legacy-Pkg']) {
+    const legacyPackage = hostileReport.findings.find((item) => item.type === 'project-package' && item.name === legacyName);
+    assert.ok(legacyPackage, `${legacyName} should be listed`);
+    const legacyReview = await reviewProjectPackageRemoval(null, { discoveryId: hostileReport.discoveryId, findingId: legacyPackage.id });
+    assert.equal(legacyReview.ok, true, `${legacyName} must be accepted for a reviewed removal`);
+    assert.equal(legacyReview.command, `npm uninstall --ignore-scripts --no-audit --no-fund -- ${legacyName}`);
+  }
+  // A dependency named like an npm option (`-g`) would make npm uninstall a global package
+  // (for example Claude Code itself). It is refused before any npm call, on every platform.
+  const optionPackage = hostileReport.findings.find((item) => item.type === 'project-package' && item.name === '-g');
+  assert.ok(optionPackage, 'the option-shaped dependency is still listed');
+  const spawnsBeforeOption = spawnLog.length;
+  const optionReview = await reviewProjectPackageRemoval(null, { discoveryId: hostileReport.discoveryId, findingId: optionPackage.id });
+  assert.equal(optionReview.ok, false, 'a name that npm would read as an option must be refused');
+  assert.equal(optionReview.reviewId, undefined);
+  assert.equal(spawnLog.slice(spawnsBeforeOption).some((call) => /npm/i.test(call.command) || call.args.includes('uninstall')), false, 'no npm call may happen for an option-shaped name');
   const managedManifestPath = path.join(home, '.setup-my-claude', 'manifest.tsv');
   await fsp.mkdir(path.dirname(managedManifestPath), { recursive: true });
   await fsp.writeFile(managedManifestPath, [

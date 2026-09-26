@@ -11,6 +11,10 @@ const platform = process.argv[2];
 if (!['darwin', 'win32', 'linux'].includes(platform)) throw new Error('Usage: node scripts/test-terminal-adapters.js <darwin|win32|linux>');
 
 const root = path.resolve(__dirname, '..');
+const windowsCommandModule = path.join(root, 'desktop', 'src', 'windows-command.js');
+const { quoteCommand } = require(windowsCommandModule);
+// Drop the cached copy so main.js loads it again after child_process is replaced below.
+delete require.cache[require.resolve(windowsCommandModule)];
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), `ccti-${platform}-terminal-adapter-test-`));
 const home = path.join(tempRoot, 'home');
 const fakeClaudePath = platform === 'win32'
@@ -56,7 +60,9 @@ function fakeSpawn(command, args, options = {}) {
       }
       return;
     }
-    if (command === fakeClaudePath && args[0] === '--version') {
+    // On Windows CCTI runs claude.cmd through cmd.exe as one quoted command line (shell: true).
+    const windowsShellVersionCheck = options.shell === true && args.length === 0 && command === `${quoteCommand(fakeClaudePath)} --version`;
+    if ((command === fakeClaudePath && args[0] === '--version') || windowsShellVersionCheck) {
       result.stdout.emit('data', 'claude 1.0.0\n');
       result.emit('close', 0);
       return;
