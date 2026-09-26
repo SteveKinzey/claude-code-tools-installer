@@ -973,6 +973,13 @@ function renderCatalog() {
   }
 }
 
+// `claude --version` prints "2.1.283 (Claude Code)". Show just the number, so the status line
+// does not read "installed (2.1.283 (Claude Code))".
+function claudeVersionLabel(version) {
+  const number = String(version || '').replace(/\s*\(Claude Code\)\s*$/i, '').trim();
+  return number ? ` (${number})` : '';
+}
+
 async function refreshClaudeStatus() {
   const slowTimer = setTimeout(() => {
     if (!state.claudeInstalled) {
@@ -1013,7 +1020,7 @@ async function refreshClaudeStatus() {
   recheckClaudeButton.disabled = state.running;
 
   if (result.installed) {
-    const version = result.version ? ` (${result.version})` : '';
+    const version = claudeVersionLabel(result.version);
     claudeStatusTextElement.textContent = `Yes, Claude Code is installed${version}.`;
     bootstrapStatusElement.textContent = 'Claude Code installed';
     bootstrapStatusElement.className = 'status-chip status-ready';
@@ -1043,7 +1050,7 @@ async function installClaudeCode() {
     const result = await window.installer.installClaudeOnly();
     if (result.ok) {
       state.claudeInstalled = true;
-      claudeStatusTextElement.textContent = `Yes, Claude Code is installed${result.version ? ` (${result.version})` : ''}.`;
+      claudeStatusTextElement.textContent = `Yes, Claude Code is installed${claudeVersionLabel(result.version)}.`;
       bootstrapStatusElement.textContent = 'Claude Code installed';
       bootstrapStatusElement.className = 'status-chip status-ready';
       setSetupSelection('existing', 'Claude Code is installed. You can now choose tools in Step 2, or stop here.');
@@ -2011,6 +2018,10 @@ async function applyResolveDuplicateChanges() {
     if (result.ok) {
       resolveDuplicateDialogElement.close();
       await scanSetup();
+      // Say what happened; otherwise the only sign of success is a row quietly changing.
+      const done = result.message || `Resolved the duplicate ${pending.name || 'item'}.`;
+      toolInventoryStatusElement.textContent = done;
+      appendOutput(`[Manage] ${done}\n`);
       return;
     }
     if (result.changed) {
@@ -2864,6 +2875,9 @@ reviewResolveDuplicateButton.addEventListener('click', reviewResolveDuplicateCha
 applyResolveDuplicateButton.addEventListener('click', applyResolveDuplicateChanges);
 cancelResolveDuplicateButton.addEventListener('click', () => resolveDuplicateDialogElement.close());
 resolveDuplicateDialogElement.addEventListener('close', () => {
+  // The close event is queued. If another Resolve opened the dialog again before it fired,
+  // this late event belongs to the earlier dialog and must not clear the new one's state.
+  if (resolveDuplicateDialogElement.open) return;
   state.resolveDuplicate = null;
   const resolveInvoker = state.resolveDuplicateInvoker;
   state.resolveDuplicateInvoker = null;

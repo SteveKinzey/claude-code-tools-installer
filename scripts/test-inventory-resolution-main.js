@@ -62,7 +62,12 @@ const argv = process.argv.slice(2);
 const [a, b, c] = argv;
 function save(mutated) {
   fs.writeFileSync(statePath, JSON.stringify(state));
-  if (mutated) fs.writeFileSync(claudeJsonPath, JSON.stringify({ mcpServers: state.userMcp, projects: { [homePath]: { mcpServers: state.localMcp } } }));
+  if (mutated) fs.writeFileSync(claudeJsonPath, JSON.stringify({ mcpServers: state.userMcp, projects: projectsOf(state) }));
+}
+function projectsOf(current) {
+  const projects = { [homePath]: { mcpServers: current.localMcp } };
+  if (current.projectFolder) projects[current.projectFolder] = { mcpServers: current.projectLocalMcp };
+  return projects;
 }
 function scopeArg() {
   const index = argv.indexOf('--scope');
@@ -100,7 +105,9 @@ if (a === 'mcp' && b === 'remove') {
   // Reports success but changes nothing, so apply's after-check must notice.
   if (state.mcpRemoveNoop) process.exit(0);
   const scope = scopeArg();
-  const bucket = scope === 'user' ? state.userMcp : scope === 'local' && inFolder(homePath) ? state.localMcp : null;
+  const bucket = scope === 'user' ? state.userMcp
+    : scope === 'local' && inFolder(homePath) ? state.localMcp
+      : scope === 'local' && inFolder(state.projectFolder) ? state.projectLocalMcp : null;
   if (!bucket || !bucket[c]) { console.error('No MCP server named ' + c + ' at scope ' + scope); process.exit(1); }
   delete bucket[c];
   save(true);
@@ -116,18 +123,24 @@ const playwrightOther = { command: 'npx', args: ['@playwright/mcp', '--headless'
 const realWorldLocal = { repomix: { command: 'npx', args: ['-y', 'repomix', '--mcp'] }, playwright: playwrightDefinition };
 const realWorldUser = { MCP_DOCKER: { command: 'docker', args: ['mcp', 'gateway', 'run'] }, playwright: { ...playwrightDefinition } };
 
+function fakeProjects(state) {
+  const projects = { [home]: { mcpServers: state.localMcp } };
+  if (state.projectFolder) projects[state.projectFolder] = { mcpServers: state.projectLocalMcp || {} };
+  return projects;
+}
+
 async function setFakeClaude(state) {
-  const full = { userMcp: {}, localMcp: {}, plugins: [], pluginJsonFails: false, mcpRemoveFails: false, mcpRemoveNoop: false, ...state };
+  const full = { userMcp: {}, localMcp: {}, projectFolder: '', projectLocalMcp: {}, plugins: [], pluginJsonFails: false, mcpRemoveFails: false, mcpRemoveNoop: false, ...state };
   await fsp.writeFile(fakeLog, '', 'utf8');
   await fsp.writeFile(fakeState, JSON.stringify(full), 'utf8');
-  await fsp.writeFile(claudeJson, JSON.stringify({ mcpServers: full.userMcp, projects: { [home]: { mcpServers: full.localMcp } } }), 'utf8');
+  await fsp.writeFile(claudeJson, JSON.stringify({ mcpServers: full.userMcp, projects: fakeProjects(full) }), 'utf8');
 }
 
 async function updateFakeClaude(change) {
   const state = JSON.parse(await fsp.readFile(fakeState, 'utf8'));
   change(state);
   await fsp.writeFile(fakeState, JSON.stringify(state), 'utf8');
-  await fsp.writeFile(claudeJson, JSON.stringify({ mcpServers: state.userMcp, projects: { [home]: { mcpServers: state.localMcp } } }), 'utf8');
+  await fsp.writeFile(claudeJson, JSON.stringify({ mcpServers: state.userMcp, projects: fakeProjects(state) }), 'utf8');
 }
 
 async function fakeState_() {
@@ -357,13 +370,40 @@ async function run() {
   await setFakeClaude({ userMcp: { docs: { command: 'npx', args: ['docs-mcp'] } }, localMcp: { playwright: playwrightDefinition } });
   report = await discover(null, { projectPath: project });
   assert.equal(rowFor(report, 'mcp:playwright')?.state === 'duplicate', false, 'a home-folder copy and a project copy are not a duplicate');
-  const docsRow = rowFor(report, 'mcp:docs');
+  const docsRow = rowFor(report, 'mcp:docs:project');
   assert.equal(docsRow.state, 'duplicate');
   assert.equal(docsRow.resolution, undefined);
   assert.deepEqual(docsRow.informational, { reason: 'team-shared' });
-  const teamReview = await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:docs' });
+  const teamReview = await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:docs:project' });
   assert.deepEqual(teamReview, { ok: false, error: 'One copy is shared with everyone on this project, so CCTI won’t change it. Nothing needs to be done here.' });
   assert.deepEqual(await changingCalls(), []);
+
+  // Case 9b: the same connection duplicated in the home folder AND in the checked project.
+  // These are two separate groups; the project's must not hide the home folder's, and
+  // resolving one only removes the local copy from its own folder.
+  await setFakeClaude({ userMcp: { playwright: playwrightDefinition }, localMcp: { playwright: playwrightDefinition }, projectFolder: project, projectLocalMcp: { playwright: playwrightDefinition } });
+  await fsp.writeFile(path.join(project, '.mcp.json'), JSON.stringify({ mcpServers: {} }), 'utf8');
+  report = await discover(null, { projectPath: project });
+  const homeRow = rowFor(report, 'mcp:playwright');
+  const projectRow = rowFor(report, 'mcp:playwright:project');
+  assert.equal(homeRow?.state, 'duplicate', 'the home-folder duplicate is still listed');
+  assert.equal(projectRow?.state, 'duplicate', 'the project duplicate is listed separately');
+  assert.deepEqual(homeRow.resolution.options, ['Only you, in this folder', 'Just you, everywhere']);
+  assert.deepEqual(projectRow.resolution.options, ['Only you, in this project', 'Just you, everywhere']);
+  reviewed = await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:playwright:project' });
+  assert.equal(reviewed.ok, true, reviewed.error);
+  applied = await apply(null, { reviewId: reviewed.reviewId });
+  assert.equal(applied.ok, true, applied.error);
+  assert.deepEqual(await changingCalls(), ['mcp remove playwright --scope local']);
+  const projectRemoval = (await loggedCalls()).find((call) => call.args === 'mcp remove playwright --scope local');
+  assert.equal(fs.realpathSync(projectRemoval.cwd), fs.realpathSync(project), 'the project copy is removed from the project folder');
+  state = await fakeState_();
+  assert.deepEqual(state.localMcp.playwright, playwrightDefinition, 'the home-folder copy is untouched');
+  assert.equal(state.projectLocalMcp.playwright, undefined);
+  report = await discover(null, { projectPath: project });
+  assert.equal(rowFor(report, 'mcp:playwright')?.state, 'duplicate', 'the home-folder duplicate remains to resolve on its own');
+  assert.equal(rowFor(report, 'mcp:playwright:project'), undefined);
+  await fsp.rm(path.join(project, '.mcp.json'));
 
   // Case 10: copies set up differently are informational; CCTI won't change them.
   await setFakeClaude({ userMcp: { playwright: playwrightOther }, localMcp: { playwright: playwrightDefinition } });
@@ -478,7 +518,8 @@ async function run() {
   assert.ok(unsafeRow, 'the unsafe-named connection is still listed');
   assert.equal(unsafeRow.resolution, undefined, 'it is never resolvable');
   assert.equal(unsafeRow.informational?.reason, 'unusual-name');
-  reviewed = await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:evil&calc' });
+  assert.equal(unsafeRow.rowId, 'mcp:evil%26calc', 'the name is encoded in the group id');
+  reviewed = await review(null, { discoveryId: report.discoveryId, groupKey: unsafeRow.rowId });
   assert.equal(reviewed.ok, false);
   assert.match(reviewed.error, /can’t safely pass to Claude Code/);
   assert.deepEqual(await changingCalls(), [], 'no command ran for an unsafe name');

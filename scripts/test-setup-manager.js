@@ -635,6 +635,7 @@ async function run() {
   assert.equal(archiveActiveFailureInjected, true, 'the fixture must fail exactly the archive-active rename');
   assert.equal(archiveActiveFailureResult.ok, false, 'an archive-active failure must stop the replacement');
   assert.match(archiveActiveFailureResult.error, /could not complete the reviewed replacement/i);
+  assert.match(archiveActiveFailureResult.error, /check this computer again and try again/, 'a failed replacement says what to do next');
   await assert.rejects(fsp.access(archiveActiveFailureReview.moves[0].destination), 'a failed archive-active move must not leave a new active-skill backup folder');
   assert.match(await fsp.readFile(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'), 'utf8'), /Bulk duplicate/);
   assert.match(await fsp.readFile(path.join(occupiedBackupPath, 'SKILL.md'), 'utf8'), /Preserved duplicate/);

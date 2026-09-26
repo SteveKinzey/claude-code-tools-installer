@@ -2,6 +2,8 @@
 // always wins: the record adds provenance, never existence. Where the scan could
 // not look, a recorded item is "unchecked", not "missing". Pure.
 
+const { duplicateGroupId } = require('./duplicates');
+
 const KIND_ORDER = { skill: 0, plugin: 1, mcp: 2 };
 const STATE_ORDER = { missing: 0, duplicate: 1, unchecked: 2, installed: 3, external: 4 };
 const SKILL_SCOPE_LABELS = { user: 'Just you', project: 'This project' };
@@ -71,7 +73,7 @@ function reconcileInventory({ scan, ledger, ledgerStatus = 'ok', catalog = [], t
   const scanItems = Array.isArray(scan?.items) ? scan.items : [];
   const duplicateGroups = (Array.isArray(scan?.duplicateGroups) ? scan.duplicateGroups : [])
     .filter((group) => group && ['mcp', 'plugin'].includes(group.kind) && group.key && Array.isArray(group.copies) && group.copies.length > 1);
-  // Each add-on or connection duplicate group becomes one row, keyed `<kind>:<key>`. For an
+  // Each add-on or connection duplicate group becomes one row, keyed by duplicateGroupId. For an
   // add-on the scan lists each install (`foo@market-a`, `foo@market-b`) separately, so
   // those items fold into the group's row. A group the text list missed still gets a row.
   const groupFor = new Map();
@@ -100,7 +102,7 @@ function reconcileInventory({ scan, ledger, ledgerStatus = 'ok', catalog = [], t
   const resolutionGroups = new Map();
   for (const item of items) {
     const duplicateGroup = groupFor.get(item);
-    const groupKey = duplicateGroup ? `${duplicateGroup.kind}:${duplicateGroup.key}` : `${item.kind}:${item.key}`;
+    const groupKey = duplicateGroup ? duplicateGroupId(duplicateGroup) : `${item.kind}:${item.key}`;
     if (duplicateGroup) resolutionGroups.set(groupKey, duplicateGroup);
     groups.set(groupKey, [...(groups.get(groupKey) || []), item]);
   }

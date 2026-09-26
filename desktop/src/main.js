@@ -9,7 +9,7 @@ const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
 const { buildScan, parsePluginList, parseMcpList } = require('./inventory/scanner');
 const { createLedgerStore, newlyInstalledEntries, skillBackupResolutions, extrasRemovalResolutions } = require('./inventory/ledger');
 const { reconcileInventory } = require('./inventory/reconcile');
-const { compareSkillKeeper, mcpDuplicateGroups, pluginDuplicateGroups, isSafeMcpName, isSafePluginId } = require('./inventory/duplicates');
+const { compareSkillKeeper, duplicateGroupId, mcpDuplicateGroups, pluginDuplicateGroups, isSafeMcpName, isSafePluginId } = require('./inventory/duplicates');
 const { mcpDefinitions, pluginInstalls } = require('./inventory/config-scan');
 const { planResolution, groupFingerprint } = require('./inventory/resolvers');
 const { spawnSafely } = require('./windows-command');
@@ -2484,7 +2484,7 @@ async function discoverClaudeSetup(projectPath = '') {
     projectPackages: new Map(projectPackages.map((item) => [item.id, { name: item.name, version: item.version, packageJsonPath: item.path, projectPath: resolvedProjectPath }])),
     projectPath: resolvedProjectPath,
     homePath: home,
-    duplicateGroups: new Map(duplicateGroups.map((group) => [`${group.kind}:${group.key}`, group])),
+    duplicateGroups: new Map(duplicateGroups.map((group) => [duplicateGroupId(group), group])),
   });
   for (const [id, report] of discoveredSkillCleanup) {
     if (Date.now() - report.createdAt > 24 * 60 * 60 * 1000) discoveredSkillCleanup.delete(id);
@@ -2539,15 +2539,15 @@ async function readConfigText(filePath) {
 // Claude Code resolves connections per folder: in a folder it sees that folder's local
 // copy, the project's .mcp.json, and user copies. A local copy saved for the home folder
 // and one saved for another project never meet, so each folder is grouped on its own and
-// a folder's local copy is only ever removed from that folder.
+// a folder's local copy is only ever removed from that folder. A name duplicated in both
+// folders is two groups; the project's is marked so neither hides the other.
 function mcpGroupsByFolder(definitions, homePath, projectPath) {
   const inFolder = (folder) => definitions.filter((definition) => definition.scope === 'user' || definition.projectPath === folder);
-  const groups = new Map();
-  for (const group of mcpDuplicateGroups(inFolder(homePath), { homePath })) groups.set(group.key, group);
+  const groups = mcpDuplicateGroups(inFolder(homePath), { homePath });
   if (projectPath && projectPath !== homePath) {
-    for (const group of mcpDuplicateGroups(inFolder(projectPath), { homePath })) groups.set(group.key, group);
+    groups.push(...mcpDuplicateGroups(inFolder(projectPath), { homePath }).map((group) => ({ ...group, folder: 'project' })));
   }
-  return [...groups.values()];
+  return groups;
 }
 
 // Never throws. `readable` is false when a source that was asked for could not be read, so
@@ -2601,7 +2601,7 @@ function copyStillActive(kind, copy, current) {
   return current.installs.some((install) => install.id === copy.id && install.scope === copy.scope && install.enabled);
 }
 
-const resolutionGroupKey = (group) => `${group.kind}:${group.key}`;
+const resolutionGroupKey = duplicateGroupId;
 
 function resolutionSummary(group) {
   if (group.informational) return null;
@@ -3289,7 +3289,7 @@ async function applyCleanup({ reviewId }) {
     await recordSkillResolutions(plan.moves, cleanupReport?.projectPath || '');
     return { ok: true, message: 'The selected skill was moved to a backup folder. No other settings were changed.' };
   } catch {
-    return { ok: false, error: 'The selected skill could not be moved. It may already be gone or no longer be a skill folder.' };
+    return { ok: false, error: 'The selected skill could not be moved. It may already be gone, or another app may be using it. Close Claude Code and any editor that has the skill open, then check this computer again and try again.' };
   }
 }
 
@@ -3400,7 +3400,7 @@ async function applyAllDuplicateSkills({ reviewId } = {}) {
       movedCount: moved.length,
       error: moved.length
         ? `CCTI moved ${moved.length} reviewed duplicate ${moved.length === 1 ? 'copy' : 'copies'} before stopping. Review the backup folders, then check this computer again.`
-        : 'CCTI could not move the reviewed duplicate skills. Nothing was deleted.',
+        : 'CCTI could not move the reviewed duplicate skills. Nothing was deleted. Close Claude Code and any editor that has the skill open, then check this computer again and try again.',
     };
   } finally {
     if (moved.length > 0) await recordSkillResolutions(moved, report.projectPath);
@@ -3489,7 +3489,7 @@ async function applyAllSkillBackups({ reviewId } = {}) {
       restoredCount: restored.length,
       error: restored.length
         ? `CCTI restored ${restored.length} reviewed skill backup ${restored.length === 1 ? 'copy' : 'copies'} before stopping. Check this computer again to review what remains.`
-        : 'CCTI could not restore the reviewed skill backups. Nothing was overwritten.',
+        : 'CCTI could not restore the reviewed skill backups. Nothing was overwritten. Close Claude Code and any editor that has the skill open, then check this computer again and try again.',
     };
   } finally {
     activeSkillCleanup = false;
@@ -3595,7 +3595,7 @@ async function applySkillBackupReplacement({ reviewId } = {}) {
         return { ok: false, error: 'CCTI stopped after moving the active skill to its new backup and could not safely return it. Review the activity log, then check this computer again. The saved backup was not merged or deleted.' };
       }
     }
-    return { ok: false, error: 'CCTI could not complete the reviewed replacement. The active skill was returned to its original location when possible; no files were merged or deleted.' };
+    return { ok: false, error: 'CCTI could not complete the reviewed replacement. The active skill was returned to its original location when possible; no files were merged or deleted. Close Claude Code and any editor that has the skill open, then check this computer again and try again.' };
   } finally {
     activeSkillCleanup = false;
   }
