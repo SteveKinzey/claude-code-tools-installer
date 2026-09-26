@@ -67,6 +67,8 @@ for (const channel of [
   'setup-manager:apply-all-skill-backups',
   'setup-manager:review-skill-backup-replacement',
   'setup-manager:apply-skill-backup-replacement',
+  'setup-manager:review-permanent-delete',
+  'setup-manager:apply-permanent-delete',
   'setup-manager:review-plugin-change',
   'setup-manager:apply-plugin-change',
   'app:review-uninstall',

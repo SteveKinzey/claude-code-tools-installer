@@ -189,6 +189,7 @@ async function run() {
       { id: 'compass-messages', role: null, live: 'polite', busy: null },
       { id: 'duplicate-backup-preview-summary', role: 'status', live: 'polite', busy: null },
       { id: 'resolve-duplicate-dialog-status', role: 'status', live: 'polite', busy: null },
+      { id: 'permanent-delete-dialog-status', role: 'status', live: 'polite', busy: null },
       { id: 'runtime-path-health-cards', role: null, live: 'polite', busy: null },
       { id: 'runtime-path-health-summary', role: 'status', live: 'polite', busy: null },
     ];

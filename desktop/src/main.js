@@ -32,6 +32,7 @@ const reviewedCustomAddOnPlans = new Map();
 const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
 const reviewedResolutions = new Map();
+const reviewedPermanentDeletePlans = new Map();
 let activeSkillCleanup = false;
 const diagnosticReports = new Map();
 const diagnosticTimers = new Map();
@@ -2401,6 +2402,7 @@ async function discoverClaudeSetup(projectPath = '') {
   let pluginList = null;
   let mcpList = null;
   let duplicateGroups = [];
+  let listedPluginInstalls = [];
   if (claude.installed) {
     const claudeCommand = claude.path || 'claude';
     const [plugins, connections, groups] = await Promise.all([
@@ -2409,6 +2411,7 @@ async function discoverClaudeSetup(projectPath = '') {
       currentDuplicateGroups({ claude, homePath: home, projectPath: resolvedProjectPath }).catch(() => ({ groups: [] })),
     ]);
     duplicateGroups = groups.groups;
+    listedPluginInstalls = Array.isArray(groups.installs) ? groups.installs : [];
     pluginList = { ok: plugins.code === 0, text: plugins.stdout || '' };
     mcpList = { ok: connections.code === 0, text: connections.stdout || '' };
     if (plugins.code === 0) parsePluginList(plugins.stdout).forEach((item) => findings.push({ id: `plugin-cli:${item.key}`, type: 'plugin', name: item.name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
@@ -2457,6 +2460,7 @@ async function discoverClaudeSetup(projectPath = '') {
   const manageablePlugins = uniqueFindings.filter((item) => item.type === 'plugin' && ['Just you', 'This project', 'Only you in this project'].includes(item.scope));
   const projectPackages = uniqueFindings.filter((item) => item.type === 'project-package' && item.scope === 'This project');
   const skillBackups = uniqueFindings.filter((item) => item.type === 'skill-backup');
+  const turnedOffAddOns = turnedOffAddOnsFrom(listedPluginInstalls);
   discoveredSkillCleanup.set(discoveryId, {
     createdAt: Date.now(),
     skills: new Map(skills.map((item) => [item.id, {
@@ -2485,6 +2489,7 @@ async function discoverClaudeSetup(projectPath = '') {
     projectPath: resolvedProjectPath,
     homePath: home,
     duplicateGroups: new Map(duplicateGroups.map((group) => [duplicateGroupId(group), group])),
+    turnedOffAddOns: new Map(turnedOffAddOns.map((item) => [item.findingId, item])),
   });
   for (const [id, report] of discoveredSkillCleanup) {
     if (Date.now() - report.createdAt > 24 * 60 * 60 * 1000) discoveredSkillCleanup.delete(id);
@@ -2499,6 +2504,10 @@ async function discoverClaudeSetup(projectPath = '') {
     findings: uniqueFindings,
     duplicates,
     inventory: await inventoryFromScan({ findings: uniqueFindings, pluginList, mcpList, projectPath: resolvedProjectPath, duplicateGroups }),
+    turnedOff: {
+      addOns: turnedOffAddOns.map(({ findingId, name, marketplace, scopeLabel }) => ({ findingId, name, marketplace, scopeLabel })),
+      skillBackups: skillBackups.map((item) => ({ findingId: item.id, name: item.name, scopeLabel: item.scope })),
+    },
     managedExtras: {
       actionCount: managedExtras.actions.length,
       manualCount: managedExtras.manualItems.length,
@@ -3414,6 +3423,254 @@ function backupSourceWithinCheckedRoot(report, source) {
   return roots.includes(path.dirname(source)) && Boolean(originalSkillNameFromBackup(path.basename(source)));
 }
 
+// Permanent deletion of turned-off copies. Resolving a duplicate only ever moves a skill to
+// CCTI's backup folder or turns an add-on off. Once a person no longer wants those copies,
+// they can delete them for good here: a skill backup folder is removed from disk and a
+// turned-off add-on is uninstalled with `claude plugin uninstall` (never `--prune`). It
+// needs a review and the typed word DELETE, and every item is re-checked right before it
+// is deleted. Paths and CLI arguments never leave the main process.
+const PERMANENT_DELETE_CONFIRMATION = 'DELETE';
+const PERMANENT_DELETE_REVIEW_LIFETIME_MS = 24 * 60 * 60 * 1000;
+const PERMANENT_DELETE_MAX_REVIEWS = 20;
+const PERMANENT_DELETE_MAX_ITEMS = 500;
+const ADD_ON_SCOPE_LABELS = { user: 'Just you', project: 'This project', local: 'Only you in this project' };
+
+// Every add-on Claude Code reports as installed but turned off, whoever turned it off.
+// Synced, managed, and other scopes belong to someone else and are never listed. A project
+// or local install is listed only when its folder is known (a project was checked), so the
+// uninstall can run from that folder. Ids CCTI cannot safely pass to Claude Code are left out.
+function turnedOffAddOnsFrom(installs) {
+  const seen = new Set();
+  const list = [];
+  for (const install of Array.isArray(installs) ? installs : []) {
+    if (!install || install.enabled !== false) continue;
+    if (!Object.prototype.hasOwnProperty.call(ADD_ON_SCOPE_LABELS, install.scope)) continue;
+    if (install.scope !== 'user' && !install.projectPath) continue;
+    const originalId = install.originalId || install.id;
+    if (!isSafePluginId(originalId)) continue;
+    const findingId = `add-on-off:${install.scope}:${install.id}`;
+    if (seen.has(findingId)) continue;
+    seen.add(findingId);
+    list.push({
+      findingId,
+      id: install.id,
+      originalId,
+      name: install.name || install.id,
+      marketplace: install.marketplace || '',
+      scope: install.scope,
+      scopeLabel: ADD_ON_SCOPE_LABELS[install.scope],
+      projectPath: install.scope === 'user' ? '' : install.projectPath,
+    });
+  }
+  return list;
+}
+
+function permanentDeleteLabel(item) {
+  return item.kind === 'add-on'
+    ? `Add-on ${item.name}${item.marketplace ? ` from ${item.marketplace}` : ''} (${item.scopeLabel})`
+    : `Skill backup ${item.name} (${item.scopeLabel})`;
+}
+
+async function reviewPermanentDelete({ discoveryId, items } = {}) {
+  const report = discoveredSkillCleanup.get(String(discoveryId || ''));
+  if (!report) return { ok: false, error: 'CCTI doesn’t have these turned-off copies on its latest list. Check this computer again, then review them again. Nothing was deleted.' };
+  if (!Array.isArray(items) || items.length === 0) return { ok: false, error: 'Choose at least one turned-off copy to review. Nothing was deleted.' };
+  if (items.length > PERMANENT_DELETE_MAX_ITEMS) return { ok: false, error: 'That is more copies than CCTI can review at once. Choose fewer, then review again. Nothing was deleted.' };
+  const planned = [];
+  const seen = new Set();
+  for (const requested of items) {
+    const kind = requested?.kind;
+    const findingId = String(requested?.findingId || '');
+    const key = `${kind}\n${findingId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (kind === 'skill-backup') {
+      const backup = report.backups?.get(findingId);
+      if (!backup || !path.isAbsolute(backup.path) || !backupSourceWithinCheckedRoot(report, backup.path)) {
+        return { ok: false, error: 'One of these skill backups is no longer on CCTI’s latest list. Check this computer again, then review again. Nothing was deleted.' };
+      }
+      planned.push({ kind, findingId, name: backup.name, scopeLabel: backup.scope, path: backup.path });
+    } else if (kind === 'add-on') {
+      const addOn = report.turnedOffAddOns?.get(findingId);
+      if (!addOn || !isSafePluginId(addOn.originalId)) {
+        return { ok: false, error: 'One of these add-ons is no longer on CCTI’s latest list. Check this computer again, then review again. Nothing was deleted.' };
+      }
+      planned.push({ kind, findingId, name: addOn.name, marketplace: addOn.marketplace, scopeLabel: addOn.scopeLabel, id: addOn.id, originalId: addOn.originalId, scope: addOn.scope, projectPath: addOn.projectPath });
+    } else {
+      return { ok: false, error: 'CCTI can only delete turned-off add-ons and skill backups here. Check this computer again, then review again. Nothing was deleted.' };
+    }
+  }
+  const planItems = planned.map((item) => ({ ...item, label: permanentDeleteLabel(item) }));
+  for (const [id, plan] of reviewedPermanentDeletePlans) {
+    if (Date.now() - plan.createdAt > PERMANENT_DELETE_REVIEW_LIFETIME_MS) reviewedPermanentDeletePlans.delete(id);
+  }
+  const reviewId = randomUUID();
+  reviewedPermanentDeletePlans.set(reviewId, { createdAt: Date.now(), discoveryId: String(discoveryId), projectPath: report.projectPath || '', items: planItems });
+  while (reviewedPermanentDeletePlans.size > PERMANENT_DELETE_MAX_REVIEWS) reviewedPermanentDeletePlans.delete(reviewedPermanentDeletePlans.keys().next().value);
+  return {
+    ok: true,
+    reviewId,
+    items: planItems.map(({ label }) => ({ label })),
+    warning: `Deleting ${planItems.length === 1 ? 'this copy' : `these ${planItems.length} copies`} cannot be undone. Skill backups are erased from this computer and add-ons are uninstalled from Claude Code, so CCTI can’t bring them back. You would need to install them again.`,
+  };
+}
+
+async function isPlainDirectory(target) {
+  try {
+    const stats = await fs.lstat(target);
+    return stats.isDirectory() && !stats.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+// Check-then-act for one skill backup: it must still be a real folder (not a link), sit
+// directly in one of CCTI's backup folders (which must not be links either), and resolve
+// to a path inside that folder.
+async function deleteSkillBackupPermanently(checkedRoots, item) {
+  const logRefusal = (why) => emit('installer:output', { stream: 'stderr', text: `[CCTI] Did not delete the skill backup ${item.name} (${item.path}): ${why}.\n` });
+  let stats;
+  try {
+    stats = await fs.lstat(item.path);
+  } catch (error) {
+    logRefusal(error.code === 'ENOENT' ? 'it is no longer there' : error.message);
+    return { ok: false, error: `The skill backup ${item.name} is no longer where CCTI found it, so it was not deleted. Check this computer again to see how it looks now.` };
+  }
+  const backupRoot = path.dirname(item.path);
+  const unsafe = stats.isSymbolicLink() || !stats.isDirectory() || !backupSourceWithinCheckedRoot(checkedRoots, item.path) || !(await isPlainDirectory(backupRoot));
+  let realInside = false;
+  if (!unsafe) {
+    try {
+      const [realItem, realRoot] = await Promise.all([fs.realpath(item.path), fs.realpath(backupRoot)]);
+      realInside = path.dirname(realItem) === realRoot && path.basename(realItem) === path.basename(item.path);
+    } catch {
+      realInside = false;
+    }
+  }
+  if (unsafe || !realInside) {
+    logRefusal('it is a link or is not inside CCTI’s backup folder');
+    return { ok: false, error: `The skill backup ${item.name} is not a plain folder inside CCTI’s backup folder anymore, so CCTI will not delete it. Check this computer again, and remove it yourself only if you are sure.` };
+  }
+  emit('installer:output', { stream: 'stdout', text: `[CCTI] Deleting the skill backup ${item.name}: ${item.path}\n` });
+  try {
+    await fs.rm(item.path, { recursive: true, force: false });
+  } catch (error) {
+    emit('installer:output', { stream: 'stderr', text: `[CCTI] Deleting ${item.path} failed: ${error.message}\n` });
+  }
+  if (await pathExists(item.path)) {
+    return { ok: false, error: `CCTI couldn’t fully delete the skill backup ${item.name}. Close any app that has files open in it, then check this computer again and try again.` };
+  }
+  return { ok: true };
+}
+
+async function readPluginInstalls(claude, item) {
+  const cwd = item.scope === 'user' ? app.getPath('home') : item.projectPath;
+  let result;
+  try {
+    result = await runProcess(claude.path || 'claude', ['plugin', 'list', '--json'], { cwd, env: claudeProcessEnv(), timeout: 8000 });
+  } catch (error) {
+    result = { code: -1, stdout: '', stderr: error.message };
+  }
+  if (!result || result.timedOut || result.code !== 0) {
+    if (result?.stderr) emit('installer:output', { stream: 'stderr', text: result.stderr.endsWith('\n') ? result.stderr : `${result.stderr}\n` });
+    return { ok: false, installs: [] };
+  }
+  return pluginInstalls(result.stdout, { projectPath: item.projectPath });
+}
+
+// Check-then-act for one turned-off add-on: it must still be installed at the same scope
+// and still be turned off. One that was turned back on is skipped, never uninstalled.
+async function deleteTurnedOffAddOn(claude, item) {
+  if (!isSafePluginId(item.originalId) || !Object.prototype.hasOwnProperty.call(ADD_ON_SCOPE_LABELS, item.scope) || (item.scope !== 'user' && !item.projectPath)) {
+    emit('installer:output', { stream: 'stderr', text: '[CCTI] Refused to uninstall an add-on whose name or scope is not safe to pass to Claude Code.\n' });
+    return { ok: false, error: `The add-on ${item.name} has a name CCTI can’t safely pass to Claude Code, so it was not deleted.` };
+  }
+  const before = await readPluginInstalls(claude, item);
+  if (!before.ok) return { ok: false, error: `CCTI couldn’t read your Claude Code add-ons right now, so ${item.name} was not deleted. Try again in a moment.` };
+  const current = before.installs.find((install) => install.id === item.id && install.scope === item.scope);
+  if (!current) {
+    emit('installer:output', { stream: 'stdout', text: `[CCTI] ${item.originalId} (${item.scope}) is no longer installed, so there was nothing to delete.\n` });
+    return { ok: true, skipped: `${item.label} was already gone.` };
+  }
+  if (current.enabled !== false) {
+    emit('installer:output', { stream: 'stdout', text: `[CCTI] ${item.originalId} (${item.scope}) was turned back on after the review, so it was not uninstalled.\n` });
+    return { ok: true, skipped: `${item.label} was turned back on, so CCTI left it installed.` };
+  }
+  const cwd = item.scope === 'user' ? app.getPath('home') : item.projectPath;
+  const args = ['plugin', 'uninstall', item.originalId, '--scope', item.scope];
+  emit('installer:output', { stream: 'stdout', text: `[CCTI] Deleting ${item.label}: claude ${args.join(' ')}\n` });
+  let result;
+  try {
+    result = await runProcess(claude.path || 'claude', args, { cwd, env: claudeProcessEnv(), timeout: 60000 });
+  } catch (error) {
+    result = { code: -1, stdout: '', stderr: error.message };
+  }
+  if (result.stdout) emit('installer:output', { stream: 'stdout', text: result.stdout });
+  if (result.stderr) emit('installer:output', { stream: result.code === 0 ? 'stdout' : 'stderr', text: result.stderr });
+  if (result.code !== 0) {
+    return { ok: false, error: `Claude Code couldn’t uninstall ${item.name}. Open the activity details to see why, then check this computer again and try again.` };
+  }
+  const after = await readPluginInstalls(claude, item);
+  if (!after.ok || after.installs.some((install) => install.id === item.id && install.scope === item.scope)) {
+    emit('installer:output', { stream: 'stderr', text: `[CCTI] After uninstalling, ${item.originalId} (${item.scope}) ${after.ok ? 'is still listed' : 'could not be checked'}.\n` });
+    return { ok: false, error: `CCTI asked Claude Code to uninstall ${item.name}, but couldn’t confirm it is gone. Check this computer again to see how it looks now.` };
+  }
+  return { ok: true };
+}
+
+async function applyPermanentDelete({ reviewId, confirmation } = {}) {
+  // The typed word is checked here, in the main process, not only in the window.
+  if (confirmation !== PERMANENT_DELETE_CONFIRMATION) {
+    return { ok: false, error: 'Type DELETE in capital letters to confirm. Nothing was deleted.' };
+  }
+  const plan = reviewedPermanentDeletePlans.get(String(reviewId || ''));
+  if (!plan || Date.now() - plan.createdAt > PERMANENT_DELETE_REVIEW_LIFETIME_MS) {
+    return { ok: false, error: 'This review is no longer available, so nothing was deleted. Check this computer again, then review the turned-off copies again.' };
+  }
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: ACTION_LOCKED };
+  // A review applies once, whatever happens next.
+  reviewedPermanentDeletePlans.delete(String(reviewId));
+  activeSkillCleanup = true;
+  emit('installer:state', { running: true });
+  const completed = [];
+  const skipped = [];
+  try {
+    const report = discoveredSkillCleanup.get(plan.discoveryId);
+    const needsClaude = plan.items.some((item) => item.kind === 'add-on');
+    const claude = needsClaude ? await claudeStatus() : null;
+    for (const item of plan.items) {
+      let outcome;
+      if (item.kind === 'skill-backup') {
+        outcome = await deleteSkillBackupPermanently({ projectPath: plan.projectPath }, item);
+        if (outcome.ok) report?.backups?.delete(item.findingId);
+      } else if (!claude?.installed) {
+        outcome = { ok: false, error: `Claude Code isn’t ready, so ${item.name} was not deleted. Check this computer again once Claude Code is available.` };
+      } else {
+        outcome = await deleteTurnedOffAddOn(claude, item);
+        if (outcome.ok && !outcome.skipped) report?.turnedOffAddOns?.delete(item.findingId);
+      }
+      if (!outcome.ok) {
+        const progress = completed.length === 0 ? 'Nothing else was deleted.' : `${completed.length} of ${plan.items.length} ${plan.items.length === 1 ? 'copy was' : 'copies were'} deleted before CCTI stopped.`;
+        return { ok: false, error: `${outcome.error} ${progress}`, completed: [...completed] };
+      }
+      if (outcome.skipped) skipped.push(outcome.skipped);
+      else completed.push(item.label);
+    }
+    const deleted = completed.length === 0
+      ? 'Nothing was deleted.'
+      : `Permanently deleted ${completed.length} turned-off ${completed.length === 1 ? 'copy' : 'copies'}.`;
+    const message = [deleted, ...skipped].join(' ');
+    emit('installer:output', { stream: 'stdout', text: `[CCTI] ${message}\n` });
+    return { ok: true, message, completed: [...completed], skipped };
+  } catch (error) {
+    emit('installer:output', { stream: 'stderr', text: `[CCTI] Permanent delete stopped: ${error.message}\n` });
+    return { ok: false, error: `CCTI couldn’t finish deleting. ${completed.length === 0 ? 'Nothing was deleted.' : `${completed.length} of ${plan.items.length} copies were deleted.`} Check this computer again, then try again.`, completed: [...completed] };
+  } finally {
+    activeSkillCleanup = false;
+    emit('installer:state', { running: false });
+  }
+}
+
 async function reviewAllSkillBackups({ discoveryId } = {}) {
   const report = discoveredSkillCleanup.get(String(discoveryId || ''));
   if (!report?.backups) return { ok: false, error: 'Check this computer again before restoring skill backups.' };
@@ -3669,6 +3926,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup-manager:apply-all-skill-backups', async (_event, payload) => applyAllSkillBackups(payload || {}));
   ipcMain.handle('setup-manager:review-skill-backup-replacement', async (_event, payload) => reviewSkillBackupReplacement(payload || {}));
   ipcMain.handle('setup-manager:apply-skill-backup-replacement', async (_event, payload) => applySkillBackupReplacement(payload || {}));
+  ipcMain.handle('setup-manager:review-permanent-delete', async (_event, payload) => reviewPermanentDelete(payload || {}));
+  ipcMain.handle('setup-manager:apply-permanent-delete', async (_event, payload) => applyPermanentDelete(payload || {}));
 
   ipcMain.handle('claude:install-only', async () => {
     if (activeInstall) return { ok: false, error: 'An installation is already running.', installed: false, version: '' };
