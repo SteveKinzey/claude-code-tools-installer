@@ -1,0 +1,138 @@
+#!/usr/bin/env node
+const assert = require('node:assert/strict');
+const { MCP_SCOPE_PRECEDENCE, mcpDuplicateGroups, pluginDuplicateGroups, compareSkillKeeper } = require('../desktop/src/inventory/duplicates');
+const { planResolution } = require('../desktop/src/inventory/resolvers');
+
+assert.deepEqual(MCP_SCOPE_PRECEDENCE, ['local', 'project', 'user']);
+const home = '/Users/me';
+const defs = [
+  { name: 'playwright', key: 'playwright', scope: 'user', projectPath: '', fingerprint: 'a' },
+  { name: 'playwright', key: 'playwright', scope: 'local', projectPath: home, fingerprint: 'a' },
+  { name: 'docs', key: 'docs', scope: 'user', projectPath: '', fingerprint: 'x' },
+  { name: 'docs', key: 'docs', scope: 'project', projectPath: '/work/app', fingerprint: 'y' },
+  { name: 'Docs', key: 'docs', scope: 'local', projectPath: '/work/app', fingerprint: 'z' },
+  { name: 'solo', key: 'solo', scope: 'user', projectPath: '', fingerprint: 's' },
+];
+const groups = mcpDuplicateGroups(defs, { homePath: home });
+assert.deepEqual(groups.map((g) => g.key).sort(), ['docs', 'playwright'], 'single definitions are not duplicates');
+const pw = groups.find((g) => g.key === 'playwright');
+assert.deepEqual(pw.copies.map((c) => c.scope), ['local', 'user'], 'copies are listed in runtime precedence order');
+assert.equal(pw.identical, true);
+assert.equal(pw.informational, false);
+assert.equal(pw.keeper, 1, 'identical copies: keep the user copy, which applies everywhere');
+assert.equal(pw.copies[pw.keeper].scope, 'user');
+assert.equal(pw.needsChoice, false);
+assert.equal(pw.copies[0].label, 'Only you, in this folder');
+assert.equal(pw.copies[1].label, 'Just you, everywhere');
+const docs = groups.find((g) => g.key === 'docs');
+assert.deepEqual(docs.copies.map((c) => c.scope), ['local', 'project', 'user']);
+assert.deepEqual(docs.copies.map((c) => c.name), ['Docs', 'docs', 'docs'], 'each copy keeps its own spelling');
+assert.equal(docs.copies[0].label, 'Only you, in this project');
+assert.equal(docs.copies[1].label, 'Everyone on this project');
+assert.equal(docs.identical, false);
+assert.equal(docs.informational, true, 'a team-shared project copy is never removed');
+assert.equal(docs.reason, 'team-shared');
+assert.equal(docs.keeper, null);
+const different = mcpDuplicateGroups([
+  { name: 'x', key: 'x', scope: 'local', projectPath: home, fingerprint: 'a' },
+  { name: 'x', key: 'x', scope: 'user', projectPath: '', fingerprint: 'b' },
+], { homePath: home })[0];
+assert.deepEqual([different.informational, different.reason, different.keeper], [true, 'different-setup', null], 'copies set up differently are informational');
+const teamIdentical = mcpDuplicateGroups([
+  { name: 'y', key: 'y', scope: 'project', projectPath: '/work/app', fingerprint: 'a' },
+  { name: 'y', key: 'y', scope: 'user', projectPath: '', fingerprint: 'a' },
+], { homePath: home })[0];
+assert.deepEqual([teamIdentical.informational, teamIdentical.reason], [true, 'team-shared'], 'even identical, a project copy is never auto-removed');
+const folders = mcpDuplicateGroups([
+  { name: 'z', key: 'z', scope: 'local', projectPath: home, fingerprint: 'a' },
+  { name: 'z', key: 'z', scope: 'local', projectPath: '/work/app', fingerprint: 'a' },
+], { homePath: home })[0];
+assert.deepEqual([folders.informational, folders.reason], [true, 'separate-folders']);
+const caseOnly = mcpDuplicateGroups([
+  { name: 'Context7', key: 'context7', scope: 'local', projectPath: home, fingerprint: 'a' },
+  { name: 'context7', key: 'context7', scope: 'user', projectPath: '', fingerprint: 'a' },
+], { homePath: home })[0];
+assert.deepEqual([caseOnly.informational, caseOnly.reason, caseOnly.keeper, caseOnly.needsChoice], [true, 'different-setup', null, false], 'identical copies whose names differ only by letter case are informational: tool names derive from the exact name');
+
+const installs = [
+  { id: 'foo@market-a', name: 'foo', marketplace: 'market-a', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@market-b', name: 'foo', marketplace: 'market-b', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'bar@one', name: 'bar', marketplace: 'one', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'bar@two', name: 'bar', marketplace: 'two', scope: 'user', enabled: false, projectPath: '' },
+  { id: 'baz@m', name: 'baz', marketplace: 'm', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'baz@m', name: 'baz', marketplace: 'm', scope: 'project', enabled: true, projectPath: '/work/app' },
+  { id: 'figma@synced', originalId: 'figma@synced', name: 'figma', marketplace: 'synced', scope: 'synced', enabled: true, projectPath: '' },
+  { id: 'figma@claude-plugins-official', name: 'figma', marketplace: 'claude-plugins-official', scope: 'user', enabled: true, projectPath: '' },
+];
+const pgroups = pluginDuplicateGroups(installs);
+assert.deepEqual(pgroups.map((g) => g.key), ['foo'], 'only enabled installs from two marketplaces are duplicates; one id at two scopes alone is not; synced add-ons never join');
+assert.equal(pgroups[0].needsChoice, true, 'all user-scope copies, each id once: there is no documented rule, so the user chooses');
+assert.equal(pgroups[0].informational, false);
+assert.equal(pgroups[0].reason, '');
+assert.equal(pgroups[0].keeper, null);
+assert.deepEqual(pgroups[0].copies.map((c) => c.label), ['market-a (Just you)', 'market-b (Just you)']);
+
+// Reach rule: only all-user groups with each id once are resolvable.
+const reasonOf = (list) => pluginDuplicateGroups(list).map((g) => [g.key, g.informational, g.reason, g.needsChoice]);
+assert.deepEqual(reasonOf([
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@b', name: 'foo', marketplace: 'b', scope: 'project', enabled: true, projectPath: '/work/app' },
+]), [['foo', true, 'team-shared', false]], 'a user copy and a project copy: the project settings are shared with the team');
+assert.deepEqual(reasonOf([
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@b', name: 'foo', marketplace: 'b', scope: 'local', enabled: true, projectPath: '/work/app' },
+]), [['foo', true, 'different-reach', false]], 'a user copy and a local copy reach different places');
+assert.deepEqual(reasonOf([
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'local', enabled: true, projectPath: '/work/app' },
+  { id: 'foo@b', name: 'foo', marketplace: 'b', scope: 'user', enabled: true, projectPath: '' },
+]), [['foo', true, 'different-reach', false]], 'the same id at two scopes plus another marketplace is informational');
+const twoScopes = pluginDuplicateGroups([
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@a', name: 'foo', marketplace: 'a', scope: 'project', enabled: true, projectPath: '/work/app' },
+  { id: 'foo@b', name: 'foo', marketplace: 'b', scope: 'user', enabled: true, projectPath: '' },
+]);
+assert.deepEqual(twoScopes.map((g) => [g.informational, g.reason, g.needsChoice]), [[true, 'team-shared', false]], 'the same id at user and project scope plus another is team-shared');
+for (const keep of [0, 1, 2]) {
+  assert.deepEqual(planResolution(twoScopes[0], { keep }), { ok: false, reason: 'informational' }, 'no plan ever disables the keeper id');
+}
+const unknownFolder = pluginDuplicateGroups([
+  { id: 'bar@m', name: 'bar', marketplace: 'm', scope: 'local', enabled: true, projectPath: '' },
+  { id: 'bar@n', name: 'bar', marketplace: 'n', scope: 'user', enabled: true, projectPath: '' },
+]);
+assert.deepEqual(unknownFolder.map((g) => [g.key, g.informational, g.reason, g.needsChoice]), [['bar', true, 'different-reach', false]], 'a local copy with no known folder is informational');
+const unknownProject = pluginDuplicateGroups([
+  { id: 'bar@m', name: 'bar', marketplace: 'm', scope: 'project', enabled: true, projectPath: '' },
+  { id: 'bar@n', name: 'bar', marketplace: 'n', scope: 'user', enabled: true, projectPath: '' },
+]);
+assert.deepEqual(unknownProject.map((g) => g.reason), ['team-shared'], 'a project copy is team-shared whether or not its folder is known');
+
+const personal = { scope: 'Just you', updatedAt: '2026-01-01T00:00:00Z', path: '/h/s' };
+const projectNewer = { scope: 'This project', updatedAt: '2026-09-01T00:00:00Z', path: '/p/s' };
+assert.ok(compareSkillKeeper(personal, projectNewer) < 0, 'personal beats project even when the project copy is newer');
+const older = { scope: 'Just you', updatedAt: '2026-01-01T00:00:00Z', path: '/h/b' };
+const newer = { scope: 'Just you', updatedAt: '2026-05-01T00:00:00Z', path: '/h/a' };
+assert.ok(compareSkillKeeper(newer, older) < 0, 'within one scope the newer copy comes first');
+
+assert.deepEqual(mcpDuplicateGroups([]), []);
+assert.deepEqual(pluginDuplicateGroups(undefined), []);
+// Names with shell characters are never passed to the CLI (Windows runs claude.cmd through the shell).
+const { isSafeMcpName, isSafePluginId } = require('../desktop/src/inventory/duplicates');
+for (const bad of ['a&b', 'x|y', 'x;y', 'a b', 'x"y', '%PATH%', '^x', 'x>y', '', '-flag']) assert.equal(isSafeMcpName(bad), false, `${JSON.stringify(bad)} is not a safe connection name`);
+for (const good of ['playwright', 'MCP_DOCKER', 'context7', 'my-server.v2']) assert.equal(isSafeMcpName(good), true, `${good} is a safe connection name`);
+assert.equal(isSafePluginId('claude-hud@claude-hud'), true);
+for (const bad of ['foo@bar&calc', 'foo', 'foo@', '@bar', 'foo bar@x', 'foo@x|y']) assert.equal(isSafePluginId(bad), false, `${JSON.stringify(bad)} is not a safe add-on id`);
+const unsafeMcp = mcpDuplicateGroups([
+  { name: 'evil&calc', key: 'evil&calc', scope: 'user', projectPath: '', fingerprint: 'a' },
+  { name: 'evil&calc', key: 'evil&calc', scope: 'local', projectPath: home, fingerprint: 'a' },
+], { homePath: home })[0];
+assert.equal(unsafeMcp.informational, true);
+assert.equal(unsafeMcp.reason, 'unusual-name', 'identical copies with an unsafe name are never resolvable');
+const unsafePlugin = pluginDuplicateGroups([
+  { id: 'foo@a&calc', originalId: 'foo@a&calc', name: 'foo', marketplace: 'a&calc', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@b', originalId: 'foo@b', name: 'foo', marketplace: 'b', scope: 'user', enabled: true, projectPath: '' },
+])[0];
+assert.equal(unsafePlugin.reason, 'unusual-name', 'an add-on group with an unsafe id is never resolvable');
+assert.equal(unsafePlugin.needsChoice, false);
+
+console.log('Inventory duplicates passed: broadest-reach keeper for identical connections, case-only name differences informational, add-on reach rule (all user copies resolvable; project team-shared; other mixes different-reach), synced add-ons excluded, unsafe names never resolvable, and the personal-first skill keeper.');

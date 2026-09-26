@@ -22,6 +22,8 @@ const state = {
   selectedSkillCleanupReview: null,
   selectedSkillCleanupOrigin: null,
   duplicateDialogInvoker: null,
+  resolveDuplicateInvoker: null,
+  resolveDuplicate: null,
   customAddOnReview: null,
   compass: { online: false, history: [], opened: false },
   projectInterview: { active: false, step: 0, answers: {}, result: null, checked: new Set() },
@@ -130,6 +132,18 @@ const duplicateBackupPreviewSummaryElement = document.querySelector('#duplicate-
 const duplicateBackupPreviewListElement = document.querySelector('#duplicate-backup-preview-list');
 const restoreListedSkillBackupsButton = document.querySelector('#restore-listed-skill-backups-button');
 const cancelDeduplicatePreviewButton = document.querySelector('#cancel-deduplicate-preview-button');
+const resolveDuplicateDialogElement = document.querySelector('#resolve-duplicate-dialog');
+const resolveDuplicateDialogHeadingElement = document.querySelector('#resolve-duplicate-dialog-heading');
+const resolveDuplicateDialogCopyElement = document.querySelector('#resolve-duplicate-dialog-copy');
+const resolveDuplicateDialogChoiceElement = document.querySelector('#resolve-duplicate-dialog-choice');
+const resolveDuplicateDialogOptionsElement = document.querySelector('#resolve-duplicate-dialog-options');
+const resolveDuplicateDialogChangesElement = document.querySelector('#resolve-duplicate-dialog-changes');
+const resolveDuplicateDialogChangesListElement = document.querySelector('#resolve-duplicate-dialog-changes-list');
+const resolveDuplicateDialogKeepElement = document.querySelector('#resolve-duplicate-dialog-keep');
+const resolveDuplicateDialogStatusElement = document.querySelector('#resolve-duplicate-dialog-status');
+const reviewResolveDuplicateButton = document.querySelector('#review-resolve-duplicate-button');
+const applyResolveDuplicateButton = document.querySelector('#apply-resolve-duplicate-button');
+const cancelResolveDuplicateButton = document.querySelector('#cancel-resolve-duplicate-button');
 const skillBackupReviewElement = document.querySelector('#skill-backup-review');
 const skillBackupReviewSummaryElement = document.querySelector('#skill-backup-review-summary');
 const skillBackupReviewListElement = document.querySelector('#skill-backup-review-list');
@@ -1830,7 +1844,7 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
   duplicateSkillDialogHeadingElement.textContent = canBackUp ? 'Review verified duplicate skills' : 'Review existing skill locations';
   duplicateSkillDialogCopyElement.textContent = additionBlocked
     ? 'CCTI did not add another copy because this skill is already available in Claude Code. A matching name does not prove matching content, so no removal action is offered here. Nothing was changed.'
-    : 'CCTI found skill folders with identical verified file content. The backup review keeps the newest discovered copy by date and moves every other identical copy to a CCTI backup folder. Nothing is deleted automatically.';
+    : 'CCTI found skill folders with identical verified file content. The backup review keeps the copy Claude Code uses (your personal copy over a project copy, otherwise the newest) and moves every other identical copy to a CCTI backup folder. Nothing is deleted automatically.';
   deduplicateAllSkillsButton.hidden = !canBackUp;
   deduplicateAllSkillsButton.disabled = !canBackUp;
   deduplicateAllSkillsButton.textContent = 'Back up verified duplicates';
@@ -1850,17 +1864,24 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
         ? 'These folders share a normalized skill name.'
         : 'These folders overlap by name or identical verified content.';
     copy.textContent = duplicate.match === 'content-hash'
-      ? `${match} CCTI can back up the older discovered copy only after you inspect the exact file-level preview.`
+      ? `${match} CCTI can back up every other discovered copy only after you inspect the exact file-level preview.`
       : `${match} The contents may be different, so this is information only. No backup or removal action is available.`;
     group.append(heading, copy);
 
-    const orderedItems = [...duplicate.items].sort((left, right) => new Date(left.updatedAt || 0) - new Date(right.updatedAt || 0));
+    // Mirrors compareSkillKeeper: a personal copy outranks a project copy; within one
+    // scope, the newer copy is kept. This must match what Apply actually keeps.
+    const skillKeeperScopeRank = (item) => (item.scope === 'Just you' ? 0 : item.scope === 'This project' ? 1 : 2);
+    const orderedItems = [...duplicate.items].sort((left, right) => {
+      const scopeDifference = skillKeeperScopeRank(left) - skillKeeperScopeRank(right);
+      if (scopeDifference !== 0) return scopeDifference;
+      return new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0);
+    });
     orderedItems.forEach((item, index) => {
       const location = document.createElement('div');
       location.className = 'duplicate-skill-dialog-location';
       const label = document.createElement('span');
-      const isNewest = index === orderedItems.length - 1;
-      label.textContent = `${canBackUp && duplicate.match === 'content-hash' ? (isNewest ? 'Keep newest discovered copy by date' : 'Available for backup review') : (index === 0 ? 'Older local copy by date' : 'Another local copy')} · ${item.scope} · ${localSkillDate(item)}\n${item.path}`;
+      const isKeeper = index === 0;
+      label.textContent = `${canBackUp && duplicate.match === 'content-hash' ? (isKeeper ? 'Keep this copy · the one Claude Code uses' : 'Available for backup review') : (isKeeper ? 'The copy Claude Code uses' : 'Another local copy')} · ${item.scope} · ${localSkillDate(item)}\n${item.path}`;
       location.append(label);
       if (canBackUp && duplicate.match === 'content-hash' && ['Just you', 'This project'].includes(item.scope)) {
         const singleButton = document.createElement('button');
@@ -1878,6 +1899,167 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
 
   if (!duplicateSkillDialogElement.open) duplicateSkillDialogElement.showModal();
   focusDuplicateDialog(duplicateSkillDialogHeadingElement);
+}
+
+// The review step always names the copy CCTI keeps, from the review itself, so the person
+// sees what stays even when the setup changed after they chose.
+function renderResolveDuplicateReview(review) {
+  resolveDuplicateDialogKeepElement.textContent = review?.keepLabel ? `CCTI keeps: ${review.keepLabel}` : '';
+  renderResolveDuplicateChanges(review?.changes || []);
+}
+
+function renderResolveDuplicateChanges(changes) {
+  resolveDuplicateDialogChangesListElement.replaceChildren(...(changes || []).map((change) => {
+    const item = document.createElement('li');
+    const label = document.createElement('strong');
+    label.textContent = change.label;
+    const undo = document.createElement('span');
+    undo.textContent = change.undo;
+    item.append(label, undo);
+    return item;
+  }));
+}
+
+// Draws the intro, the keeper, and (when a choice is needed) the radio options from a
+// resolution summary { groupKey, needsChoice, keeper, options }. Any earlier selection is
+// cleared, so a person never reviews with a choice made against an older list.
+function renderResolveDuplicateOptions(resolution, name) {
+  resolveDuplicateDialogCopyElement.textContent = resolution.needsChoice
+    ? `Choose which copy of ${name} to keep. CCTI turns off the others; nothing is uninstalled, so you can turn one back on later.`
+    : `These copies are identical. CCTI keeps the one saved for ${resolution.options[resolution.keeper]} and removes the extra ${resolution.options.length - 1 === 1 ? 'copy' : 'copies'}, so nothing stops working.`;
+  resolveDuplicateDialogChoiceElement.hidden = !resolution.needsChoice;
+  resolveDuplicateDialogOptionsElement.replaceChildren();
+  reviewResolveDuplicateButton.disabled = Boolean(resolution.needsChoice);
+  if (resolution.needsChoice) {
+    (resolution.options || []).forEach((label, index) => {
+      const wrapper = document.createElement('label');
+      wrapper.className = 'resolve-duplicate-option';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'resolve-duplicate-keep';
+      radio.value = String(index);
+      radio.addEventListener('change', () => {
+        reviewResolveDuplicateButton.disabled = false;
+      });
+      const text = document.createElement('span');
+      text.textContent = label;
+      wrapper.append(radio, text);
+      resolveDuplicateDialogOptionsElement.append(wrapper);
+    });
+  }
+}
+
+function openResolveDuplicateDialog(action, name, button) {
+  if (typeof resolveDuplicateDialogElement?.showModal !== 'function') return;
+  if (document.activeElement instanceof HTMLElement) state.resolveDuplicateInvoker = document.activeElement;
+  state.resolveDuplicate = { discoveryId: state.managerReport?.discoveryId, groupKey: action.groupKey, needsChoice: Boolean(action.needsChoice), name, reviewId: null };
+  resolveDuplicateDialogHeadingElement.textContent = `Resolve ${name}`;
+  renderResolveDuplicateOptions(action, name);
+  reviewResolveDuplicateButton.disabled = Boolean(action.needsChoice);
+  resolveDuplicateDialogChangesElement.hidden = true;
+  renderResolveDuplicateReview(null);
+  resolveDuplicateDialogStatusElement.textContent = '';
+  reviewResolveDuplicateButton.hidden = false;
+  reviewResolveDuplicateButton.textContent = 'Review changes';
+  applyResolveDuplicateButton.hidden = true;
+  applyResolveDuplicateButton.disabled = true;
+  if (!resolveDuplicateDialogElement.open) resolveDuplicateDialogElement.showModal();
+  focusDuplicateDialog(resolveDuplicateDialogHeadingElement);
+}
+
+async function reviewResolveDuplicateChanges() {
+  const pending = state.resolveDuplicate;
+  if (!pending) return;
+  let keep;
+  if (pending.needsChoice) {
+    const checked = resolveDuplicateDialogOptionsElement.querySelector('input[name="resolve-duplicate-keep"]:checked');
+    if (!checked) return;
+    keep = Number(checked.value);
+  }
+  reviewResolveDuplicateButton.disabled = true;
+  resolveDuplicateDialogStatusElement.textContent = 'Checking for changes…';
+  try {
+    const result = await window.installer.reviewResolution({ discoveryId: pending.discoveryId, groupKey: pending.groupKey, keep });
+    if (!result.ok) {
+      resolveDuplicateDialogStatusElement.textContent = result.error;
+      reviewResolveDuplicateButton.disabled = false;
+      return;
+    }
+    state.resolveDuplicate = { ...pending, reviewId: result.reviewId };
+    renderResolveDuplicateReview(result);
+    resolveDuplicateDialogChangesElement.hidden = false;
+    resolveDuplicateDialogStatusElement.textContent = result.changes.length
+      ? `Review ${result.changes.length} change${result.changes.length === 1 ? '' : 's'} for ${result.name}, then choose Make these changes.`
+      : `Nothing needs to change for ${result.name}.`;
+    reviewResolveDuplicateButton.hidden = true;
+    applyResolveDuplicateButton.hidden = false;
+    applyResolveDuplicateButton.disabled = result.changes.length === 0;
+  } catch (error) {
+    resolveDuplicateDialogStatusElement.textContent = 'CCTI couldn’t check this right now. Try again in a moment.';
+    reviewResolveDuplicateButton.disabled = false;
+    appendOutput(`[Manage] ${error?.message || 'Reviewing the duplicate failed.'}\n`, 'stderr');
+  }
+}
+
+async function applyResolveDuplicateChanges() {
+  const pending = state.resolveDuplicate;
+  if (!pending?.reviewId) return;
+  applyResolveDuplicateButton.disabled = true;
+  resolveDuplicateDialogStatusElement.textContent = 'Making these changes…';
+  try {
+    const result = await window.installer.applyResolution({ reviewId: pending.reviewId });
+    if (result.ok) {
+      resolveDuplicateDialogElement.close();
+      await scanSetup();
+      return;
+    }
+    if (result.changed) {
+      // Between review and apply the group can turn informational (for example, a second
+      // copy was edited so the copies are no longer identical). There is nothing left to
+      // resolve, so name the reason instead of the generic "changed" message and offer no action.
+      if (result.informational) {
+        resolveDuplicateDialogStatusElement.textContent = result.informational.message || result.error;
+        state.resolveDuplicate = { ...pending, reviewId: null };
+        renderResolveDuplicateReview(null);
+        resolveDuplicateDialogChangesElement.hidden = true;
+        reviewResolveDuplicateButton.hidden = true;
+        applyResolveDuplicateButton.hidden = true;
+        applyResolveDuplicateButton.disabled = true;
+        return;
+      }
+      resolveDuplicateDialogStatusElement.textContent = result.error;
+      // Redraw the copies from how the setup looks now, so no stale option or keeper stays on
+      // screen. When a choice is needed, the earlier choice is cleared and must be made again.
+      const current = result.resolution
+        ? { ...pending, groupKey: result.resolution.groupKey, needsChoice: Boolean(result.resolution.needsChoice) }
+        : pending;
+      if (result.resolution) renderResolveDuplicateOptions(result.resolution, pending.name);
+      if (result.review && !current.needsChoice) {
+        state.resolveDuplicate = { ...current, reviewId: result.review.reviewId };
+        renderResolveDuplicateReview(result.review);
+        resolveDuplicateDialogChangesElement.hidden = false;
+        reviewResolveDuplicateButton.hidden = true;
+        applyResolveDuplicateButton.hidden = false;
+        applyResolveDuplicateButton.disabled = result.review.changes.length === 0;
+      } else {
+        state.resolveDuplicate = { ...current, reviewId: null };
+        renderResolveDuplicateReview(null);
+        resolveDuplicateDialogChangesElement.hidden = true;
+        applyResolveDuplicateButton.hidden = true;
+        applyResolveDuplicateButton.disabled = true;
+        // With no resolution left there is nothing to review; otherwise review again once ready.
+        reviewResolveDuplicateButton.hidden = !result.resolution;
+        reviewResolveDuplicateButton.disabled = current.needsChoice || !result.resolution;
+      }
+      return;
+    }
+    resolveDuplicateDialogStatusElement.textContent = result.error;
+    applyResolveDuplicateButton.disabled = false;
+  } catch (error) {
+    resolveDuplicateDialogStatusElement.textContent = 'CCTI couldn’t finish this right now. Try again in a moment.';
+    applyResolveDuplicateButton.disabled = false;
+    appendOutput(`[Manage] ${error?.message || 'Resolving the duplicate failed.'}\n`, 'stderr');
+  }
 }
 
 function revealSetupManagerInventory(selector) {
@@ -1950,6 +2132,10 @@ function renderToolInventory(inventory) {
 async function runInventoryAction(action, name, button) {
   if (action.type === 'resolve') {
     openDuplicateSkillDialog(state.managerReport?.duplicates || []);
+    return;
+  }
+  if (action.type === 'resolve-duplicate') {
+    openResolveDuplicateDialog(action, name, button);
     return;
   }
   if (action.type !== 'reinstall' || state.running) return;
@@ -2672,6 +2858,17 @@ duplicateSkillDialogElement.addEventListener('close', () => {
   state.duplicateDialogInvoker = null;
   setTimeout(() => {
     if (invoker?.isConnected) invoker.focus();
+  }, 0);
+});
+reviewResolveDuplicateButton.addEventListener('click', reviewResolveDuplicateChanges);
+applyResolveDuplicateButton.addEventListener('click', applyResolveDuplicateChanges);
+cancelResolveDuplicateButton.addEventListener('click', () => resolveDuplicateDialogElement.close());
+resolveDuplicateDialogElement.addEventListener('close', () => {
+  state.resolveDuplicate = null;
+  const resolveInvoker = state.resolveDuplicateInvoker;
+  state.resolveDuplicateInvoker = null;
+  setTimeout(() => {
+    if (resolveInvoker?.isConnected) resolveInvoker.focus();
   }, 0);
 });
 document.querySelector('#choose-custom-source-button').addEventListener('click', chooseCustomSource);

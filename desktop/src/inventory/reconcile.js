@@ -68,15 +68,40 @@ function reconcileInventory({ scan, ledger, ledgerStatus = 'ok', catalog = [], t
     observed: scan?.observed || { skill: true, plugin: false, mcp: false },
     unreadableSkillScopes: Array.isArray(scan?.unreadableSkillScopes) ? scan.unreadableSkillScopes : [],
   };
-  const items = Array.isArray(scan?.items) ? scan.items : [];
+  const scanItems = Array.isArray(scan?.items) ? scan.items : [];
+  const duplicateGroups = (Array.isArray(scan?.duplicateGroups) ? scan.duplicateGroups : [])
+    .filter((group) => group && ['mcp', 'plugin'].includes(group.kind) && group.key && Array.isArray(group.copies) && group.copies.length > 1);
+  // Each add-on or connection duplicate group becomes one row, keyed `<kind>:<key>`. For an
+  // add-on the scan lists each install (`foo@market-a`, `foo@market-b`) separately, so
+  // those items fold into the group's row. A group the text list missed still gets a row.
+  const groupFor = new Map();
+  for (const group of duplicateGroups) {
+    const ids = new Set(group.copies.map((copy) => String(copy.id || '').toLowerCase()).filter(Boolean));
+    for (const item of scanItems) {
+      if (item.kind !== group.kind) continue;
+      if (group.kind === 'mcp' ? item.key === group.key && item.origin === 'local' : ids.has(item.key)) groupFor.set(item, group);
+    }
+  }
+  const foundGroups = new Set(groupFor.values());
+  const items = [
+    ...scanItems,
+    ...duplicateGroups.filter((group) => !foundGroups.has(group)).map((group) => {
+      const item = { kind: group.kind, key: group.kind === 'plugin' ? String(group.copies[0].id || group.key) : group.key, name: group.name || group.key, scope: 'Claude Code', origin: 'local', addOn: '', path: '', contentHash: '' };
+      groupFor.set(item, group);
+      return item;
+    }),
+  ];
   const record = ledgerStatus === 'corrupt' || ledgerStatus === 'unavailable' ? {} : ledger || {};
   const entries = Array.isArray(record.entries) ? record.entries : [];
   const resolutions = Array.isArray(record.resolutions) ? record.resolutions : [];
   const catalogItems = Array.isArray(catalog) ? catalog : [];
 
   const groups = new Map();
+  const resolutionGroups = new Map();
   for (const item of items) {
-    const groupKey = `${item.kind}:${item.key}`;
+    const duplicateGroup = groupFor.get(item);
+    const groupKey = duplicateGroup ? `${duplicateGroup.kind}:${duplicateGroup.key}` : `${item.kind}:${item.key}`;
+    if (duplicateGroup) resolutionGroups.set(groupKey, duplicateGroup);
     groups.set(groupKey, [...(groups.get(groupKey) || []), item]);
   }
 
@@ -84,26 +109,41 @@ function reconcileInventory({ scan, ledger, ledgerStatus = 'ok', catalog = [], t
   for (const [groupKey, copies] of groups) {
     const first = copies[0];
     const matched = entries
-      .filter((entry) => entry.kind === first.kind && keyMatches(first.kind, first.key, entry.key) && entryPresent(entry, copies, view))
+      .filter((entry) => entry.kind === first.kind && copies.some((copy) => keyMatches(first.kind, copy.key, entry.key)) && entryPresent(entry, copies, view))
       .sort((left, right) => (Date.parse(right.installedAt) || 0) - (Date.parse(left.installedAt) || 0));
-    const duplicate = copies.length > 1;
+    const duplicateGroup = resolutionGroups.get(groupKey);
+    const duplicate = copies.length > 1 || Boolean(duplicateGroup);
     const hashes = new Set(copies.map((copy) => copy.contentHash || ''));
-    rows.push({
+    const row = {
       rowId: groupKey,
       kind: first.kind,
-      key: first.key,
-      name: matched[0]?.name || first.name,
+      key: duplicateGroup ? duplicateGroup.key : first.key,
+      name: matched[0]?.name || duplicateGroup?.name || first.name,
       state: duplicate ? 'duplicate' : matched.length ? 'installed' : 'external',
       scope: first.scope,
       origin: first.origin || 'local',
       addOn: first.addOn || '',
       installedAt: matched[0]?.installedAt || '',
       installedByCcti: matched.length > 0,
-      copies: copies.map((copy) => ({ scope: copy.scope, path: copy.path || '' })),
+      copies: duplicateGroup
+        ? duplicateGroup.copies.map((copy) => ({ scope: copy.label, path: '' }))
+        : copies.map((copy) => ({ scope: copy.scope, path: copy.path || '' })),
       resolvable: first.kind === 'skill' && duplicate && !hashes.has('') && hashes.size === 1,
       reinstall: null,
       uncheckedReason: '',
-    });
+    };
+    if (duplicateGroup?.informational) {
+      // Shown as a duplicate, but CCTI won't change it; the reason says why.
+      row.informational = { reason: duplicateGroup.reason || 'different-setup' };
+    } else if (duplicateGroup) {
+      row.resolution = {
+        groupKey,
+        needsChoice: Boolean(duplicateGroup.needsChoice),
+        keeper: Number.isInteger(duplicateGroup.keeper) ? duplicateGroup.keeper : null,
+        options: duplicateGroup.copies.map((copy) => copy.label),
+      };
+    }
+    rows.push(row);
   }
 
   for (const entry of entries) {

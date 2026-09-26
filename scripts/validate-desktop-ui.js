@@ -321,7 +321,21 @@ const inventoryContract = [
   [/async function runInventoryAction[\s\S]*?catch \(error\)[\s\S]*?Open the activity details/.test(renderer), 'a failed Reinstall call must tell the user what to do next'],
   [/async function resetToolInventoryRecord\(\) \{\s*if \(state\.running\) \{[\s\S]*?return;\s*\}/.test(renderer), 'reset must not run while an install is running, and must say why'],
   [/toolInventoryResetButton\.hidden = !view\.notice\?\.action;/.test(renderer), 'the reset button must hide unless the notice offers an action'],
+  [html.includes('id="resolve-duplicate-dialog"') && html.includes('aria-labelledby="resolve-duplicate-dialog-heading"'), 'the Resolve dialog for duplicate add-ons and connections must exist'],
+  [/window\.installer\.reviewResolution\(/.test(renderer), 'the renderer must call reviewResolution to preview a duplicate resolution'],
+  [/window\.installer\.applyResolution\(/.test(renderer), 'the renderer must call applyResolution to make the reviewed changes'],
+  [/reviewResolveDuplicateButton\.disabled = Boolean\(action\.needsChoice\)/.test(renderer), 'the confirm button must start disabled until a copy is chosen when a choice is needed'],
+  [/action\.type === 'resolve-duplicate'[\s\S]*?openResolveDuplicateDialog\(/.test(renderer), 'Resolve on a duplicate add-on or connection must open the Resolve dialog'],
+  [main.includes("ipcMain.handle('inventory:review-resolution'") && main.includes("ipcMain.handle('inventory:apply-resolution'"), 'main must handle both duplicate-resolution IPC channels'],
+  [renderer.includes('These copies are identical. CCTI keeps the one saved for ${resolution.options[resolution.keeper]} and removes the extra'), 'the fixed-keeper Resolve dialog intro must not claim Claude Code itself uses the kept copy, since the keeper is the broadest-reach identical copy, not the per-folder winner'],
+  [/if \(result\.resolution\) renderResolveDuplicateOptions\(result\.resolution, pending\.name\);/.test(renderer) && /function renderResolveDuplicateOptions\(resolution, name\) \{[\s\S]*?resolveDuplicateDialogOptionsElement\.replaceChildren\(\);[\s\S]*?reviewResolveDuplicateButton\.disabled = Boolean\(resolution\.needsChoice\);/.test(renderer), 'when apply reports the setup changed, the Resolve dialog must redraw its options and keeper from result.resolution, clearing any earlier choice before review is allowed again'],
+  [html.includes('id="resolve-duplicate-dialog-keep"') && /resolveDuplicateDialogKeepElement\.textContent = review\?\.keepLabel \? `CCTI keeps: \$\{review\.keepLabel\}` : '';/.test(renderer) && /state\.resolveDuplicate = \{ \.\.\.pending, reviewId: result\.reviewId \};\s*renderResolveDuplicateReview\(result\);/.test(renderer) && /renderResolveDuplicateReview\(result\.review\);/.test(renderer), 'the review step must always show the kept copy from the review\'s keepLabel'],
+  [/if \(result\.informational\) \{\s*resolveDuplicateDialogStatusElement\.textContent = result\.informational\.message \|\| result\.error;[\s\S]{0,300}applyResolveDuplicateButton\.hidden = true;/.test(renderer), 'a duplicate resolution that turned informational since review must show that reason and stop offering Make these changes'],
 ];
 for (const [ok, message] of inventoryContract) if (!ok) throw new Error(message);
+
+if (/Run the (project )?checkup again/.test(main)) {
+  throw new Error('main.js must never scold with "Run the checkup again"; a review is re-verified silently, so messages say "Check this computer again" or "Check this project again".');
+}
 
 console.log(`Desktop UI contract passed: ${selectorIds.size} renderer IDs and ${calledMethods.size} secure bridge methods verified.`);
