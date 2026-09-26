@@ -6,7 +6,7 @@ const fs = require('node:fs/promises');
 const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
 const { comparePackageVersions, parsePackageVersion, parseReleaseIdentity } = require('./release-identity');
 const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
-const { buildScan } = require('./inventory/scanner');
+const { buildScan, parsePluginList, parseMcpList } = require('./inventory/scanner');
 const { createLedgerStore, newlyInstalledEntries, skillBackupResolutions, extrasRemovalResolutions } = require('./inventory/ledger');
 const { reconcileInventory } = require('./inventory/reconcile');
 
@@ -2399,8 +2399,8 @@ async function discoverClaudeSetup(projectPath = '') {
     ]);
     pluginList = { ok: plugins.code === 0, text: plugins.stdout || '' };
     mcpList = { ok: connections.code === 0, text: connections.stdout || '' };
-    if (plugins.code === 0) plugins.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).forEach((name) => findings.push({ id: `plugin-cli:${name}`, type: 'plugin', name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
-    if (connections.code === 0) connections.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/)[0]).filter(Boolean).forEach((name) => findings.push({ id: `connection-cli:${name}`, type: 'connection', name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
+    if (plugins.code === 0) parsePluginList(plugins.stdout).forEach((item) => findings.push({ id: `plugin-cli:${item.key}`, type: 'plugin', name: item.name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
+    if (connections.code === 0) parseMcpList(connections.stdout).forEach((item) => findings.push({ id: `connection-cli:${item.key}`, type: 'connection', name: item.name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
   }
 
   const uniqueFindings = uniqueDiscoveryFindings(findings);

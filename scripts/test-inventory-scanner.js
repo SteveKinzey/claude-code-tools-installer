@@ -81,4 +81,17 @@ for (const [pluginList, mcpList] of [[null, null], [{ ok: false, text: pluginTex
 assert.doesNotThrow(() => buildScan(), 'no input must not throw');
 assert.deepEqual(buildScan().items, []);
 
+// Review Focus 2: lone words and error sentences are not entries.
+assert.deepEqual(parsePluginList(['Installed plugins:', '', '  ❯ claude-hud@claude-hud', '    Scope: user', 'Marketplace', 'Error loading marketplace cache'].join('\n')).map((item) => item.key), ['claude-hud@claude-hud'], 'only bulleted entries or legacy name@marketplace lines are plugins');
+assert.deepEqual(parseMcpList(['Checking MCP server health…', 'playwright: npx @playwright/mcp@latest - ✔ Connected', 'Error', 'warning'].join('\n')).map((item) => item.key), ['playwright'], 'a lone word inside real health output is not a connection');
+assert.deepEqual(parseMcpList('shared-connection\nother-one').map((item) => item.key), ['shared-connection', 'other-one'], 'bare names still parse when the whole output is the legacy bare format');
+
+// Review Focus 3: add-on-provided connections carry their add-on.
+const fromAddOn = parseMcpList('plugin:brand-voice:box: https://example.test/mcp - ✔ Connected\nplugin:data:google calendar: npx x - ✔ Connected');
+assert.deepEqual(fromAddOn.map((item) => [item.name, item.origin, item.addOn, item.scope]), [
+  ['plugin:brand-voice:box', 'plugin', 'brand-voice', 'Part of the brand-voice add-on'],
+  ['plugin:data:google calendar', 'plugin', 'data', 'Part of the data add-on'],
+]);
+assert.equal(parseMcpList('playwright: npx x - ✔ Connected')[0].addOn, '', 'ordinary connections have no add-on');
+
 console.log('Inventory scanner passed: real Claude Code output, CRLF, Claude.ai items, and unobserved sources.');
