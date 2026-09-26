@@ -954,9 +954,10 @@ async function installReviewedPlugins(selectedIds) {
   }
 }
 
-// Tri-state: an id is "present" when observed installed, "unknown" when Claude Code is
-// installed but the probe for it could not answer (the plugin list call failed/timed out,
-// or a specific `mcp get` call threw/timed out), and otherwise absent. A tracked item is
+// Tri-state: an id is "present" when observed installed, "unknown" when the probe for it
+// could not answer (Claude Code's own check timed out, was blocked, or failed to run; the
+// plugin list call failed/timed out; or a specific `mcp get` call threw/timed out), and
+// otherwise absent. A tracked item is
 // never claimed as a fresh CCTI install off the back of an "unknown" read: recordCctiInstalls
 // folds present+unknown into the "before" set, so a degraded before-probe can never make an
 // already-present tool look newly installed. Skills are never unknown: pathExists is a plain
@@ -973,9 +974,14 @@ async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '
   const claudeCommand = claude.path || 'claude';
   const pluginTracked = tracked.filter(([, item]) => item.kind === 'plugin');
   const mcpTracked = tracked.filter(([, item]) => item.kind === 'mcp');
+  // claudeStatus leaves fallbackReason empty only when no Claude Code binary exists at all.
+  // A binary that timed out, was blocked, or failed to run means detection failed, not that
+  // nothing is installed, so every plugin and MCP id is unknown rather than absent.
+  const claudeUndetermined = !claude.installed && Boolean(claude.timedOut || claude.fallbackReason);
 
   let pluginIds = [];
   let pluginsUnknown = false;
+  if (pluginTracked.length > 0 && claudeUndetermined) pluginsUnknown = true;
   if (pluginTracked.length > 0 && claude.installed) {
     try {
       const result = await runProcess(claudeCommand, ['plugin', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 8000 });
@@ -987,7 +993,7 @@ async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '
   }
 
   const mcpState = new Map(await Promise.all(mcpTracked.map(async ([id, item]) => {
-    if (!claude.installed) return [id, 'absent'];
+    if (!claude.installed) return [id, claudeUndetermined ? 'unknown' : 'absent'];
     try {
       const result = await runProcess(claudeCommand, ['mcp', 'get', item.key], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
       if (result.timedOut) return [id, 'unknown'];

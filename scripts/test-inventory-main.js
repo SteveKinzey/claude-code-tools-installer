@@ -43,7 +43,18 @@ const fs = require('node:fs');
 const statePath = ${JSON.stringify(fakeState)};
 const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
 const [a, b, c] = process.argv.slice(2);
-if (a === '--version') { console.log('claude test'); process.exit(0); }
+if (a === '--version') {
+  if (state.versionHangsOnce) {
+    // Outlasts claudeStatus's 4s version check once, like a slow first launch.
+    state.versionHangsOnce = false;
+    fs.writeFileSync(statePath, JSON.stringify(state));
+    setTimeout(() => process.exit(0), 5000);
+  } else {
+    console.log('claude test');
+    process.exit(0);
+  }
+}
+else {
 if (a === 'plugin' && b === 'list') {
   if (state.pluginListFailsOnce) {
     state.pluginListFailsOnce = false;
@@ -68,6 +79,7 @@ if (a === 'mcp' && b === 'list') {
 }
 if (a === 'mcp' && b === 'get') process.exit(state.mcp.includes(c) ? 0 : 1);
 process.exit(0);
+}
 `;
 
 async function writeSkill(folder, body = '# Skill\n') {
@@ -76,7 +88,7 @@ async function writeSkill(folder, body = '# Skill\n') {
 }
 
 async function setFakeClaude(state) {
-  await fsp.writeFile(fakeState, JSON.stringify({ plugins: [], mcp: [], mcpFails: false, pluginListFailsOnce: false, ...state }), 'utf8');
+  await fsp.writeFile(fakeState, JSON.stringify({ plugins: [], mcp: [], mcpFails: false, pluginListFailsOnce: false, versionHangsOnce: false, ...state }), 'utf8');
 }
 
 async function installFakeClaude() {
@@ -159,6 +171,16 @@ async function run() {
   assert.equal(degraded.ok, true, degraded.error);
   const afterDegradedProbe = JSON.parse(await fsp.readFile(ledgerFile, 'utf8'));
   assert.deepEqual(afterDegradedProbe, beforeDegradedProbe, 'a plugin already present must not be recorded just because the before-probe failed once');
+
+  // Final review, finding 1: when Claude Code's own version check times out during the
+  // before-probe, detection failed; it does not mean nothing is installed. An already-present
+  // plugin is unknown, so a successful after-probe cannot claim it as a CCTI install.
+  await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'], versionHangsOnce: true });
+  const beforeSlowClaude = JSON.parse(await fsp.readFile(ledgerFile, 'utf8'));
+  const slowClaude = await handlers.get('install:run')(null, { selectedIds: ['superpowers'], dryRun: false });
+  assert.equal(slowClaude.ok, true, slowClaude.error);
+  assert.equal(JSON.parse(await fsp.readFile(fakeState, 'utf8')).versionHangsOnce, false, 'the slow version check was exercised');
+  assert.deepEqual(JSON.parse(await fsp.readFile(ledgerFile, 'utf8')), beforeSlowClaude, 'a plugin already present must not be recorded because Claude Code was slow to answer');
   await setFakeClaude({ plugins: ['superpowers@superpowers-marketplace'], mcp: ['repomix'] });
 
   // Review Focus 4 and 2: install:run records only newly present tracked items, and an
