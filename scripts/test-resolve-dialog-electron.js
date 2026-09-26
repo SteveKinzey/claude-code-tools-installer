@@ -240,6 +240,8 @@ async function run() {
     assert.deepEqual(applyCalls, [{ reviewId: 'mcp:playwright#1' }], 'apply is called once with the reviewed reviewId');
     await waitFor(window, () => window.__resolveDialogTest.discoverCalls >= 2, 'the app re-runs discovery after a successful apply');
     await waitFor(window, () => [...document.querySelectorAll('#tool-inventory-list button')].filter((b) => b.getAttribute('aria-label') === 'Resolve playwright').length === 1, 'the resolved playwright group disappears from the Manage list (success state)');
+    const successStatus = await evaluate(window, "document.querySelector('#tool-inventory-status').textContent");
+    assert.match(successStatus, /^Resolved playwright\./, 'a successful Resolve says what happened');
 
     // --- Case: needs choice (add-on from two marketplaces) ---
     await evaluate(window, resolveButtonClick('foo', 0));
@@ -280,12 +282,16 @@ async function run() {
     await waitFor(window, () => [...document.querySelectorAll('#tool-inventory-list button')].every((b) => b.getAttribute('aria-label') !== 'Resolve foo'), 'the resolved add-on disappears from the Manage list');
 
     // --- Case: changed since you looked at it (project-scoped playwright group) ---
+    // The add-on apply re-runs discovery; wait until that refresh has fully landed so the
+    // Manage list is not redrawn under the next dialog.
+    await waitFor(window, () => window.__resolveDialogTest.discoverCalls >= 3 && !/^Checking/.test(document.querySelector('#setup-manager-summary')?.textContent || ''), 'the refresh after the add-on apply finishes');
     const clickedProject = await evaluate(window, resolveButtonClick('playwright', 0));
     assert.equal(clickedProject, true, 'the project-folder playwright Resolve button is clickable now that it is the only one left');
     await waitFor(window, () => document.querySelector('#resolve-duplicate-dialog')?.open, 'resolve dialog opens for the project group');
     const projectHeading = await evaluate(window, `(() => document.querySelector('#resolve-duplicate-dialog-heading').textContent)()`);
     assert.equal(projectHeading, 'Resolve playwright');
 
+    await waitFor(window, () => { const b = document.querySelector('#review-resolve-duplicate-button'); return b && !b.hidden && !b.disabled; }, 'the project group Review button is ready');
     await evaluate(window, "document.querySelector('#review-resolve-duplicate-button').click()");
     await waitFor(window, () => !document.querySelector('#resolve-duplicate-dialog-changes')?.hidden, 'the project group review renders changes');
     reviewCalls = await evaluate(window, `(() => window.__resolveDialogTest.reviewCalls)()`);

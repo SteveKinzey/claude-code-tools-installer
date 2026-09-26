@@ -2011,6 +2011,10 @@ async function applyResolveDuplicateChanges() {
     if (result.ok) {
       resolveDuplicateDialogElement.close();
       await scanSetup();
+      // Say what happened; otherwise the only sign of success is a row quietly changing.
+      const done = result.message || `Resolved the duplicate ${pending.name || 'item'}.`;
+      toolInventoryStatusElement.textContent = done;
+      appendOutput(`[Manage] ${done}\n`);
       return;
     }
     if (result.changed) {
@@ -2864,6 +2868,9 @@ reviewResolveDuplicateButton.addEventListener('click', reviewResolveDuplicateCha
 applyResolveDuplicateButton.addEventListener('click', applyResolveDuplicateChanges);
 cancelResolveDuplicateButton.addEventListener('click', () => resolveDuplicateDialogElement.close());
 resolveDuplicateDialogElement.addEventListener('close', () => {
+  // The close event is queued. If another Resolve opened the dialog again before it fired,
+  // this late event belongs to the earlier dialog and must not clear the new one's state.
+  if (resolveDuplicateDialogElement.open) return;
   state.resolveDuplicate = null;
   const resolveInvoker = state.resolveDuplicateInvoker;
   state.resolveDuplicateInvoker = null;
