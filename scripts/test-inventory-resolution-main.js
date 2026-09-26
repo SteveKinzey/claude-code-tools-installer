@@ -469,7 +469,21 @@ async function run() {
   assert.ok(emittedEvents.slice(emittedBeforeNoop).some((event) => event.channel === 'installer:output' && /doesn’t match the review \(still present: Remove the copy saved for Only you, in this folder\)/.test(event.payload?.text || '')), 'the mismatch details reach the activity log');
   assert.equal(JSON.parse(await fsp.readFile(ledgerFile, 'utf8')).resolutions.length, resolutionsBeforeNoop, 'a copy that is still there is not recorded as resolved');
 
-  console.log('Inventory resolution main wiring passed: identical local copy removed in favour of the user copy, add-on choice and disable, check-then-act, invalid keeper, unreadable config, failed list, failed change, the action lock, per-folder grouping, informational groups, synced add-ons, the add-on reach rule, case-only names, the review cap, and the after-apply check.');
+  // Case 16 (PR review, security): identical copies whose name contains shell characters are
+  // informational. Review refuses them and nothing is ever passed to the CLI.
+  const unsafeDefinition = { type: 'stdio', command: 'npx', args: ['@example/mcp'] };
+  await setFakeClaude({ userMcp: { 'evil&calc': unsafeDefinition }, localMcp: { 'evil&calc': unsafeDefinition } });
+  report = await discover(null, {});
+  const unsafeRow = report.inventory.rows.find((row) => row.key === 'evil&calc');
+  assert.ok(unsafeRow, 'the unsafe-named connection is still listed');
+  assert.equal(unsafeRow.resolution, undefined, 'it is never resolvable');
+  assert.equal(unsafeRow.informational?.reason, 'unusual-name');
+  reviewed = await review(null, { discoveryId: report.discoveryId, groupKey: 'mcp:evil&calc' });
+  assert.equal(reviewed.ok, false);
+  assert.match(reviewed.error, /can’t safely pass to Claude Code/);
+  assert.deepEqual(await changingCalls(), [], 'no command ran for an unsafe name');
+
+  console.log('Inventory resolution main wiring passed: identical local copy removed in favour of the user copy, add-on choice and disable, check-then-act, invalid keeper, unreadable config, failed list, failed change, the action lock, per-folder grouping, informational groups, synced add-ons, the add-on reach rule, case-only names, the review cap, the after-apply check, and unsafe names never reaching the CLI.');
 }
 
 run()

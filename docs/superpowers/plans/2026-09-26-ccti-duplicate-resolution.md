@@ -44,7 +44,7 @@ The renderer adds one focused Resolve dialog for add-on and connection duplicate
 
 ## Review Focus
 
-1. **A connection defined at local and user scope (the same name).** Expect CCTI to name local as the one Claude Code uses, remove only the user copy with `--scope user`, and leave the local copy untouched (Tasks 2, 3, 5).
+1. **A connection defined identically at local and user scope (the same name).** Expect CCTI to keep the user copy, which applies everywhere, and to remove only the local copy with `--scope local`. Nothing stops working anywhere. This is superseded during execution; see `docs/claude-code-precedence-2026-09-26.md`. The original "keep local, remove user" would have removed the connection from every other folder (Tasks 2, 3, 5).
 2. **The same add-on from two marketplaces, both enabled.** Expect no automatic keeper: the user must pick one, and CCTI disables only the other, reversibly (Tasks 2, 3, 5, 6).
 3. **Something changed between review and apply**, such as the copy already being removed in a terminal, or a third copy added. Expect nothing to run and the updated situation to be shown (Task 5).
 4. **Identical personal and project copies of a skill.** Expect CCTI to keep the personal copy, so the skill doesn't disappear from other projects (Task 4).

@@ -134,4 +134,10 @@ assert.deepEqual(empty.sections, []);
 assert.match(empty.summary, /No skills, add-ons, or connections/);
 assert.doesNotThrow(() => manageSections(undefined));
 
+// A duplicate with an unsafe name is informational with a plain reason and no action.
+const unusualView = manageSections({ historyStatus: 'ok', rows: [row('mcp:evil', 'mcp', 'duplicate', { copies: [{ scope: 'Just you, everywhere', path: '' }, { scope: 'Only you, in this folder', path: '' }], informational: { reason: 'unusual-name' } })] });
+const unusualRow = unusualView.sections[0].rows[0];
+assert.equal(unusualRow.action, null);
+assert.match(unusualRow.detail, /can’t safely pass to Claude Code/);
+
 console.log('Inventory manage view passed: badges, one action per row, plain-language detail, and the fresh-record offer.');

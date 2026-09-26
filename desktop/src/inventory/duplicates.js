@@ -59,7 +59,9 @@ function mcpDuplicateGroups(definitions, { homePath } = {}) {
       const identical = new Set(ordered.map((d) => d.fingerprint)).size === 1;
       const sameName = new Set(ordered.map((d) => d.name)).size === 1;
       const userIndex = ordered.findIndex((d) => d.scope === 'user');
-      const reason = ordered.some((d) => d.scope === 'project')
+      const reason = !ordered.every((d) => isSafeMcpName(d.name))
+        ? 'unusual-name'
+        : ordered.some((d) => d.scope === 'project')
         ? 'team-shared'
         : !identical || !sameName
           ? 'different-setup'
@@ -80,6 +82,14 @@ function mcpDuplicateGroups(definitions, { homePath } = {}) {
     });
 }
 
+// Names and ids CCTI will pass to the claude CLI. On Windows the CLI is a .cmd launcher that
+// runs through the command shell, so anything outside this plain alphabet could be read as
+// shell syntax. A group containing any other name is informational ('unusual-name').
+const SAFE_MCP_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const SAFE_PLUGIN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const isSafeMcpName = (value) => SAFE_MCP_NAME.test(String(value || ''));
+const isSafePluginId = (value) => SAFE_PLUGIN_ID.test(String(value || ''));
+
 const isSynced = (install) => install.scope === 'synced' || install.marketplace === 'synced';
 
 // Claude.ai-synced add-ons (`name@synced`, scope "synced") never join a group. Per
@@ -89,6 +99,7 @@ const isSynced = (install) => install.scope === 'synced' || install.marketplace 
 // appears once (see the header): a project copy makes it 'team-shared', and any other mix
 // (local, the same id at two scopes, an unknown folder) makes it 'different-reach'.
 function pluginReachReason(copies) {
+  if (!copies.every((c) => isSafePluginId(c.originalId || c.id))) return 'unusual-name';
   if (copies.some((c) => c.scope === 'project')) return 'team-shared';
   const allUser = copies.every((c) => c.scope === 'user');
   const idsOnce = new Set(copies.map((c) => c.id)).size === copies.length;
@@ -127,4 +138,4 @@ function compareSkillKeeper(left, right) {
   return String(left.path || '').localeCompare(String(right.path || ''));
 }
 
-module.exports = { MCP_SCOPE_PRECEDENCE, SKILL_SCOPE_PRECEDENCE, mcpDuplicateGroups, pluginDuplicateGroups, compareSkillKeeper };
+module.exports = { MCP_SCOPE_PRECEDENCE, SKILL_SCOPE_PRECEDENCE, mcpDuplicateGroups, pluginDuplicateGroups, compareSkillKeeper, isSafeMcpName, isSafePluginId };

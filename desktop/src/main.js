@@ -9,7 +9,7 @@ const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
 const { buildScan, parsePluginList, parseMcpList } = require('./inventory/scanner');
 const { createLedgerStore, newlyInstalledEntries, skillBackupResolutions, extrasRemovalResolutions } = require('./inventory/ledger');
 const { reconcileInventory } = require('./inventory/reconcile');
-const { compareSkillKeeper, mcpDuplicateGroups, pluginDuplicateGroups } = require('./inventory/duplicates');
+const { compareSkillKeeper, mcpDuplicateGroups, pluginDuplicateGroups, isSafeMcpName, isSafePluginId } = require('./inventory/duplicates');
 const { mcpDefinitions, pluginInstalls } = require('./inventory/config-scan');
 const { planResolution, groupFingerprint } = require('./inventory/resolvers');
 
@@ -2513,6 +2513,7 @@ const INFORMATIONAL_REASONS = {
   'team-shared': 'One copy is shared with everyone on this project, so CCTI won’t change it. Nothing needs to be done here.',
   'separate-folders': 'These copies are saved for different folders, so they don’t conflict. Nothing needs to change.',
   'project-unknown': 'One copy is saved for a specific folder. Choose that folder with “Also check a project” so CCTI can see it, then check again.',
+  'unusual-name': 'This name uses characters CCTI can’t safely pass to Claude Code, so CCTI won’t change it. Nothing needs to be done here.',
   'different-reach': 'These copies are saved in different places, so turning one off could remove it somewhere you still use it. CCTI won’t change them.',
 };
 const KEEPER_REACH = { user: 'you everywhere', local: 'you in this folder', project: 'everyone on this project' };
@@ -2691,6 +2692,19 @@ async function applyResolution({ reviewId } = {}) {
       };
     }
 
+    // Last line of defence before the shell-backed Windows launcher: every name, id, and scope
+    // passed to the CLI must be plain. Grouping already makes unusual names informational.
+    const SAFE_SCOPES = new Set(['user', 'local', 'project']);
+    const unsafe = plan.changes.find(({ args }) => {
+      const [kind, verb, target, flag, scope] = args;
+      const safeTarget = kind === 'mcp' ? isSafeMcpName(target) : isSafePluginId(target);
+      return args.length !== 5 || !['mcp', 'plugin'].includes(kind) || !['remove', 'disable'].includes(verb) || !safeTarget || flag !== '--scope' || !SAFE_SCOPES.has(scope);
+    });
+    if (unsafe) {
+      emit('installer:output', { stream: 'stderr', text: '[CCTI] Refused a duplicate change because a name contained characters that are not safe to pass to Claude Code.\n' });
+      return { ok: false, error: 'This name uses characters CCTI can’t safely pass to Claude Code, so nothing was changed.', completed: [] };
+    }
+
     const home = app.getPath('home');
     for (const change of plan.changes) {
       const { copy } = change;
@@ -2778,6 +2792,10 @@ async function applyPluginChange({ reviewId }) {
     const installedIds = pluginIdsFromList(listResult.stdout);
     if (!pluginIsInstalled(installedIds, plan.name)) {
       return { ok: false, error: 'That add-on is no longer installed, so nothing was changed. Check this computer again to see the current list.' };
+    }
+    // The name comes from settings files; on Windows the CLI launcher runs through the shell.
+    if (!(isSafePluginId(plan.name) || isSafeMcpName(plan.name)) || !['user', 'project', 'local'].includes(plan.scope)) {
+      return { ok: false, error: 'This add-on’s name uses characters CCTI can’t safely pass to Claude Code, so nothing was changed.' };
     }
     const result = await runProcess(claude.path || 'claude', ['plugin', plan.action, plan.name, '--scope', plan.scope], { cwd: app.getPath('home'), env: claudeProcessEnv() });
     if (result.code !== 0) {

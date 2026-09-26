@@ -116,4 +116,23 @@ assert.ok(compareSkillKeeper(newer, older) < 0, 'within one scope the newer copy
 
 assert.deepEqual(mcpDuplicateGroups([]), []);
 assert.deepEqual(pluginDuplicateGroups(undefined), []);
-console.log('Inventory duplicates passed: broadest-reach keeper for identical connections, case-only name differences informational, add-on reach rule (all user copies resolvable; project team-shared; other mixes different-reach), synced add-ons excluded, and the personal-first skill keeper.');
+// Names with shell characters are never passed to the CLI (Windows runs claude.cmd through the shell).
+const { isSafeMcpName, isSafePluginId } = require('../desktop/src/inventory/duplicates');
+for (const bad of ['a&b', 'x|y', 'x;y', 'a b', 'x"y', '%PATH%', '^x', 'x>y', '', '-flag']) assert.equal(isSafeMcpName(bad), false, `${JSON.stringify(bad)} is not a safe connection name`);
+for (const good of ['playwright', 'MCP_DOCKER', 'context7', 'my-server.v2']) assert.equal(isSafeMcpName(good), true, `${good} is a safe connection name`);
+assert.equal(isSafePluginId('claude-hud@claude-hud'), true);
+for (const bad of ['foo@bar&calc', 'foo', 'foo@', '@bar', 'foo bar@x', 'foo@x|y']) assert.equal(isSafePluginId(bad), false, `${JSON.stringify(bad)} is not a safe add-on id`);
+const unsafeMcp = mcpDuplicateGroups([
+  { name: 'evil&calc', key: 'evil&calc', scope: 'user', projectPath: '', fingerprint: 'a' },
+  { name: 'evil&calc', key: 'evil&calc', scope: 'local', projectPath: home, fingerprint: 'a' },
+], { homePath: home })[0];
+assert.equal(unsafeMcp.informational, true);
+assert.equal(unsafeMcp.reason, 'unusual-name', 'identical copies with an unsafe name are never resolvable');
+const unsafePlugin = pluginDuplicateGroups([
+  { id: 'foo@a&calc', originalId: 'foo@a&calc', name: 'foo', marketplace: 'a&calc', scope: 'user', enabled: true, projectPath: '' },
+  { id: 'foo@b', originalId: 'foo@b', name: 'foo', marketplace: 'b', scope: 'user', enabled: true, projectPath: '' },
+])[0];
+assert.equal(unsafePlugin.reason, 'unusual-name', 'an add-on group with an unsafe id is never resolvable');
+assert.equal(unsafePlugin.needsChoice, false);
+
+console.log('Inventory duplicates passed: broadest-reach keeper for identical connections, case-only name differences informational, add-on reach rule (all user copies resolvable; project team-shared; other mixes different-reach), synced add-ons excluded, unsafe names never resolvable, and the personal-first skill keeper.');
