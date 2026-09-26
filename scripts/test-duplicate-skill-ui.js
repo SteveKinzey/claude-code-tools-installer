@@ -578,9 +578,12 @@ async function run() {
     assert.match(scanDialog.copy, /identical verified file content/i);
     assert.equal(scanDialog.groups, 1, 'The scan should render one grouped duplicate skill.');
     assert.deepEqual(scanDialog.bulkButton, { text: 'Back up verified duplicates', hidden: false, disabled: false });
-    assert.match(scanDialog.locations[0], /^Available for backup review · Just you/);
+    // The personal (home) copy is always the keeper, even though the project copy here is
+    // newer: Claude Code resolves the personal copy over a project copy (documented
+    // personal-over-project rule), so the dialog must not label the newer project copy "keep".
+    assert.match(scanDialog.locations[0], /^Keep this copy · the one Claude Code uses · Just you/);
     assert.match(scanDialog.locations[0], /\/fixture-home\/\.claude\/skills\/revenue-systems/);
-    assert.match(scanDialog.locations[1], /^Keep newest discovered copy by date · This project/);
+    assert.match(scanDialog.locations[1], /^Available for backup review · This project/);
     assert.deepEqual(scanDialog.copyButtons, ['Move this copy to backup', 'Move this copy to backup'], 'every actionable duplicate copy should offer a granular backup review button');
     assert.match(scanDialog.nameOverlap.summary, /1 same-name overlap is informational only/i);
     assert.match(scanDialog.nameOverlap.text, /claude\.ai/i);

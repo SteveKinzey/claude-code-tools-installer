@@ -337,36 +337,50 @@ async function run() {
   const forgedCleanup = await reviewCleanup(null, { discoveryId: report.discoveryId, findingId: 'skill:/etc' });
   assert.equal(forgedCleanup.ok, false);
 
-  const expiredCleanupPlan = await reviewCleanup(null, { discoveryId: report.discoveryId, findingId: userSkill.id });
-  Date.now = () => originalDateNow() + 10 * 60 * 1000 + 1;
-  const expiredCleanupResult = await applyCleanup(null, { reviewId: expiredCleanupPlan.reviewId });
-  Date.now = originalDateNow;
-  assert.equal(expiredCleanupResult.ok, false, 'individual skill cleanup must reject an expired review');
-  assert.match(expiredCleanupResult.error, /expired/i);
-  await fsp.access(path.join(userSkill.path, 'SKILL.md'));
-
   const cleanupPlan = await reviewCleanup(null, { discoveryId: report.discoveryId, findingId: userSkill.id });
   assert.equal(cleanupPlan.ok, true);
   assert.match(cleanupPlan.destination, /disabled-skills/);
+  // Task 4 (Review Focus 5): a review left open past the old 10-minute window still applies,
+  // because apply re-verifies current state (unchanged content) instead of rejecting on age
+  // alone. Reason for updating this assertion: documented "refresh silently" rule.
+  Date.now = () => originalDateNow() + 10 * 60 * 1000 + 1;
   const cleanupResult = await applyCleanup(null, { reviewId: cleanupPlan.reviewId });
-  assert.equal(cleanupResult.ok, true);
+  Date.now = originalDateNow;
+  assert.equal(cleanupResult.ok, true, 'apply must succeed once re-verification passes, even past the old 10-minute window');
   await assert.rejects(fsp.access(userSkill.path));
   await fsp.access(path.join(cleanupPlan.destination, 'SKILL.md'));
 
-  const expiredBulkPlan = await reviewAllDuplicates(null, { discoveryId: report.discoveryId });
+  // Task 4 (Review Focus 5): the same re-verification-over-age rule applies to the bulk
+  // duplicate cleanup path. A project-free discovery isolates this check from the shared
+  // project-scope duplicate fixtures used below, since apply acts on real files regardless of
+  // which discovery produced the plan.
+  await writeSkill(path.join(home, '.claude', 'skills', 'age-check-a'), 'Age check', { contents: '# Age check\n' });
+  await writeSkill(path.join(home, '.claude', 'skills', 'age-check-b'), 'Age check', { contents: '# Age check\n' });
+  const ageCheckReport = await discover(null, {});
+  const ageCheckBulkPlan = await reviewAllDuplicates(null, { discoveryId: ageCheckReport.discoveryId });
+  assert.equal(ageCheckBulkPlan.ok, true, ageCheckBulkPlan.error);
+  assert.equal(ageCheckBulkPlan.groups.length, 1, 'the project-free discovery should isolate the age-check duplicate pair from other fixtures');
   Date.now = () => originalDateNow() + 10 * 60 * 1000 + 1;
-  const expiredBulkResult = await applyAllDuplicates(null, { reviewId: expiredBulkPlan.reviewId });
+  const ageCheckResult = await applyAllDuplicates(null, { reviewId: ageCheckBulkPlan.reviewId });
   Date.now = originalDateNow;
-  assert.equal(expiredBulkResult.ok, false, 'bulk duplicate backup must reject an expired review');
-  assert.match(expiredBulkResult.error, /expired/i);
+  assert.equal(ageCheckResult.ok, true, 'bulk duplicate backup must apply once re-verification passes, even past the old 10-minute window');
+  assert.equal(ageCheckResult.movedCount, 1);
+  // Clean up this throwaway pair immediately: it lives under the same home skill and backup
+  // roots that later discover() calls scan, so leaving it behind would inflate the shared
+  // duplicate-skill and safe-backup counts asserted further down.
+  await fsp.rm(path.join(home, '.claude', 'skills', 'age-check-a'), { recursive: true, force: true });
+  await fsp.rm(ageCheckBulkPlan.moves[0].destination, { recursive: true, force: true });
   await fsp.access(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'));
 
+  // The personal copy ('global-revenue-playbook') is now the keeper and is never a move
+  // target, so the staleness check below must change the copy that will actually move
+  // ('local-gtm-playbook', the project copy).
   const staleBulkPlan = await reviewAllDuplicates(null, { discoveryId: report.discoveryId });
-  await fsp.writeFile(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'), '# Changed after preview\n', 'utf8');
+  await fsp.writeFile(path.join(project, '.claude', 'skills', 'local-gtm-playbook', 'SKILL.md'), '# Changed after preview\n', 'utf8');
   const staleBulkResult = await applyAllDuplicates(null, { reviewId: staleBulkPlan.reviewId });
   assert.equal(staleBulkResult.ok, false, 'bulk cleanup must refuse a preview whose exact file content changed before apply');
-  await fsp.access(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'));
-  await fsp.writeFile(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'), hashCollision.contents, 'utf8');
+  await fsp.access(path.join(project, '.claude', 'skills', 'local-gtm-playbook', 'SKILL.md'));
+  await fsp.writeFile(path.join(project, '.claude', 'skills', 'local-gtm-playbook', 'SKILL.md'), hashCollision.contents, 'utf8');
 
   const bulkPlan = await reviewAllDuplicates(null, { discoveryId: report.discoveryId });
   assert.equal(bulkPlan.ok, true, 'a bulk duplicate review should be generated from only the discovered global and project skill roots');
@@ -375,29 +389,34 @@ async function run() {
   const namedBulkGroup = bulkPlan.groups.find((group) => group.name === 'bulk-duplicate-skill');
   const hashedBulkGroup = bulkPlan.groups.find((group) => group.match === 'content-hash' && group.names.includes('global-revenue-playbook'));
   const projectBackupGroup = bulkPlan.groups.find((group) => group.name === 'project-backup-skill');
-  assert.equal(namedBulkGroup.keep.scope, 'This project', 'the newest local same-name duplicate should remain available');
-  assert.equal(hashedBulkGroup.keep.name, 'local-gtm-playbook', 'the newest local hash collision should remain available');
-  assert.equal(projectBackupGroup.keep.scope, 'Just you', 'the newest user-scope copy should remain available when a project copy is backed up');
+  // Task 4: Claude Code's documented rule is personal over project, so the personal (home)
+  // copy is the keeper in each group below even where the project copy is newer. Reason for
+  // updating these three assertions: documented personal-over-project rule.
+  assert.equal(namedBulkGroup.keep.scope, 'Just you', 'the personal same-name copy is the one Claude Code uses, so it remains available even though the project copy is newer');
+  assert.equal(hashedBulkGroup.keep.name, 'global-revenue-playbook', 'the personal hash-collision copy is the one Claude Code uses, so it remains available even though the project copy is newer');
+  assert.equal(projectBackupGroup.keep.scope, 'Just you', 'the personal copy remains available when a project copy is backed up');
   assert.equal(bulkPlan.moves.length, 3);
   const namedBulkMove = bulkPlan.moves.find((move) => move.name === 'bulk-duplicate-skill');
-  const hashCollisionMove = bulkPlan.moves.find((move) => move.name === 'global-revenue-playbook');
+  // The moved copy of the hash-collision group is now the project copy ('local-gtm-playbook'),
+  // since the personal copy ('global-revenue-playbook') is the keeper.
+  const hashCollisionMove = bulkPlan.moves.find((move) => move.name === 'local-gtm-playbook');
   const projectBackupMove = bulkPlan.moves.find((move) => move.name === 'project-backup-skill');
-  assert.equal(namedBulkMove.scope, 'Just you');
-  assert.equal(hashCollisionMove.scope, 'Just you');
+  assert.equal(namedBulkMove.scope, 'This project');
+  assert.equal(hashCollisionMove.scope, 'This project');
   assert.equal(projectBackupMove.scope, 'This project');
   assert.deepEqual(hashCollisionMove.files.map((file) => file.source).sort((left, right) => left.localeCompare(right)), [
-    path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'),
-    path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'references', 'guide.md'),
+    path.join(project, '.claude', 'skills', 'local-gtm-playbook', 'SKILL.md'),
+    path.join(project, '.claude', 'skills', 'local-gtm-playbook', 'references', 'guide.md'),
   ].sort((left, right) => left.localeCompare(right)), 'the cleanup review must preview every exact file that will be backed up');
   assert.ok(hashCollisionMove.files.every((file) => file.destination.startsWith(hashCollisionMove.destination)), 'each previewed file must show its exact backup destination');
   const bulkResult = await applyAllDuplicates(null, { reviewId: bulkPlan.reviewId });
   assert.equal(bulkResult.ok, true, 'all reviewed duplicate copies should move to backup in one action');
   assert.equal(bulkResult.movedCount, 3);
-  await assert.rejects(fsp.access(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill')));
-  await fsp.access(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
+  await fsp.access(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
+  await assert.rejects(fsp.access(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill')));
   await fsp.access(path.join(namedBulkMove.destination, 'SKILL.md'));
-  await assert.rejects(fsp.access(path.join(home, '.claude', 'skills', 'global-revenue-playbook')));
-  await fsp.access(path.join(project, '.claude', 'skills', 'local-gtm-playbook', 'references', 'guide.md'));
+  await fsp.access(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'SKILL.md'));
+  await assert.rejects(fsp.access(path.join(project, '.claude', 'skills', 'local-gtm-playbook')));
   await fsp.access(path.join(hashCollisionMove.destination, 'SKILL.md'));
   await fsp.access(path.join(hashCollisionMove.destination, 'references', 'guide.md'));
   await assert.rejects(fsp.access(path.join(project, '.claude', 'skills', 'project-backup-skill')));
@@ -425,13 +444,13 @@ async function run() {
   assert.equal(backupRestorePlan.ok, true, 'a safe restoration review should be available for backed up duplicate skills');
   assert.equal(backupRestorePlan.moves.length, 4);
   assert.ok(backupRestorePlan.moves.some((move) => move.scope === 'This project'), 'the restore review must include project-scope backups');
-  assert.ok(backupRestorePlan.moves.flatMap((move) => move.files).some((file) => file.destination.endsWith(path.join('global-revenue-playbook', 'references', 'guide.md'))), 'the restore preview must list nested files and original destinations');
+  assert.ok(backupRestorePlan.moves.flatMap((move) => move.files).some((file) => file.destination.endsWith(path.join('local-gtm-playbook', 'references', 'guide.md'))), 'the restore preview must list nested files and original destinations');
   const backupRestoreResult = await applyAllSkillBackups(null, { reviewId: backupRestorePlan.reviewId });
   assert.equal(backupRestoreResult.ok, true, 'safe skill backups should restore in one reviewed action');
   assert.equal(backupRestoreResult.restoredCount, 4);
   await fsp.access(path.join(home, '.claude', 'skills', 'duplicate-skill', 'SKILL.md'));
-  await fsp.access(path.join(home, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
-  await fsp.access(path.join(home, '.claude', 'skills', 'global-revenue-playbook', 'references', 'guide.md'));
+  await fsp.access(path.join(project, '.claude', 'skills', 'bulk-duplicate-skill', 'SKILL.md'));
+  await fsp.access(path.join(project, '.claude', 'skills', 'local-gtm-playbook', 'references', 'guide.md'));
   await fsp.access(path.join(project, '.claude', 'skills', 'project-backup-skill', 'SKILL.md'));
   await assert.rejects(fsp.access(namedBulkMove.destination));
   await assert.rejects(fsp.access(hashCollisionMove.destination));

@@ -183,6 +183,43 @@ async function run() {
     'backing up a single skill records the same kind of resolution as the duplicate cleanup path'
   );
 
+  // Task 4, Step 1.1: Claude Code's documented rule is personal over project. Even when the
+  // project copy is the newer file, the personal (home) copy is the one Claude Code resolves,
+  // so bulk cleanup must keep the home copy and back up the project copy, not the newest one.
+  await writeSkill(path.join(home, '.claude', 'skills', 'keeper-check'), '# Keeper check\n');
+  await writeSkill(path.join(project, '.claude', 'skills', 'keeper-check'), '# Keeper check\n');
+  await fsp.utimes(path.join(project, '.claude', 'skills', 'keeper-check', 'SKILL.md'), new Date('2030-01-01T00:00:00.000Z'), new Date('2030-01-01T00:00:00.000Z'));
+  report = await discover(null, { projectPath: project });
+  const keeperReview = await handlers.get('setup-manager:review-all-duplicates')(null, { discoveryId: report.discoveryId });
+  assert.equal(keeperReview.ok, true, keeperReview.error);
+  const keeperApplied = await handlers.get('setup-manager:apply-all-duplicates')(null, { reviewId: keeperReview.reviewId });
+  assert.equal(keeperApplied.ok, true, keeperApplied.error);
+  await fsp.access(path.join(home, '.claude', 'skills', 'keeper-check', 'SKILL.md'));
+  await assert.rejects(
+    fsp.access(path.join(project, '.claude', 'skills', 'keeper-check')),
+    'the newer project copy must be backed up while the personal copy stays, per Claude Code\'s documented personal-over-project precedence'
+  );
+
+  // Task 4, Step 1.2: a review left open past the old 10-minute window must still apply,
+  // because apply re-verifies the current file content instead of rejecting on age alone.
+  await writeSkill(path.join(home, '.claude', 'skills', 'stale-review-check'), '# Stale review check\n');
+  report = await discover(null, { projectPath: project });
+  const staleFinding = report.findings.find((item) => item.type === 'skill' && item.name === 'stale-review-check');
+  assert.ok(staleFinding, 'discovery must report the newly written stale-review-check skill');
+  const staleReview = await handlers.get('setup-manager:review-cleanup')(null, { discoveryId: report.discoveryId, findingId: staleFinding.id });
+  assert.equal(staleReview.ok, true, staleReview.error);
+  const originalDateNowForStaleReview = Date.now;
+  Date.now = () => originalDateNowForStaleReview() + 11 * 60 * 1000;
+  let staleApplied;
+  try {
+    staleApplied = await handlers.get('setup-manager:apply-cleanup')(null, { reviewId: staleReview.reviewId });
+  } finally {
+    Date.now = originalDateNowForStaleReview;
+  }
+  assert.equal(staleApplied.ok, true, staleApplied.error, 'apply must succeed once re-verification passes, even though the review is over 10 minutes old');
+  await assert.rejects(fsp.access(staleFinding.path), 'the skill should have moved to backup even though the review was over 10 minutes old');
+  await fsp.access(path.join(staleReview.destination, 'SKILL.md'));
+
   // Fix round 1, finding 1: a before-probe that cannot reach Claude Code (the fake's
   // `plugin list` fails once) must not turn an already-present plugin into a claimed CCTI
   // install just because a later, successful after-probe sees it. The tri-state probe marks

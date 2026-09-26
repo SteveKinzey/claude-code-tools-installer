@@ -1830,7 +1830,7 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
   duplicateSkillDialogHeadingElement.textContent = canBackUp ? 'Review verified duplicate skills' : 'Review existing skill locations';
   duplicateSkillDialogCopyElement.textContent = additionBlocked
     ? 'CCTI did not add another copy because this skill is already available in Claude Code. A matching name does not prove matching content, so no removal action is offered here. Nothing was changed.'
-    : 'CCTI found skill folders with identical verified file content. The backup review keeps the newest discovered copy by date and moves every other identical copy to a CCTI backup folder. Nothing is deleted automatically.';
+    : 'CCTI found skill folders with identical verified file content. The backup review keeps the copy Claude Code uses (your personal copy over a project copy, otherwise the newest) and moves every other identical copy to a CCTI backup folder. Nothing is deleted automatically.';
   deduplicateAllSkillsButton.hidden = !canBackUp;
   deduplicateAllSkillsButton.disabled = !canBackUp;
   deduplicateAllSkillsButton.textContent = 'Back up verified duplicates';
@@ -1850,17 +1850,24 @@ function openDuplicateSkillDialog(duplicates, { additionBlocked = false, cleanup
         ? 'These folders share a normalized skill name.'
         : 'These folders overlap by name or identical verified content.';
     copy.textContent = duplicate.match === 'content-hash'
-      ? `${match} CCTI can back up the older discovered copy only after you inspect the exact file-level preview.`
+      ? `${match} CCTI can back up every other discovered copy only after you inspect the exact file-level preview.`
       : `${match} The contents may be different, so this is information only. No backup or removal action is available.`;
     group.append(heading, copy);
 
-    const orderedItems = [...duplicate.items].sort((left, right) => new Date(left.updatedAt || 0) - new Date(right.updatedAt || 0));
+    // Mirrors compareSkillKeeper: a personal copy outranks a project copy; within one
+    // scope, the newer copy is kept. This must match what Apply actually keeps.
+    const skillKeeperScopeRank = (item) => (item.scope === 'Just you' ? 0 : item.scope === 'This project' ? 1 : 2);
+    const orderedItems = [...duplicate.items].sort((left, right) => {
+      const scopeDifference = skillKeeperScopeRank(left) - skillKeeperScopeRank(right);
+      if (scopeDifference !== 0) return scopeDifference;
+      return new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0);
+    });
     orderedItems.forEach((item, index) => {
       const location = document.createElement('div');
       location.className = 'duplicate-skill-dialog-location';
       const label = document.createElement('span');
-      const isNewest = index === orderedItems.length - 1;
-      label.textContent = `${canBackUp && duplicate.match === 'content-hash' ? (isNewest ? 'Keep newest discovered copy by date' : 'Available for backup review') : (index === 0 ? 'Older local copy by date' : 'Another local copy')} · ${item.scope} · ${localSkillDate(item)}\n${item.path}`;
+      const isKeeper = index === 0;
+      label.textContent = `${canBackUp && duplicate.match === 'content-hash' ? (isKeeper ? 'Keep this copy · the one Claude Code uses' : 'Available for backup review') : (index === 0 ? 'Older local copy by date' : 'Another local copy')} · ${item.scope} · ${localSkillDate(item)}\n${item.path}`;
       location.append(label);
       if (canBackUp && duplicate.match === 'content-hash' && ['Just you', 'This project'].includes(item.scope)) {
         const singleButton = document.createElement('button');

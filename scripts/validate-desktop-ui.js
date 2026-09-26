@@ -324,4 +324,8 @@ const inventoryContract = [
 ];
 for (const [ok, message] of inventoryContract) if (!ok) throw new Error(message);
 
+if (/Run the (project )?checkup again/.test(main)) {
+  throw new Error('main.js must never scold with "Run the checkup again"; a review is re-verified silently, so messages say "Check this computer again" or "Check this project again".');
+}
+
 console.log(`Desktop UI contract passed: ${selectorIds.size} renderer IDs and ${calledMethods.size} secure bridge methods verified.`);

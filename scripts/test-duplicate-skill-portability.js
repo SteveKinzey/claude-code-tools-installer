@@ -93,29 +93,32 @@ async function run() {
   assert.ok(collision, 'identical content under different skill names must be detected in the independent project fixture');
   assert.deepEqual(collision.names, ['client-automation-playbook', 'portable-revenue-workflow']);
 
+  // Task 4: Claude Code's documented rule is personal over project, so the personal (home)
+  // copy is the keeper here even though the project copy is the newer file. The move target
+  // is therefore the project copy, backed up under the project's own state root.
   const cleanupPlan = await reviewAllDuplicates(null, { discoveryId: initial.discoveryId });
   assert.equal(cleanupPlan.ok, true);
   assert.equal(cleanupPlan.moves.length, 1);
-  assert.equal(cleanupPlan.moves[0].source, globalSkill);
-  assert.equal(cleanupPlan.moves[0].scope, 'Just you');
+  assert.equal(cleanupPlan.moves[0].source, projectSkill);
+  assert.equal(cleanupPlan.moves[0].scope, 'This project');
   const cleanupResult = await applyAllDuplicates(null, { reviewId: cleanupPlan.reviewId });
   assert.equal(cleanupResult.ok, true);
-  await assert.rejects(fsp.access(globalSkill));
-  await fsp.access(path.join(projectSkill, 'references', 'offer.md'));
+  await assert.rejects(fsp.access(projectSkill));
+  await fsp.access(path.join(globalSkill, 'references', 'offer.md'));
   const backupPath = cleanupPlan.moves[0].destination;
   await fsp.access(path.join(backupPath, 'SKILL.md'));
   await fsp.access(path.join(backupPath, 'references', 'offer.md'));
-  assert.equal(path.dirname(backupPath), path.join(home, '.setup-my-claude', 'disabled-skills'), 'user-scope backup remains bounded to the fixture CCTI state root');
+  assert.equal(path.dirname(backupPath), path.join(projectClaudeRoot, '.setup-my-claude-disabled'), 'project-scope backup remains bounded to the fixture project state root');
 
   const afterCleanup = await discover(null, { projectPath: project });
   const restorePlan = await reviewAllSkillBackups(null, { discoveryId: afterCleanup.discoveryId });
   assert.equal(restorePlan.ok, true);
   assert.equal(restorePlan.moves.length, 1);
-  assert.equal(restorePlan.moves[0].destination, globalSkill);
+  assert.equal(restorePlan.moves[0].destination, projectSkill);
   const restoreResult = await applyAllSkillBackups(null, { reviewId: restorePlan.reviewId });
   assert.equal(restoreResult.ok, true);
-  await fsp.access(path.join(globalSkill, 'SKILL.md'));
-  await fsp.access(path.join(globalSkill, 'references', 'offer.md'));
+  await fsp.access(path.join(projectSkill, 'SKILL.md'));
+  await fsp.access(path.join(projectSkill, 'references', 'offer.md'));
   await assert.rejects(fsp.access(backupPath));
 
   console.log(JSON.stringify({
@@ -123,8 +126,8 @@ async function run() {
     fixture: externalProject ? `external:${path.basename(project)}` : 'client-revenue-automation-project',
     scopes: ['Just you', 'This project'],
     collision: 'content-hash',
-    backupRoot: '<fixture-app-state>/disabled-skills',
-    restoredTo: '<fixture-home>/.claude/skills/portable-revenue-workflow',
+    backupRoot: '<fixture-project>/.claude/.setup-my-claude-disabled',
+    restoredTo: '<fixture-project>/.claude/skills/client-automation-playbook',
   }));
 }
 
