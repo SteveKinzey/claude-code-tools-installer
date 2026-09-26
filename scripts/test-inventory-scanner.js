@@ -100,4 +100,14 @@ assert.equal(parseMcpList('playwright: npx x - ✔ Connected')[0].addOn, '', 'or
 
 // Statuses without a symbol are real entries; error sentences shaped like an entry are not.
 assert.deepEqual(parseMcpList(['Checking MCP server health…', 'plugin:data:hex: https://x.test/mcp - Not configured', 'playwright: npx x - ✔ Connected', 'Failed to connect: server - error'].join('\n')).map((item) => item.key), ['plugin:data:hex', 'playwright'], 'plain-word statuses parse; an error sentence does not');
+// Real Windows output (Claude Code on windows-2022, 2026-09-26): √ / × status symbols.
+const windowsMcp = [
+  'Checking MCP server health…',
+  '',
+  'probe-home: npx -y @playwright/mcp@latest - √ Connected',
+  'probe-project: npx -y example-mcp - × Failed to connect — CONNECTION_CLOSED: Connection closed',
+].join('\r\n');
+assert.deepEqual(parseMcpList(windowsMcp).map((item) => item.key), ['probe-home', 'probe-project'], 'Windows √ / × status lines are real connections');
+assert.deepEqual(parseMcpList('Failed to connect: server - error').map((item) => item.key), [], 'an error sentence is still not a connection');
+
 console.log('Inventory scanner passed: real Claude Code output, CRLF, Claude.ai items, and unobserved sources.');

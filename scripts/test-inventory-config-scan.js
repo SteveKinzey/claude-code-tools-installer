@@ -59,4 +59,22 @@ assert.deepEqual(fromProject.installs.map((i) => i.projectPath), ['', project, '
 assert.equal(pluginInstalls('not json').ok, false);
 assert.equal(pluginInstalls('{"id":"x"}').ok, false, 'a non-array is not a plugin list');
 
+// Real Windows ~/.claude.json keys use forward slashes (Claude Code on windows-2022, 2026-09-26).
+const windowsJson = JSON.stringify({
+  mcpServers: { 'probe-home': { command: 'npx', args: ['-y', '@playwright/mcp@latest'] } },
+  projects: {
+    'C:/Users/runneradmin': { mcpServers: { 'probe-home': { command: 'npx', args: ['-y', '@playwright/mcp@latest'] } } },
+    'D:/a/_temp/my project & co': { mcpServers: { 'probe-project': { command: 'npx', args: ['-y', 'example-mcp'] } } },
+  },
+});
+const windowsDefinitions = mcpDefinitions({ claudeJsonText: windowsJson, projectMcpJsonText: null, homePath: 'C:\\Users\\runneradmin', projectPath: 'D:\\a\\_temp\\my project & co' }).definitions;
+assert.deepEqual(windowsDefinitions.filter((d) => d.scope === 'local').map((d) => [d.key, d.projectPath]), [
+  ['probe-home', 'C:\\Users\\runneradmin'],
+  ['probe-project', 'D:\\a\\_temp\\my project & co'],
+], 'forward-slash Windows keys match backslash paths; the caller path is kept so commands run in the real folder');
+const driveCase = mcpDefinitions({ claudeJsonText: JSON.stringify({ projects: { 'c:/Work/App': { mcpServers: { x: { command: 'y' } } } } }), projectMcpJsonText: null, homePath: 'C:\\Work\\App', projectPath: '' }).definitions;
+assert.equal(driveCase.length, 1, 'drive letters match regardless of case');
+const posixCase = mcpDefinitions({ claudeJsonText: JSON.stringify({ projects: { '/Users/Me/App': { mcpServers: { x: { command: 'y' } } } } }), projectMcpJsonText: null, homePath: '/users/me/app', projectPath: '' }).definitions;
+assert.equal(posixCase.length, 0, 'POSIX paths stay case-sensitive');
+
 console.log('Inventory config scan passed: MCP scopes from config files and add-on installs from plugin list --json.');
