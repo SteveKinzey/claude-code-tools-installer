@@ -46,6 +46,12 @@ function rowView(row) {
   if (row.state === 'unchecked') {
     return { badge: 'Not checked', tone: 'neutral', detail: uncheckedDetail(row.uncheckedReason), action: null };
   }
+  if (row.origin === 'plugin') {
+    const detail = row.addOn
+      ? `Comes with the ${row.addOn} add-on. Manage it through that add-on.`
+      : 'Comes with an add-on. Manage it through that add-on.';
+    return { badge: 'Part of an add-on', tone: 'neutral', detail, action: null };
+  }
   const fromAccount = row.origin === 'claude.ai';
   return {
     badge: fromAccount ? 'From your Claude.ai account' : 'Found on this computer',
@@ -57,9 +63,27 @@ function rowView(row) {
 
 function manageSections(inventory) {
   const rows = Array.isArray(inventory?.rows) ? inventory.rows : [];
+  const historyStatus = inventory?.historyStatus;
+  const historyTrusted = historyStatus === 'ok' || historyStatus === 'missing';
+  const view = (row) => ({ rowId: row.rowId, name: row.name, ...rowView(row) });
   const sections = MANAGE_SECTIONS
-    .map(([kind, title]) => ({ kind, title, rows: rows.filter((row) => row.kind === kind).map((row) => ({ rowId: row.rowId, name: row.name, ...rowView(row) })) }))
-    .filter((section) => section.rows.length > 0);
+    .map(([kind, title]) => {
+      const ofKind = rows.filter((row) => row.kind === kind);
+      const foldedRows = ofKind.filter((row) => row.state === 'external').map(view);
+      const foldedLabel = foldedRows.length
+        ? historyTrusted
+          ? `Show ${foldedRows.length} more you already had`
+          : `Show ${foldedRows.length} more`
+        : '';
+      return {
+        kind,
+        title,
+        rows: ofKind.filter((row) => row.state !== 'external').map(view),
+        foldedRows,
+        foldedLabel,
+      };
+    })
+    .filter((section) => section.rows.length > 0 || section.foldedRows.length > 0);
   const missing = rows.filter((row) => row.state === 'missing').length;
   const duplicates = rows.filter((row) => row.state === 'duplicate').length;
   const notes = [missing ? `${missing} missing` : '', duplicates ? `${duplicates} with extra copies` : ''].filter(Boolean);
@@ -71,7 +95,9 @@ function manageSections(inventory) {
       text: 'CCTI couldn’t read its record of what it installed. Everything still works; items are shown as found on this computer. Starting a fresh record keeps a copy of the old one.',
       action: { type: 'reset-history', label: 'Start a fresh record' },
     }
-    : null;
+    : inventory?.historyStatus === 'unavailable'
+      ? { text: 'CCTI couldn’t open its record of what it installed right now. Everything still works; items are shown as found on this computer. Check again in a moment.', action: null }
+      : null;
   return { summary, notice, sections };
 }
 

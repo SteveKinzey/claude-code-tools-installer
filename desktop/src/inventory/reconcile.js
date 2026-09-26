@@ -69,7 +69,7 @@ function reconcileInventory({ scan, ledger, ledgerStatus = 'ok', catalog = [], t
     unreadableSkillScopes: Array.isArray(scan?.unreadableSkillScopes) ? scan.unreadableSkillScopes : [],
   };
   const items = Array.isArray(scan?.items) ? scan.items : [];
-  const record = ledgerStatus === 'corrupt' ? {} : ledger || {};
+  const record = ledgerStatus === 'corrupt' || ledgerStatus === 'unavailable' ? {} : ledger || {};
   const entries = Array.isArray(record.entries) ? record.entries : [];
   const resolutions = Array.isArray(record.resolutions) ? record.resolutions : [];
   const catalogItems = Array.isArray(catalog) ? catalog : [];
@@ -96,6 +96,7 @@ function reconcileInventory({ scan, ledger, ledgerStatus = 'ok', catalog = [], t
       state: duplicate ? 'duplicate' : matched.length ? 'installed' : 'external',
       scope: first.scope,
       origin: first.origin || 'local',
+      addOn: first.addOn || '',
       installedAt: matched[0]?.installedAt || '',
       installedByCcti: matched.length > 0,
       copies: copies.map((copy) => ({ scope: copy.scope, path: copy.path || '' })),
@@ -117,6 +118,7 @@ function reconcileInventory({ scan, ledger, ledgerStatus = 'ok', catalog = [], t
       state: reason ? 'unchecked' : 'missing',
       scope: entryScopeLabel(entry),
       origin: 'local',
+      addOn: '',
       installedAt: entry.installedAt,
       installedByCcti: true,
       copies: [],

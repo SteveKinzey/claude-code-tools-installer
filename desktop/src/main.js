@@ -6,7 +6,7 @@ const fs = require('node:fs/promises');
 const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
 const { comparePackageVersions, parsePackageVersion, parseReleaseIdentity } = require('./release-identity');
 const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
-const { buildScan } = require('./inventory/scanner');
+const { buildScan, parsePluginList, parseMcpList } = require('./inventory/scanner');
 const { createLedgerStore, newlyInstalledEntries, skillBackupResolutions, extrasRemovalResolutions } = require('./inventory/ledger');
 const { reconcileInventory } = require('./inventory/reconcile');
 
@@ -1029,7 +1029,8 @@ async function recordCctiInstalls(ids, before, scope = {}) {
     const entries = newlyInstalledEntries(ids, beforeSet, after.present, { tracked: TRACKED_ITEMS, catalog: await readCatalog(), skillScope: scope.skillScope, projectPath: scope.projectPath });
     if (entries.length > 0) await inventoryLedger().recordInstalls(entries);
   } catch (error) {
-    emit('installer:output', { stream: 'stderr', text: `[CCTI] Your tools were installed, but CCTI could not update its record of them: ${error.message}. Check this computer again to see them.\n` });
+    const message = String(error.message || '').replace(/\.$/, '');
+    emit('installer:output', { stream: 'stderr', text: `[CCTI] Your tools were installed, but CCTI could not update its record of them: ${message}. Check this computer again to see them.\n` });
   }
 }
 
@@ -1065,7 +1066,8 @@ async function resetInventoryHistory() {
   try {
     const result = await inventoryLedger().reset();
     return { ok: true, preserved: Boolean(result.preservedAs) };
-  } catch {
+  } catch (error) {
+    if (error.code === 'LEDGER_UNAVAILABLE') return { ok: false, error: 'CCTI could not open its record right now. Nothing was changed. Close anything that might be using it, then try again.' };
     return { ok: false, error: 'CCTI could not start a fresh record. Nothing else changed. Restart CCTI and try again.' };
   }
 }
@@ -2399,16 +2401,19 @@ async function discoverClaudeSetup(projectPath = '') {
     ]);
     pluginList = { ok: plugins.code === 0, text: plugins.stdout || '' };
     mcpList = { ok: connections.code === 0, text: connections.stdout || '' };
-    if (plugins.code === 0) plugins.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).forEach((name) => findings.push({ id: `plugin-cli:${name}`, type: 'plugin', name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
-    if (connections.code === 0) connections.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/)[0]).filter(Boolean).forEach((name) => findings.push({ id: `connection-cli:${name}`, type: 'connection', name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
+    if (plugins.code === 0) parsePluginList(plugins.stdout).forEach((item) => findings.push({ id: `plugin-cli:${item.key}`, type: 'plugin', name: item.name, scope: 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
+    if (connections.code === 0) parseMcpList(connections.stdout).forEach((item) => findings.push({ id: `connection-cli:${item.key}`, type: 'connection', name: item.name, scope: item.origin === 'plugin' ? item.scope : 'Claude Code', path: 'Claude Code', description: 'Reported by Claude Code.' }));
   }
 
   const uniqueFindings = uniqueDiscoveryFindings(findings);
   const nonSkillGroups = new Map();
-  uniqueFindings.filter((item) => ['plugin', 'connection'].includes(item.type)).forEach((item) => {
-    const key = `${item.type}:${normalizedFindingName(item.name)}`;
-    nonSkillGroups.set(key, [...(nonSkillGroups.get(key) || []), item]);
-  });
+  uniqueFindings
+    .filter((item) => ['plugin', 'connection'].includes(item.type))
+    .filter((item) => !item.id.startsWith('plugin-cli:') && !item.id.startsWith('connection-cli:'))
+    .forEach((item) => {
+      const key = `${item.type}:${normalizedFindingName(item.name)}`;
+      nonSkillGroups.set(key, [...(nonSkillGroups.get(key) || []), item]);
+    });
   const skills = uniqueFindings.filter((item) => item.type === 'skill');
   const skillDuplicates = duplicateSkillGroups(skills).map((group) => {
     const sameName = group.names.length === 1;

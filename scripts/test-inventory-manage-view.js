@@ -19,7 +19,8 @@ const inventory = {
   ],
 };
 const view = manageSections(inventory);
-const find = (id) => view.sections.flatMap((section) => section.rows).find((item) => item.rowId === id);
+const allRows = (v) => v.sections.flatMap((section) => [...section.rows, ...section.foldedRows]);
+const find = (id) => allRows(view).find((item) => item.rowId === id);
 
 assert.deepEqual(view.sections.map((section) => section.title), ['Skills', 'Add-ons', 'Connections'], 'one list grouped by kind');
 assert.equal(find('planning').badge, 'Installed by CCTI · 2026-09-14');
@@ -43,15 +44,38 @@ assert.match(view.summary, /10 items/);
 assert.match(view.summary, /3 missing/);
 
 // No terminal surface: details never show a path or a command.
-for (const item of view.sections.flatMap((section) => section.rows)) {
+for (const item of allRows(view)) {
   assert.doesNotMatch(item.detail, /[\\/]|claude (?:mcp|plugin)|\.json/, `${item.rowId} detail must not expose a path or command`);
   assert.ok(item.detail.length > 0, `${item.rowId} must explain itself`);
 }
+
+const plugins = view.sections.find((section) => section.kind === 'plugin');
+assert.deepEqual(plugins.rows, [], 'external add-ons are folded');
+assert.equal(plugins.foldedRows.length, 2);
+assert.equal(plugins.foldedLabel, 'Show 2 more you already had');
+const skills = view.sections.find((section) => section.kind === 'skill');
+assert.ok(skills.rows.some((item) => item.rowId === 'ponytail'), 'missing rows stay visible');
+assert.equal(skills.foldedLabel, '', 'nothing folded when there are no external rows');
+
+const addOnView = manageSections({ historyStatus: 'ok', rows: [row('plugin:brand-voice:box', 'mcp', 'external', { origin: 'plugin', addOn: 'brand-voice' })] });
+const addOnRow = addOnView.sections[0].foldedRows[0];
+assert.equal(addOnRow.badge, 'Part of an add-on');
+assert.equal(addOnRow.detail, 'Comes with the brand-voice add-on. Manage it through that add-on.');
+
+const noAddOnView = manageSections({ historyStatus: 'ok', rows: [row('plugin:unknown:server', 'mcp', 'external', { origin: 'plugin', addOn: '' })] });
+const noAddOnRow = noAddOnView.sections[0].foldedRows[0];
+assert.equal(noAddOnRow.badge, 'Part of an add-on');
+assert.equal(noAddOnRow.detail, 'Comes with an add-on. Manage it through that add-on.', 'no grammatically wrong "the an add-on" when addOn is empty');
+
+const unavailableView = manageSections({ historyStatus: 'unavailable', rows: [] });
+assert.equal(unavailableView.notice.action, null, 'no reset is offered for a temporary problem');
+assert.match(unavailableView.notice.text, /check again/i);
 
 // Review Focus 2: an unreadable record offers a fresh start and still lists everything.
 const corrupt = manageSections({ historyStatus: 'corrupt', rows: [row('mine', 'plugin', 'external')] });
 assert.deepEqual(corrupt.notice.action, { type: 'reset-history', label: 'Start a fresh record' });
 assert.match(corrupt.notice.text, /still works/);
+assert.equal(corrupt.sections[0].foldedLabel, 'Show 1 more', 'an unreadable record cannot vouch that you already had this');
 assert.equal(manageSections({ historyStatus: 'missing', rows: [] }).notice, null, 'a first run is not an error');
 
 const empty = manageSections({ historyStatus: 'ok', rows: [] });

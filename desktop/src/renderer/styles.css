@@ -239,6 +239,9 @@ h3 { margin: 0; font-size: 1rem; }
 .tool-inventory-attention { border-color: #7a6a36; }
 .tool-inventory-attention .tool-inventory-badge { background: #3a3218; color: #f5e3a8; }
 .tool-inventory-note { margin: 12px 0 0; color: #9fbcc4; font-size: .78rem; }
+.tool-inventory-folded { margin-top: 8px; }
+.tool-inventory-folded > summary { cursor: pointer; color: #9fd8d0; font-size: .82rem; padding: 6px 2px; }
+.tool-inventory-folded > .tool-inventory-rows { margin-top: 8px; }
 .setup-manager-inventory { margin-top: 16px; border: 1px solid #31596b; border-radius: 10px; background: #0d1d2c; }
 .setup-manager-inventory > summary { display: flex; align-items: center; min-height: 48px; padding: 0 15px; color: #d7ecf2; cursor: pointer; font-size: .9rem; font-weight: 800; list-style: none; }
 .setup-manager-inventory > summary::-webkit-details-marker { display: none; }

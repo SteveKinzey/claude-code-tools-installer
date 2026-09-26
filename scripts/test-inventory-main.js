@@ -167,6 +167,22 @@ async function run() {
   const afterBackup = JSON.parse(await fsp.readFile(ledgerFile, 'utf8'));
   assert.ok(afterBackup.resolutions.some((item) => item.key === 'twin' && item.action === 'backup'), 'the backup is recorded as a resolution');
 
+  // A single, non-duplicate skill can also be backed up one at a time through the same
+  // review/apply pair the Manage list uses for a single row, and it is recorded the same way.
+  await writeSkill(path.join(home, '.claude', 'skills', 'solo'));
+  report = await discover(null, { projectPath: project });
+  const soloFinding = report.findings.find((item) => item.type === 'skill' && item.name === 'solo');
+  assert.ok(soloFinding, 'discovery must report the newly written solo skill');
+  const soloReview = await handlers.get('setup-manager:review-cleanup')(null, { discoveryId: report.discoveryId, findingId: soloFinding.id });
+  assert.equal(soloReview.ok, true, soloReview.error);
+  const soloApplied = await handlers.get('setup-manager:apply-cleanup')(null, { reviewId: soloReview.reviewId });
+  assert.equal(soloApplied.ok, true, soloApplied.error);
+  const afterSoloBackup = JSON.parse(await fsp.readFile(ledgerFile, 'utf8'));
+  assert.ok(
+    afterSoloBackup.resolutions.some((item) => item.kind === 'skill' && item.key === 'solo' && item.action === 'backup'),
+    'backing up a single skill records the same kind of resolution as the duplicate cleanup path'
+  );
+
   // Fix round 1, finding 1: a before-probe that cannot reach Claude Code (the fake's
   // `plugin list` fails once) must not turn an already-present plugin into a claimed CCTI
   // install just because a later, successful after-probe sees it. The tri-state probe marks
@@ -215,6 +231,23 @@ async function run() {
   assert.deepEqual(await reset(null), { ok: true, preserved: true });
   report = await discover(null, {});
   assert.equal(report.inventory.historyStatus, 'ok');
+
+  // Final fix wave: a ledger read that fails with EBUSY (locked, not missing or corrupt) must
+  // surface as the LEDGER_UNAVAILABLE message, never a generic failure or a silent reset.
+  {
+    const originalReadFile = fsp.readFile;
+    fsp.readFile = async (target, ...rest) => {
+      if (target === ledgerFile) throw Object.assign(new Error('resource busy or locked'), { code: 'EBUSY' });
+      return originalReadFile.call(fsp, target, ...rest);
+    };
+    try {
+      const busyReset = await reset(null);
+      assert.equal(busyReset.ok, false, 'a locked ledger must not report success');
+      assert.match(busyReset.error, /CCTI could not open its record right now/, 'a locked ledger must surface the LEDGER_UNAVAILABLE message');
+    } finally {
+      fsp.readFile = originalReadFile;
+    }
+  }
 
   // Final review, finding 2: removing CCTI's extras (typed confirmation) records a 'remove'
   // resolution for each tracked skill and MCP connection it actually removed, so they do not

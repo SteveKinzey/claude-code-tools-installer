@@ -93,7 +93,7 @@ async function run() {
   await writeSkill(sourceSkill, 'My skill');
   await writeSkill(duplicateSourceSkill, 'Duplicate source');
   await fsp.mkdir(path.join(home, '.claude'), { recursive: true });
-  await fsp.writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: { 'review-tool@marketplace': true } }), 'utf8');
+  await fsp.writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: { 'review-tool@marketplace': true, 'frontend-design@claude-plugins-official': true } }), 'utf8');
   const fakeClaudePath = process.platform === 'win32'
     ? path.join(tempRoot, 'appdata', 'npm', 'claude.cmd')
     : path.join(home, '.local', 'bin', 'claude');
@@ -204,6 +204,11 @@ async function run() {
   const nameOverlapGroup = report.duplicates.find((group) => group.match === 'name' && group.name === 'same-name-different-content');
   assert.ok(nameOverlapGroup, 'same-name skill folders with different verified content should remain visible as an informational overlap');
   assert.notEqual(nameOverlapGroup.items[0].contentHash, nameOverlapGroup.items[1].contentHash, 'a name overlap must not be treated as matching content');
+  // Review Focus: the settings.json record and Claude Code's own CLI report of the SAME plugin
+  // ("frontend-design@claude-plugins-official") must never be treated as two overlapping copies.
+  assert.ok(report.findings.some((item) => item.type === 'plugin' && item.name === 'frontend-design@claude-plugins-official' && item.id.startsWith('plugin:')), 'the settings.json record of the plugin should still be a finding');
+  assert.ok(report.findings.some((item) => item.type === 'plugin' && item.name === 'frontend-design@claude-plugins-official' && item.id.startsWith('plugin-cli:')), 'the CLI report of the same plugin should still be a finding');
+  assert.equal(report.duplicates.some((group) => group.type === 'plugin' && group.name === 'frontend-design@claude-plugins-official'), false, 'a CLI-sourced finding must never be grouped as a duplicate of its own settings.json record');
   if (report.findings.filter((item) => item.type === 'connection' && item.name === 'shared-connection' && item.scope === 'Claude Code').length !== 1) {
     const diagnostics = await runDiagnostics();
     console.error(JSON.stringify({

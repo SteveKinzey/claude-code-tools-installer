@@ -15,8 +15,9 @@ function emptyLedger() {
 }
 
 const isText = (value) => typeof value === 'string' && value.length > 0;
-const validEntry = (entry) => Boolean(entry) && isText(entry.id) && isText(entry.kind) && isText(entry.key) && isText(entry.installedAt);
-const validResolution = (item) => Boolean(item) && isText(item.kind) && isText(item.key) && isText(item.resolvedAt);
+const KNOWN_KINDS = new Set(['skill', 'plugin', 'mcp']);
+const validEntry = (entry) => Boolean(entry) && isText(entry.id) && KNOWN_KINDS.has(entry.kind) && isText(entry.key) && isText(entry.installedAt);
+const validResolution = (item) => Boolean(item) && KNOWN_KINDS.has(item.kind) && isText(item.key) && isText(item.resolvedAt);
 
 function parseLedger(text) {
   let json;
@@ -106,7 +107,9 @@ function createLedgerStore(filePath, { now = () => new Date() } = {}) {
     try {
       text = await fs.readFile(filePath, 'utf8');
     } catch (error) {
-      return { status: error.code === 'ENOENT' ? 'missing' : 'corrupt', ledger: emptyLedger() };
+      if (error.code === 'ENOENT') return { status: 'missing', ledger: emptyLedger() };
+      if (error.code === 'EISDIR') return { status: 'corrupt', ledger: emptyLedger() };
+      return { status: 'unavailable', ledger: emptyLedger() };
     }
     return parseLedger(text);
   }
@@ -122,13 +125,21 @@ function createLedgerStore(filePath, { now = () => new Date() } = {}) {
   async function write(ledger) {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const temporary = `${filePath}.${process.pid}.tmp`;
-    await fs.writeFile(temporary, `${JSON.stringify(ledger, null, 2)}\n`, 'utf8');
-    await fs.rename(temporary, filePath);
+    try {
+      await fs.writeFile(temporary, `${JSON.stringify(ledger, null, 2)}\n`, 'utf8');
+      await fs.rename(temporary, filePath);
+    } catch (error) {
+      await fs.rm(temporary, { force: true }).catch(() => {});
+      throw error;
+    }
   }
 
   function update(change) {
     const run = queue.then(async () => {
       const current = await read();
+      if (current.status === 'unavailable') {
+        throw Object.assign(new Error('CCTI could not open its record right now.'), { code: 'LEDGER_UNAVAILABLE' });
+      }
       const next = change(current.ledger, current.status);
       if (next === null) return { ok: true, preservedAs: '', unchanged: true };
       const preservedAs = current.status === 'corrupt' ? await keepUnreadable() : '';
