@@ -2817,13 +2817,14 @@ async function applyPluginChange({ reviewId }) {
   }
 }
 
-// npm's package name rule: optional @scope/ then a lowercase name, at most 214 characters.
-// Anything else is refused before it can reach npm (or cmd.exe on Windows).
+// npm's package name rule: optional @scope/ then a name, at most 214 characters. Uppercase
+// letters are allowed so legacy packages (for example JSONStream) stay removable; quoting
+// already makes such names inert. Anything else is refused before it can reach npm.
 function isValidNpmPackageName(name) {
   const value = String(name ?? '');
   return value.length > 0
     && value.length <= 214
-    && /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(value);
+    && /^(?:@[A-Za-z0-9-~][A-Za-z0-9-._~]*\/)?[A-Za-z0-9-~][A-Za-z0-9-._~]*$/.test(value);
 }
 
 function invalidProjectPackageNameResult(name) {

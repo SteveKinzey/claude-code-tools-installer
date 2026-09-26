@@ -285,7 +285,7 @@ async function run() {
   assert.equal(changedProjectManifest.dependencies?.['@convex-dev/agent'], undefined, 'project package removal must update only the selected project package file');
   // A malicious project can name a dependency so that cmd.exe on Windows would run a command
   // (`x&calc`). CCTI must refuse such a name before any npm call, on every platform.
-  const hostileManifest = { name: 'checked-project', private: true, dependencies: { 'x&calc': '1.0.0' } };
+  const hostileManifest = { name: 'checked-project', private: true, dependencies: { 'x&calc': '1.0.0', JSONStream: '1.3.5', '@Scope/Legacy-Pkg': '2.0.0' } };
   await fsp.writeFile(path.join(project, 'package.json'), JSON.stringify(hostileManifest, null, 2), 'utf8');
   const hostileReport = await discover(null, { projectPath: project });
   const hostilePackage = hostileReport.findings.find((item) => item.type === 'project-package' && item.name === 'x&calc');
@@ -300,6 +300,14 @@ async function run() {
   assert.equal(hostileApply.ok, false, 'a refused name must not be removable');
   assert.equal(spawnLog.slice(spawnsBeforeHostile).some((call) => /npm/i.test(call.command) || call.args.includes('uninstall')), false, 'no npm call may happen for an invalid package name');
   assert.deepEqual(JSON.parse(await fsp.readFile(path.join(project, 'package.json'), 'utf8')), hostileManifest, 'a refused removal must not change package.json');
+  // Legacy names with uppercase letters are legitimate and stay removable (quoting keeps them inert).
+  for (const legacyName of ['JSONStream', '@Scope/Legacy-Pkg']) {
+    const legacyPackage = hostileReport.findings.find((item) => item.type === 'project-package' && item.name === legacyName);
+    assert.ok(legacyPackage, `${legacyName} should be listed`);
+    const legacyReview = await reviewProjectPackageRemoval(null, { discoveryId: hostileReport.discoveryId, findingId: legacyPackage.id });
+    assert.equal(legacyReview.ok, true, `${legacyName} must be accepted for a reviewed removal`);
+    assert.equal(legacyReview.command, `npm uninstall --ignore-scripts --no-audit --no-fund ${legacyName}`);
+  }
   const managedManifestPath = path.join(home, '.setup-my-claude', 'manifest.tsv');
   await fsp.mkdir(path.dirname(managedManifestPath), { recursive: true });
   await fsp.writeFile(managedManifestPath, [
