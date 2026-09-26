@@ -108,6 +108,20 @@ const cleanupManagePluginsButton = document.querySelector('#cleanup-manage-plugi
 const cleanupManagePackagesButton = document.querySelector('#cleanup-manage-packages-button');
 const cleanupRestoreBackupsButton = document.querySelector('#cleanup-restore-backups-button');
 const cleanupReviewManagedExtrasButton = document.querySelector('#cleanup-review-managed-extras-button');
+const cleanupTurnedOffStatusElement = document.querySelector('#cleanup-turned-off-status');
+const cleanupReviewTurnedOffButton = document.querySelector('#cleanup-review-turned-off-button');
+const permanentDeleteDialogElement = document.querySelector('#permanent-delete-dialog');
+const permanentDeleteDialogHeadingElement = document.querySelector('#permanent-delete-dialog-heading');
+const permanentDeleteDialogChoiceElement = document.querySelector('#permanent-delete-dialog-choice');
+const permanentDeleteDialogOptionsElement = document.querySelector('#permanent-delete-dialog-options');
+const permanentDeleteDialogReviewElement = document.querySelector('#permanent-delete-dialog-review');
+const permanentDeleteDialogReviewListElement = document.querySelector('#permanent-delete-dialog-review-list');
+const permanentDeleteDialogWarningElement = document.querySelector('#permanent-delete-dialog-warning');
+const permanentDeleteConfirmationElement = document.querySelector('#permanent-delete-confirmation');
+const permanentDeleteDialogStatusElement = document.querySelector('#permanent-delete-dialog-status');
+const reviewPermanentDeleteButton = document.querySelector('#review-permanent-delete-button');
+const applyPermanentDeleteButton = document.querySelector('#apply-permanent-delete-button');
+const cancelPermanentDeleteButton = document.querySelector('#cancel-permanent-delete-button');
 const duplicateReviewElement = document.querySelector('#duplicate-review');
 const duplicateReviewListElement = document.querySelector('#duplicate-review-list');
 const duplicateReviewSummaryElement = document.querySelector('#duplicate-review-summary');
@@ -2073,6 +2087,153 @@ async function applyResolveDuplicateChanges() {
   }
 }
 
+// Turned-off copies: add-ons Claude Code reports as installed but turned off, and skill
+// folders kept in CCTI's backup folder. They can be deleted for good only after a review and
+// the typed word DELETE; the main process checks the word again before it deletes anything.
+const PERMANENT_DELETE_WORD = 'DELETE';
+
+function turnedOffCopies(report) {
+  const addOns = Array.isArray(report?.turnedOff?.addOns) ? report.turnedOff.addOns : [];
+  const skillBackups = Array.isArray(report?.turnedOff?.skillBackups) ? report.turnedOff.skillBackups : [];
+  return [
+    ...addOns.map((item) => ({ kind: 'add-on', findingId: item.findingId, label: `Add-on ${item.name}${item.marketplace ? ` from ${item.marketplace}` : ''}`, scopeLabel: item.scopeLabel })),
+    ...skillBackups.map((item) => ({ kind: 'skill-backup', findingId: item.findingId, label: `Skill backup ${item.name}`, scopeLabel: item.scopeLabel })),
+  ];
+}
+
+function renderTurnedOffCopies(report) {
+  const copies = turnedOffCopies(report);
+  const addOnCount = copies.filter((item) => item.kind === 'add-on').length;
+  const backupCount = copies.length - addOnCount;
+  const parts = [];
+  if (addOnCount) parts.push(`${addOnCount} turned-off add-on${addOnCount === 1 ? '' : 's'}`);
+  if (backupCount) parts.push(`${backupCount} skill backup${backupCount === 1 ? '' : 's'}`);
+  cleanupTurnedOffStatusElement.textContent = copies.length
+    ? `${parts.join(' and ')} can be deleted for good. You review the list and type DELETE first; this can’t be undone.`
+    : 'No turned-off add-ons or skill backups were found, so there is nothing to delete.';
+  cleanupReviewTurnedOffButton.hidden = copies.length === 0;
+  cleanupReviewTurnedOffButton.disabled = copies.length === 0;
+  cleanupReviewTurnedOffButton.textContent = copies.length === 1 ? 'Review 1 turned-off copy' : `Review ${copies.length} turned-off copies`;
+}
+
+function resetPermanentDeleteReview() {
+  permanentDeleteDialogReviewElement.hidden = true;
+  permanentDeleteDialogReviewListElement.replaceChildren();
+  permanentDeleteDialogWarningElement.textContent = '';
+  permanentDeleteConfirmationElement.value = '';
+  applyPermanentDeleteButton.hidden = true;
+  applyPermanentDeleteButton.disabled = true;
+  reviewPermanentDeleteButton.hidden = false;
+  if (state.permanentDelete) state.permanentDelete = { ...state.permanentDelete, reviewId: null };
+}
+
+function syncPermanentDeleteReviewButton() {
+  const anyChecked = Boolean(permanentDeleteDialogOptionsElement.querySelector('input[type="checkbox"]:checked'));
+  reviewPermanentDeleteButton.disabled = !anyChecked;
+}
+
+function openPermanentDeleteDialog() {
+  if (typeof permanentDeleteDialogElement?.showModal !== 'function') return;
+  const copies = turnedOffCopies(state.managerReport);
+  if (!copies.length) return;
+  if (document.activeElement instanceof HTMLElement) state.permanentDeleteInvoker = document.activeElement;
+  state.permanentDelete = { discoveryId: state.managerReport?.discoveryId, copies, reviewId: null };
+  permanentDeleteDialogOptionsElement.replaceChildren(...copies.map((copy, index) => {
+    const wrapper = document.createElement('label');
+    wrapper.className = 'resolve-duplicate-option';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = true;
+    checkbox.value = String(index);
+    checkbox.addEventListener('change', () => {
+      // Changing the selection makes an earlier review stale, so it must be reviewed again.
+      resetPermanentDeleteReview();
+      permanentDeleteDialogStatusElement.textContent = '';
+      syncPermanentDeleteReviewButton();
+    });
+    const text = document.createElement('span');
+    text.textContent = `${copy.label} · ${copy.scopeLabel}`;
+    wrapper.append(checkbox, text);
+    return wrapper;
+  }));
+  permanentDeleteDialogChoiceElement.hidden = false;
+  resetPermanentDeleteReview();
+  permanentDeleteDialogStatusElement.textContent = '';
+  reviewPermanentDeleteButton.textContent = 'Review deletion';
+  syncPermanentDeleteReviewButton();
+  if (!permanentDeleteDialogElement.open) permanentDeleteDialogElement.showModal();
+  focusDuplicateDialog(permanentDeleteDialogHeadingElement);
+}
+
+async function reviewPermanentDeletion() {
+  const pending = state.permanentDelete;
+  if (!pending) return;
+  const chosen = [...permanentDeleteDialogOptionsElement.querySelectorAll('input[type="checkbox"]:checked')]
+    .map((checkbox) => pending.copies[Number(checkbox.value)])
+    .filter(Boolean);
+  if (!chosen.length) return;
+  reviewPermanentDeleteButton.disabled = true;
+  permanentDeleteDialogStatusElement.textContent = 'Checking what would be deleted…';
+  try {
+    const result = await window.installer.reviewPermanentDelete({ discoveryId: pending.discoveryId, items: chosen.map(({ kind, findingId }) => ({ kind, findingId })) });
+    if (!result?.ok) {
+      permanentDeleteDialogStatusElement.textContent = result?.error || 'CCTI couldn’t review these copies. Check this computer again, then try again.';
+      reviewPermanentDeleteButton.disabled = false;
+      return;
+    }
+    state.permanentDelete = { ...pending, reviewId: result.reviewId };
+    permanentDeleteDialogReviewListElement.replaceChildren(...(result.items || []).map((item) => {
+      const entry = document.createElement('li');
+      const label = document.createElement('strong');
+      label.textContent = item.label;
+      entry.append(label);
+      return entry;
+    }));
+    permanentDeleteDialogWarningElement.textContent = result.warning || 'This cannot be undone.';
+    permanentDeleteConfirmationElement.value = '';
+    permanentDeleteDialogReviewElement.hidden = false;
+    reviewPermanentDeleteButton.hidden = true;
+    applyPermanentDeleteButton.hidden = false;
+    applyPermanentDeleteButton.disabled = true;
+    permanentDeleteDialogStatusElement.textContent = `Review ${result.items.length} ${result.items.length === 1 ? 'copy' : 'copies'}, type DELETE, then choose Delete permanently.`;
+    permanentDeleteConfirmationElement.focus();
+  } catch (error) {
+    permanentDeleteDialogStatusElement.textContent = 'CCTI couldn’t check this right now. Try again in a moment.';
+    reviewPermanentDeleteButton.disabled = false;
+    appendOutput(`[Manage] ${error?.message || 'Reviewing the deletion failed.'}\n`, 'stderr');
+  }
+}
+
+async function applyPermanentDeletion() {
+  const pending = state.permanentDelete;
+  const confirmation = permanentDeleteConfirmationElement.value;
+  if (!pending?.reviewId || confirmation !== PERMANENT_DELETE_WORD) return;
+  applyPermanentDeleteButton.disabled = true;
+  permanentDeleteDialogStatusElement.textContent = 'Deleting…';
+  try {
+    const result = await window.installer.applyPermanentDelete({ reviewId: pending.reviewId, confirmation });
+    if (result?.ok) {
+      permanentDeleteDialogElement.close();
+      await scanSetup();
+      const done = result.message || 'Deleted the turned-off copies.';
+      toolInventoryStatusElement.textContent = done;
+      appendOutput(`[Manage] ${done}\n`);
+      return;
+    }
+    const error = result?.error || 'CCTI couldn’t delete these copies. Check this computer again, then try again.';
+    permanentDeleteDialogStatusElement.textContent = error;
+    appendOutput(`[Manage] ${error}\n`, 'stderr');
+    // A review applies once, so a new review is needed before trying again.
+    resetPermanentDeleteReview();
+    syncPermanentDeleteReviewButton();
+  } catch (error) {
+    permanentDeleteDialogStatusElement.textContent = 'CCTI couldn’t finish this right now. Check this computer again, then try again.';
+    resetPermanentDeleteReview();
+    syncPermanentDeleteReviewButton();
+    appendOutput(`[Manage] ${error?.message || 'Deleting the turned-off copies failed.'}\n`, 'stderr');
+  }
+}
+
 function revealSetupManagerInventory(selector) {
   setupManagerInventoryElement.open = true;
   window.requestAnimationFrame(() => {
@@ -2255,6 +2416,7 @@ function renderSetupManager(report) {
   cleanupRestoreBackupsButton.hidden = safeSkillBackups.length === 0;
   cleanupRestoreBackupsButton.disabled = safeSkillBackups.length === 0;
   cleanupRestoreBackupsButton.textContent = safeSkillBackups.length === 1 ? 'Review 1 safe backup' : `Review ${safeSkillBackups.length} safe backups`;
+  renderTurnedOffCopies(report);
   const managedExtras = report?.managedExtras || { actionCount: 0, manualCount: 0, ignored: 0, error: '' };
   cleanupManagedExtrasStatusElement.textContent = managedExtras.error
     ? 'CCTI could not read its managed extras list. No removal action is available.'
@@ -2883,6 +3045,27 @@ resolveDuplicateDialogElement.addEventListener('close', () => {
   state.resolveDuplicateInvoker = null;
   setTimeout(() => {
     if (resolveInvoker?.isConnected) resolveInvoker.focus();
+  }, 0);
+});
+cleanupReviewTurnedOffButton.addEventListener('click', openPermanentDeleteDialog);
+reviewPermanentDeleteButton.addEventListener('click', reviewPermanentDeletion);
+applyPermanentDeleteButton.addEventListener('click', applyPermanentDeletion);
+cancelPermanentDeleteButton.addEventListener('click', () => permanentDeleteDialogElement.close());
+permanentDeleteConfirmationElement.addEventListener('input', () => {
+  applyPermanentDeleteButton.disabled = !state.permanentDelete?.reviewId || permanentDeleteConfirmationElement.value !== PERMANENT_DELETE_WORD;
+});
+// Enter in the confirmation field must never submit the dialog's form (which would close it).
+permanentDeleteDialogElement.querySelector('form').addEventListener('submit', (event) => event.preventDefault());
+permanentDeleteDialogElement.addEventListener('close', () => {
+  // The close event is queued. If the dialog was opened again before it fired, this late
+  // event belongs to the earlier dialog and must not clear the new one's state.
+  if (permanentDeleteDialogElement.open) return;
+  state.permanentDelete = null;
+  permanentDeleteConfirmationElement.value = '';
+  const invoker = state.permanentDeleteInvoker;
+  state.permanentDeleteInvoker = null;
+  setTimeout(() => {
+    if (invoker?.isConnected) invoker.focus();
   }, 0);
 });
 document.querySelector('#choose-custom-source-button').addEventListener('click', chooseCustomSource);

@@ -183,7 +183,7 @@
           <div class="cleanup-actions-heading">
             <p class="eyebrow">MAKE A CHANGE, SAFELY</p>
             <h3 id="cleanup-actions-heading">Clean up or remove something</h3>
-            <p>Start here after a checkup. CCTI shows the exact item before it changes anything. Skills move to a backup instead of being deleted; add-ons can be turned off; project packages are removed only from the project you selected.</p>
+            <p>Start here after a checkup. CCTI shows the exact item before it changes anything. Skills move to a backup instead of being deleted; add-ons can be turned off; project packages are removed only from the project you selected. Turned-off copies are deleted for good only if you review them and type DELETE.</p>
           </div>
           <div class="cleanup-action-grid">
             <article class="cleanup-action-card">
@@ -210,6 +210,11 @@
               <h4>Bring back a backed-up skill</h4>
               <p id="cleanup-backups-status">No safe skill backups found.</p>
               <button id="cleanup-restore-backups-button" class="button button-primary" type="button" hidden>Review safe backups</button>
+            </article>
+            <article class="cleanup-action-card cleanup-action-card-remove">
+              <h4>Delete turned-off copies</h4>
+              <p id="cleanup-turned-off-status">No turned-off copies found.</p>
+              <button id="cleanup-review-turned-off-button" class="button button-danger" type="button" hidden disabled>Review turned-off copies</button>
             </article>
             <article class="cleanup-action-card cleanup-action-card-remove">
               <h4>CCTI-managed extras</h4>
@@ -527,6 +532,32 @@
           <button id="review-resolve-duplicate-button" class="button button-secondary" type="button">Review changes</button>
           <button id="apply-resolve-duplicate-button" class="button button-danger" type="button" hidden disabled>Make these changes</button>
           <button id="cancel-resolve-duplicate-button" class="button button-ghost" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="permanent-delete-dialog" class="duplicate-skill-dialog" aria-labelledby="permanent-delete-dialog-heading" aria-describedby="permanent-delete-dialog-copy" aria-modal="true">
+      <form method="dialog" class="duplicate-skill-dialog-content">
+        <p class="eyebrow">DELETE FOR GOOD</p>
+        <h2 id="permanent-delete-dialog-heading" tabindex="-1">Delete turned-off copies</h2>
+        <p id="permanent-delete-dialog-copy">These copies are turned off or kept in CCTI’s backup folder. Choose the ones you no longer want, then review before anything is deleted.</p>
+        <fieldset id="permanent-delete-dialog-choice" class="resolve-duplicate-choice">
+          <legend>Turned-off copies to delete</legend>
+          <div id="permanent-delete-dialog-options" class="resolve-duplicate-options"></div>
+        </fieldset>
+        <div id="permanent-delete-dialog-review" class="resolve-duplicate-changes" hidden>
+          <h3 id="permanent-delete-dialog-review-heading">CCTI will permanently delete</h3>
+          <ul id="permanent-delete-dialog-review-list" class="resolve-duplicate-changes-list"></ul>
+          <p id="permanent-delete-dialog-warning" class="permanent-delete-warning"></p>
+          <label class="permanent-delete-confirm" for="permanent-delete-confirmation">Type DELETE to confirm
+            <input id="permanent-delete-confirmation" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </label>
+        </div>
+        <p id="permanent-delete-dialog-status" role="status" aria-live="polite"></p>
+        <div class="duplicate-skill-dialog-actions">
+          <button id="review-permanent-delete-button" class="button button-secondary" type="button">Review deletion</button>
+          <button id="apply-permanent-delete-button" class="button button-danger" type="button" hidden disabled>Delete permanently</button>
+          <button id="cancel-permanent-delete-button" class="button button-ghost" type="button">Cancel</button>
         </div>
       </form>
     </dialog>
