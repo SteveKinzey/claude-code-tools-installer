@@ -1,0 +1,31 @@
+name: Feature or tool request
+description: Suggest an improvement, or a tool you would like added to the catalog.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem or goal, in plain language.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help?
+      description: The change you have in mind. For a catalog request, include the tool's name and a link to its official source.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platforms this matters on
+      multiple: true
+      options:
+        - macOS
+        - Windows
+        - Linux
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?

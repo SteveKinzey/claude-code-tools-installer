@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/SteveKinzey/claude-code-tools-installer/security/advisories/new
+    about: Please report vulnerabilities privately, not as a public issue.
+  - name: User manual and downloads
+    url: https://claudetool.app
+    about: Walkthrough, catalog, and current release downloads.

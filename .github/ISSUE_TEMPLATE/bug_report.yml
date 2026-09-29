@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in Claude Code Tools Installer did not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please do **not** report security vulnerabilities here — see [SECURITY.md](https://github.com/SteveKinzey/claude-code-tools-installer/blob/main/SECURITY.md).
+        Do not paste API keys, tokens, or other credentials into this form.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: The release you are running, for example `v2026.09.26.05` or `2026.9.2605`.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS (Apple silicon)
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating system version
+      placeholder: e.g. macOS 27.0, Windows 11 24H2, Ubuntu 24.04
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the app
+        2. Choose ...
+        3. Review the plan and confirm
+        4. See ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Screenshots or log excerpts
+      description: Optional. Review any log text for personal paths or credentials before pasting.
