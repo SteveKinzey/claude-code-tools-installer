@@ -5,3 +5,12 @@ desktop/build/windows-signed.resolved.json
 releases/test-builds/*
 !releases/test-builds/.gitkeep
 !releases/test-builds/README.md
+
+.claude/settings.local.json
+.worktrees/
+.DS_Store
+.tmp-*
+releases/*.dmg
+releases/*.zip
+releases/*.tar.gz
+releases/evidence-*/
