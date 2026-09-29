@@ -126,8 +126,8 @@ assert.match(weeklySecurityWorkflow, /retention-days:\s*30/, 'Weekly vulnerabili
 assert.match(weeklySecurityWorkflow, /contents: read/, 'Weekly security scanning must use a read-only token.');
 assert.match(codeqlWorkflow, /pull_request:/, 'CodeQL must scan pull requests before merge.');
 assert.match(codeqlWorkflow, /cron:\s*'41 8 \* \* 1'/, 'CodeQL must run on the established weekly schedule.');
-assert.match(codeqlWorkflow, /github\/codeql-action\/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63/, 'CodeQL initialization must use the pinned reviewed action revision.');
-assert.match(codeqlWorkflow, /github\/codeql-action\/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63/, 'CodeQL analysis must use the pinned reviewed action revision.');
+assert.match(codeqlWorkflow, /github\/codeql-action\/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd/, 'CodeQL initialization must use the pinned reviewed action revision.');
+assert.match(codeqlWorkflow, /github\/codeql-action\/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd/, 'CodeQL analysis must use the pinned reviewed action revision.');
 assert.match(codeqlWorkflow, /security-events: write/, 'CodeQL must have only the security-events write permission required to upload findings.');
 assert.match(codeqlWorkflow, /languages:\s*\$\{\{ matrix\.language \}\}/, 'CodeQL must analyze the configured JavaScript and TypeScript language matrix.');
 assert.ok(!workflows.some((workflowPath) => /build-windows-signed-/i.test(path.basename(workflowPath))), 'Obsolete alternate Windows distribution workflows must not be present.');
