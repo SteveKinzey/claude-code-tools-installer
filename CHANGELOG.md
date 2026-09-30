@@ -2,6 +2,20 @@
 
 All notable changes are documented in this file. Version tags use the calendar-based format `vYYYY.MM.DD`.
 
+## v2026.09.30.01 — Release preparation
+
+> **Release status:** Source-only release candidate. No signed or verified platform artifacts have been staged or published for this version. Download availability remains tied to existing verified GitHub releases.
+
+### Desktop build dependencies
+
+- Updated Electron to 44.4.5 ([#26](https://github.com/SteveKinzey/claude-code-tools-installer/pull/26)).
+- Updated electron-builder from 26.16.1 to **26.17.0** ([#54](https://github.com/SteveKinzey/claude-code-tools-installer/pull/54)).
+
+### Release readiness
+
+- Bumped the desktop package and lockfile from `2026.9.2605` to `2026.9.3001` for the proposed `v2026.09.30.01` tag.
+- Excluded local `.manus/` metadata from Git. Signing, platform validation, checksums, and publication remain separate gates.
+
 ## v2026.09.22 — Complete setup verification and cross-platform release delivery
 
 > **Release status:** Prepared for a signed, notarized macOS release and a keylessly signed Linux archive. A source commit is not a downloadable desktop release until the GitHub Release contains the matching verified assets and integrity evidence.
