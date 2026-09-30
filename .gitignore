@@ -7,6 +7,7 @@ releases/test-builds/*
 !releases/test-builds/README.md
 
 .claude/settings.local.json
+.manus/
 .worktrees/
 .DS_Store
 .tmp-*
