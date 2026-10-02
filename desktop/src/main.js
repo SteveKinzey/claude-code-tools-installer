@@ -33,6 +33,7 @@ const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
 const reviewedResolutions = new Map();
 const reviewedPermanentDeletePlans = new Map();
+const reviewedFreshSetupPlans = new Map();
 let activeSkillCleanup = false;
 const diagnosticReports = new Map();
 const diagnosticTimers = new Map();
@@ -1996,6 +1997,57 @@ async function resolveCompleteSetupScope({ skillScope, projectPath } = {}) {
     return { skillScope: 'project', projectPath: resolvedProjectPath };
   }
   return { skillScope: 'global', projectPath: '' };
+}
+
+// Start fresh permanently deletes local Claude Code data, so main issues a single-use review and
+// requires the exact typed phrase before it will run the installer with --fresh. The renderer's
+// own confirmation is never trusted on its own.
+const FRESH_SETUP_CONFIRMATION = 'DELETE CLAUDE DATA';
+const FRESH_SETUP_REVIEW_LIFETIME_MS = 10 * 60 * 1000;
+const FRESH_SETUP_MAX_REVIEWS = 20;
+
+async function reviewFreshSetup(payload = {}) {
+  if (activeInstall) return { ok: false, error: 'An installation is already running.' };
+  let setupScope;
+  try {
+    setupScope = await resolveCompleteSetupScope(payload);
+  } catch (error) {
+    return { ok: false, error: `Choose a valid project folder before installing project skills: ${error.message}` };
+  }
+  for (const [id, plan] of reviewedFreshSetupPlans) {
+    if (Date.now() - plan.createdAt > FRESH_SETUP_REVIEW_LIFETIME_MS) reviewedFreshSetupPlans.delete(id);
+  }
+  const reviewId = randomUUID();
+  reviewedFreshSetupPlans.set(reviewId, { createdAt: Date.now(), ...setupScope });
+  while (reviewedFreshSetupPlans.size > FRESH_SETUP_MAX_REVIEWS) reviewedFreshSetupPlans.delete(reviewedFreshSetupPlans.keys().next().value);
+  return {
+    ok: true,
+    reviewId,
+    confirmation: FRESH_SETUP_CONFIRMATION,
+    skillScope: setupScope.skillScope,
+    projectPath: setupScope.projectPath,
+    items: [
+      'Local Claude Code versions installed on this computer',
+      'Claude Code settings, session history, and MCP configuration',
+      'The local tool stack and reference copies CCTI installed',
+      'The Node.js runtime CCTI manages for this app',
+    ],
+    warning: 'This cannot be undone. Complete setup then runs again to rebuild a clean recommended setup.',
+  };
+}
+
+// Consumes the review (single use) whether or not the rest of the check passes.
+function takeFreshSetupReview({ reviewId, confirmation } = {}) {
+  if (confirmation !== FRESH_SETUP_CONFIRMATION) {
+    return { ok: false, error: `Type ${FRESH_SETUP_CONFIRMATION} exactly to start fresh. Nothing was deleted.` };
+  }
+  const id = String(reviewId || '');
+  const plan = reviewedFreshSetupPlans.get(id);
+  reviewedFreshSetupPlans.delete(id);
+  if (!plan || Date.now() - plan.createdAt > FRESH_SETUP_REVIEW_LIFETIME_MS) {
+    return { ok: false, error: 'This Start fresh review has expired or was already used. Review it again. Nothing was deleted.' };
+  }
+  return { ok: true, setupScope: { skillScope: plan.skillScope, projectPath: plan.projectPath } };
 }
 
 async function selectedComponents(componentIds) {
@@ -4042,14 +4094,23 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('setup:review-fresh', async (_event, payload) => reviewFreshSetup(payload || {}));
+
   ipcMain.handle('setup:complete', async (_event, payload = {}) => {
-    const { fresh } = payload;
+    const fresh = payload.fresh === true;
     if (activeInstall) return { ok: false, error: 'An installation is already running.' };
     let setupScope;
-    try {
-      setupScope = await resolveCompleteSetupScope(payload);
-    } catch (error) {
-      return { ok: false, error: `Choose a valid project folder before installing project skills: ${error.message}` };
+    if (fresh) {
+      // Start fresh runs only the scope main reviewed, after the exact typed phrase.
+      const reviewed = takeFreshSetupReview(payload);
+      if (!reviewed.ok) return { ok: false, error: reviewed.error, installed: false, version: '' };
+      setupScope = reviewed.setupScope;
+    } else {
+      try {
+        setupScope = await resolveCompleteSetupScope(payload);
+      } catch (error) {
+        return { ok: false, error: `Choose a valid project folder before installing project skills: ${error.message}` };
+      }
     }
     activeInstall = true;
     emit('installer:state', { running: true });

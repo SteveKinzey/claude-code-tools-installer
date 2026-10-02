@@ -562,6 +562,27 @@
       </form>
     </dialog>
 
+    <dialog id="start-fresh-dialog" class="duplicate-skill-dialog" aria-labelledby="start-fresh-dialog-heading" aria-describedby="start-fresh-dialog-copy" aria-modal="true">
+      <form method="dialog" class="duplicate-skill-dialog-content">
+        <p class="eyebrow">DELETE FOR GOOD</p>
+        <h2 id="start-fresh-dialog-heading" tabindex="-1">Start fresh</h2>
+        <p id="start-fresh-dialog-copy">Start fresh permanently deletes local Claude Code data, then runs Complete setup again to rebuild a clean recommended setup.</p>
+        <div class="resolve-duplicate-changes">
+          <h3 id="start-fresh-dialog-review-heading">CCTI will permanently delete</h3>
+          <ul id="start-fresh-dialog-review-list" class="resolve-duplicate-changes-list"></ul>
+          <p id="start-fresh-dialog-warning" class="permanent-delete-warning"></p>
+          <label class="permanent-delete-confirm" for="start-fresh-confirmation">Type DELETE CLAUDE DATA to confirm
+            <input id="start-fresh-confirmation" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </label>
+        </div>
+        <p id="start-fresh-dialog-status" role="status" aria-live="polite"></p>
+        <div class="duplicate-skill-dialog-actions">
+          <button id="apply-start-fresh-button" class="button button-danger" type="button" disabled>Delete and start fresh</button>
+          <button id="cancel-start-fresh-button" class="button button-ghost" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="../tool-matcher.js"></script>
     <script src="../project-interview.js"></script>
     <script src="../inventory/manage-view.js"></script>

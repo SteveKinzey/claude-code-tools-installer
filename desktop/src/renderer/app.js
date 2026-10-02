@@ -122,6 +122,14 @@ const permanentDeleteDialogStatusElement = document.querySelector('#permanent-de
 const reviewPermanentDeleteButton = document.querySelector('#review-permanent-delete-button');
 const applyPermanentDeleteButton = document.querySelector('#apply-permanent-delete-button');
 const cancelPermanentDeleteButton = document.querySelector('#cancel-permanent-delete-button');
+const startFreshDialogElement = document.querySelector('#start-fresh-dialog');
+const startFreshDialogHeadingElement = document.querySelector('#start-fresh-dialog-heading');
+const startFreshDialogReviewListElement = document.querySelector('#start-fresh-dialog-review-list');
+const startFreshDialogWarningElement = document.querySelector('#start-fresh-dialog-warning');
+const startFreshConfirmationElement = document.querySelector('#start-fresh-confirmation');
+const startFreshDialogStatusElement = document.querySelector('#start-fresh-dialog-status');
+const applyStartFreshButton = document.querySelector('#apply-start-fresh-button');
+const cancelStartFreshButton = document.querySelector('#cancel-start-fresh-button');
 const duplicateReviewElement = document.querySelector('#duplicate-review');
 const duplicateReviewListElement = document.querySelector('#duplicate-review-list');
 const duplicateReviewSummaryElement = document.querySelector('#duplicate-review-summary');
@@ -1212,13 +1220,62 @@ async function removeClaudeCode() {
   await refreshClaudeStatus();
 }
 
-async function runCompleteSetup(fresh = false) {
+const START_FRESH_PHRASE = 'DELETE CLAUDE DATA';
+
+// Start fresh uses an in-app typed confirmation (Electron does not support window.prompt). Main
+// issues a single-use review and checks the typed phrase again before anything is deleted.
+async function openStartFreshDialog() {
+  if (typeof startFreshDialogElement?.showModal !== 'function' || state.running) return;
+  if (document.activeElement instanceof HTMLElement) state.startFreshInvoker = document.activeElement;
+  startFreshButton.disabled = true;
+  let review;
+  try {
+    review = await window.installer.reviewFreshSetup({
+      skillScope: state.completeSetupScope.skillScope,
+      projectPath: state.completeSetupScope.projectPath,
+    });
+  } catch (error) {
+    review = { ok: false, error: error?.message || 'CCTI could not review Start fresh.' };
+  } finally {
+    startFreshButton.disabled = !state.claudeInstalled || state.running;
+  }
+  if (!review?.ok || !review.reviewId) {
+    const error = review?.error || 'CCTI could not review Start fresh. Nothing was deleted.';
+    setupNoteElement.textContent = error;
+    appendOutput(`${error}\n`, 'stderr');
+    return;
+  }
+  state.startFresh = { reviewId: review.reviewId };
+  startFreshDialogReviewListElement.replaceChildren(...(review.items || []).map((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    return item;
+  }));
+  startFreshDialogWarningElement.textContent = review.warning || 'This cannot be undone.';
+  startFreshConfirmationElement.value = '';
+  applyStartFreshButton.disabled = true;
+  startFreshDialogStatusElement.textContent = `Type ${START_FRESH_PHRASE}, then choose Delete and start fresh.`;
+  if (!startFreshDialogElement.open) startFreshDialogElement.showModal();
+  focusDuplicateDialog(startFreshDialogHeadingElement);
+}
+
+function applyStartFresh() {
+  const pending = state.startFresh;
+  const confirmation = startFreshConfirmationElement.value;
+  if (!pending?.reviewId || confirmation !== START_FRESH_PHRASE) return;
+  state.startFresh = null;
+  startFreshConfirmationElement.value = '';
+  applyStartFreshButton.disabled = true;
+  startFreshDialogElement.close();
+  runCompleteSetup(true, { reviewId: pending.reviewId, confirmation });
+}
+
+async function runCompleteSetup(fresh = false, freshReview = null) {
   const selected = selectedItems();
   const recommendedNames = selected.map((tool) => `• ${tool.name}`).join('\n');
   const scopeDescription = completeSetupScopeDescription();
   if (fresh) {
-    const confirmation = window.prompt('Start fresh permanently deletes local Claude Code versions, settings, session history, MCP configuration, the local tool stack, and this app-managed Node.js runtime.\n\nType DELETE CLAUDE DATA to continue.');
-    if (confirmation !== 'DELETE CLAUDE DATA') return;
+    if (!freshReview?.reviewId || freshReview.confirmation !== START_FRESH_PHRASE) return;
   } else if (!window.confirm(`Complete setup will automatically install missing prerequisites, Claude Code, and this recommended tool set:\n\n${recommendedNames}\n\n${scopeDescription}\n\nCCTI installs supported recommended plugins inside the app. You do not need to type or paste terminal commands. Claude Code will open after installation so you can sign in.`)) {
     return;
   }
@@ -1238,6 +1295,7 @@ async function runCompleteSetup(fresh = false) {
       fresh,
       skillScope: state.completeSetupScope.skillScope,
       projectPath: state.completeSetupScope.projectPath,
+      ...(fresh ? { reviewId: freshReview.reviewId, confirmation: freshReview.confirmation } : {}),
     });
     if (!result) throw new Error('Complete setup did not return a result.');
   } catch (error) {
@@ -2934,7 +2992,25 @@ completeSetupExistingProjectButton.addEventListener('click', () => chooseComplet
 completeSetupNewProjectButton.addEventListener('click', () => chooseCompleteSetupProject(true));
 reportAnonymousSuccessButton.addEventListener('click', reportAnonymousSuccess);
 skipAnonymousSuccessButton.addEventListener('click', skipAnonymousSuccess);
-startFreshButton.addEventListener('click', () => runCompleteSetup(true));
+startFreshButton.addEventListener('click', openStartFreshDialog);
+applyStartFreshButton.addEventListener('click', applyStartFresh);
+cancelStartFreshButton.addEventListener('click', () => startFreshDialogElement.close());
+startFreshConfirmationElement.addEventListener('input', () => {
+  applyStartFreshButton.disabled = !state.startFresh?.reviewId || startFreshConfirmationElement.value !== START_FRESH_PHRASE;
+});
+// Enter in the confirmation field must never submit the dialog's form (which would close it).
+startFreshDialogElement.querySelector('form').addEventListener('submit', (event) => event.preventDefault());
+startFreshDialogElement.addEventListener('close', () => {
+  if (startFreshDialogElement.open) return;
+  state.startFresh = null;
+  startFreshConfirmationElement.value = '';
+  applyStartFreshButton.disabled = true;
+  const invoker = state.startFreshInvoker;
+  state.startFreshInvoker = null;
+  setTimeout(() => {
+    if (invoker?.isConnected && !invoker.disabled) invoker.focus();
+  }, 0);
+});
 useExistingButton.addEventListener('click', () => {
   state.claudeInstalled = true;
   state.claudeApproved = true;

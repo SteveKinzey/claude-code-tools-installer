@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('installer', {
   installClaudeOnly: () => ipcRenderer.invoke('claude:install-only'),
   verifySetup: (payload) => ipcRenderer.invoke('setup:verify', payload),
   chooseCompleteSetupProject: (payload) => ipcRenderer.invoke('setup:choose-project', payload),
+  reviewFreshSetup: (payload) => ipcRenderer.invoke('setup:review-fresh', payload),
   runCompleteSetup: (payload) => ipcRenderer.invoke('setup:complete', payload),
   runInstall: (payload) => ipcRenderer.invoke('install:run', payload),
   chooseComponentProject: () => ipcRenderer.invoke('components:choose-project'),

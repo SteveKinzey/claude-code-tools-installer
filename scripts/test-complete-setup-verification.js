@@ -233,6 +233,63 @@ async function run() {
     assert.deepEqual(projectInstallerSpawn.args.slice(-2), [skillScopeFlag, 'project'], 'Project setup must state its noninteractive skill scope to the trusted adapter');
     assert.equal(projectInstallerSpawn.options.cwd, project, 'Project setup must run skills commands from the selected project folder');
 
+    // Start fresh: main requires its own single-use review plus the exact typed phrase.
+    const freshFlag = isWindows ? '-Fresh' : '--fresh';
+    const freshSpawns = () => spawns.filter((entry) => commandName(entry.command) === installerCommand && entry.args.includes(freshFlag)).length;
+    const reviewFresh = handlers.get('setup:review-fresh');
+    assert.ok(reviewFresh, 'Start fresh must have a main-process review handler');
+    const unreviewedFresh = await completeSetup(null, { fresh: true, skillScope: 'global', confirmation: 'DELETE CLAUDE DATA' });
+    assert.equal(unreviewedFresh.ok, false, 'Start fresh without a main-issued review must be refused');
+    assert.match(unreviewedFresh.error, /review it again/i);
+    const forgedFresh = await completeSetup(null, { fresh: true, skillScope: 'global', reviewId: '00000000-0000-4000-8000-000000000000', confirmation: 'DELETE CLAUDE DATA' });
+    assert.equal(forgedFresh.ok, false, 'Start fresh with an unknown review must be refused');
+    assert.equal(freshSpawns(), 0, 'nothing may run with --fresh before a valid review and phrase');
+
+    const wrongPhraseReview = await reviewFresh(null, { skillScope: 'global' });
+    assert.equal(wrongPhraseReview.ok, true);
+    assert.match(wrongPhraseReview.reviewId, /^[0-9a-f-]{36}$/);
+    assert.equal(wrongPhraseReview.confirmation, 'DELETE CLAUDE DATA');
+    assert.ok(wrongPhraseReview.items.length >= 3, 'the review lists what will be deleted');
+    for (const phrase of ['', 'delete claude data', 'DELETE CLAUDE DATA ', 'DELETE', undefined]) {
+      const wrong = await completeSetup(null, { fresh: true, skillScope: 'global', reviewId: wrongPhraseReview.reviewId, confirmation: phrase });
+      assert.equal(wrong.ok, false, `${JSON.stringify(phrase)} must not start fresh`);
+      assert.match(wrong.error, /Type DELETE CLAUDE DATA exactly/);
+    }
+    assert.equal(freshSpawns(), 0, 'a wrong phrase must never start fresh');
+
+    const freshReview = await reviewFresh(null, { skillScope: 'project', projectPath: project });
+    assert.equal(freshReview.ok, true);
+    assert.equal(freshReview.projectPath, project);
+    // The scope main reviewed is the one that runs, whatever the apply payload claims.
+    const freshResult = await completeSetup(null, { fresh: true, skillScope: 'global', reviewId: freshReview.reviewId, confirmation: 'DELETE CLAUDE DATA' });
+    assert.equal(freshResult.skillScope, 'project', 'Start fresh must run the reviewed scope');
+    assert.equal(freshSpawns(), 1, 'a reviewed Start fresh with the exact phrase runs once');
+    const freshSpawn = spawns.filter((entry) => commandName(entry.command) === installerCommand && entry.args.includes(freshFlag)).at(-1);
+    assert.ok(freshSpawn.args.includes(isWindows ? '-FreshConfirmed' : '--fresh-confirmed'));
+    assert.equal(freshSpawn.options.cwd, project);
+    const reusedFresh = await completeSetup(null, { fresh: true, skillScope: 'project', projectPath: project, reviewId: freshReview.reviewId, confirmation: 'DELETE CLAUDE DATA' });
+    assert.equal(reusedFresh.ok, false, 'a Start fresh review applies once');
+    assert.equal(freshSpawns(), 1);
+
+    const expiringReview = await reviewFresh(null, { skillScope: 'global' });
+    const realNow = Date.now;
+    Date.now = () => realNow() + 11 * 60 * 1000;
+    try {
+      const expired = await completeSetup(null, { fresh: true, skillScope: 'global', reviewId: expiringReview.reviewId, confirmation: 'DELETE CLAUDE DATA' });
+      assert.equal(expired.ok, false, 'a Start fresh review expires after 10 minutes');
+      assert.match(expired.error, /expired/i);
+    } finally {
+      Date.now = realNow;
+    }
+    assert.equal(freshSpawns(), 1);
+    const reviewIds = [];
+    for (let index = 0; index < 25; index += 1) reviewIds.push((await reviewFresh(null, { skillScope: 'global' })).reviewId);
+    const evicted = await completeSetup(null, { fresh: true, skillScope: 'global', reviewId: reviewIds[0], confirmation: 'DELETE CLAUDE DATA' });
+    assert.equal(evicted.ok, false, 'the oldest Start fresh review is evicted once more than 20 are open');
+    assert.equal(freshSpawns(), 1);
+    const badScopeReview = await reviewFresh(null, { skillScope: 'project', projectPath: path.join(tempRoot, 'missing-project') });
+    assert.equal(badScopeReview.ok, false, 'Start fresh cannot be reviewed for a missing project folder');
+
     const invalidScope = await completeSetup(null, { fresh: false, skillScope: 'project', projectPath: path.join(tempRoot, 'missing-project') });
     assert.equal(invalidScope.ok, false, 'Project setup must reject an unreviewed or missing project folder before starting the installer');
     assert.match(invalidScope.error, /choose a valid project folder/i);
