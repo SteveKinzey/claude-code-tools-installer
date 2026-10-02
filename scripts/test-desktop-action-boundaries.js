@@ -33,9 +33,10 @@ function spawnStub(command, args = []) {
     return child;
   }
   queueMicrotask(() => {
-    // On Windows, npm.cmd is launched through cmd.exe as one quoted command line
-    // ('"npm.cmd" install <package>'); elsewhere it is "npm" with separate arguments.
-    if (completeSetup || /^"?npm(\.cmd)?"?(\s|$)/.test(String(command))) child.emit('close', 0);
+    // On Windows, npm.cmd is resolved to an absolute path and launched through cmd.exe as one
+    // quoted command line ('"C:\\...\\npm.cmd" install <package>'); elsewhere it is "npm" with
+    // separate arguments.
+    if (completeSetup || /^"?(?:[^"]*[\\/])?npm(\.cmd)?"?(\s|$)/i.test(String(command))) child.emit('close', 0);
     else child.emit('close', 1);
   });
   return child;

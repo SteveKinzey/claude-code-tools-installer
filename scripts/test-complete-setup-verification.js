@@ -12,8 +12,12 @@ const tempRoot = path.join(os.tmpdir(), `ccti-complete-setup-${process.pid}`);
 const home = path.join(tempRoot, 'home');
 const project = path.join(tempRoot, 'project');
 const fakeClaudePath = path.join(home, '.local', 'bin', isWindows ? 'claude.exe' : 'claude');
-const commandLocator = isWindows ? 'where.exe' : 'which';
-const installerCommand = isWindows ? 'pwsh.exe' : 'bash';
+const commandLocator = isWindows ? 'where' : 'which';
+const installerCommand = isWindows ? 'pwsh' : 'bash';
+// On Windows CCTI resolves every bare program name to an absolute path from absolute PATH entries
+// (never the project folder), so the stub compares program names without folder or extension.
+const windowsFixtureBin = path.join(tempRoot, 'windows-bin');
+const commandName = (command) => isWindows ? path.basename(String(command)).toLowerCase().replace(/\.(?:exe|cmd)$/, '') : command;
 const completeFlag = isWindows ? '-Complete' : '--complete';
 const noLaunchFlag = isWindows ? '-NoLaunch' : '--no-launch';
 const appManagedPluginsFlag = isWindows ? '-AppManagedPlugins' : '--app-managed-plugins';
@@ -47,7 +51,7 @@ function spawnStub(command, args = [], options = {}) {
   const child = childProcess();
   spawns.push({ command, args: [...args], options: { ...options } });
   const requested = args[0] || '';
-  if (command === commandLocator) {
+  if (commandName(command) === commandLocator) {
     const locations = {
       claude: fakeClaudePath,
       bun: path.join(home, '.bun', 'bin', 'bun'),
@@ -56,11 +60,11 @@ function spawnStub(command, args = [], options = {}) {
     finish(child, locations[requested] ? { stdout: `${locations[requested]}\n` } : { code: 1 });
     return child;
   }
-  if (command === 'bun') {
+  if (commandName(command) === 'bun') {
     finish(child, { stdout: '1.4.0\n' });
     return child;
   }
-  if (command === 'repomix') {
+  if (commandName(command) === 'repomix') {
     finish(child, { stdout: 'repomix 1.0.0\n' });
     return child;
   }
@@ -78,7 +82,7 @@ function spawnStub(command, args = [], options = {}) {
     } else finish(child, { code: 1, stderr: 'Unexpected Claude command\n' });
     return child;
   }
-  if (command === installerCommand && args.includes(completeFlag)) {
+  if (commandName(command) === installerCommand && args.includes(completeFlag)) {
     if (hangNextCompleteSetup) {
       hangNextCompleteSetup = false;
       return child;
@@ -141,6 +145,15 @@ async function run() {
       fs.mkdir(home, { recursive: true }),
       fs.mkdir(project, { recursive: true }),
     ]);
+    if (isWindows) {
+      await fs.mkdir(windowsFixtureBin, { recursive: true });
+      await Promise.all(['where.exe', 'pwsh.exe', 'bun.exe', 'repomix.exe'].map((name) => fs.writeFile(path.join(windowsFixtureBin, name), '')));
+      // A planted installer in the project folder must never be chosen.
+      await fs.writeFile(path.join(project, 'pwsh.exe'), '');
+      const inherited = process.env.PATH || process.env.Path || '';
+      process.env.PATH = `${windowsFixtureBin};${inherited}`;
+      process.env.Path = process.env.PATH;
+    }
     await Promise.all([
       fs.mkdir(path.dirname(fakeClaudePath), { recursive: true }).then(() => fs.writeFile(fakeClaudePath, '')),
       writeFixture('.bun/bin/bun'),
@@ -177,7 +190,7 @@ async function run() {
     assert.equal(setupResult.skillScope, 'global');
     assert.equal(setupResult.projectPath, '');
 
-    const installerSpawn = spawns.find((entry) => entry.command === installerCommand && entry.args.includes(completeFlag));
+    const installerSpawn = spawns.find((entry) => commandName(entry.command) === installerCommand && entry.args.includes(completeFlag));
     assert.ok(installerSpawn, 'Complete setup must use the trusted installer adapter');
     assert.ok(installerSpawn.args.includes(noLaunchFlag), 'Complete setup must not open a terminal and bypass the saved terminal preference.');
     assert.ok(installerSpawn.args.includes(appManagedPluginsFlag), 'Complete setup must tell the adapter that plugin installation stays inside CCTI');
@@ -212,7 +225,11 @@ async function run() {
     assert.equal(projectResult.ok, true, 'Project scope must also verify the selected project skills before reporting setup success');
     assert.equal(projectResult.skillScope, 'project', 'Project scope must be preserved in the complete-setup result');
     assert.equal(projectResult.projectPath, project, 'Project scope must report the reviewed project folder');
-    const projectInstallerSpawn = spawns.filter((entry) => entry.command === installerCommand && entry.args.includes(completeFlag)).at(-1);
+    const projectInstallerSpawn = spawns.filter((entry) => commandName(entry.command) === installerCommand && entry.args.includes(completeFlag)).at(-1);
+    if (isWindows) {
+      assert.equal(projectInstallerSpawn.command, path.join(windowsFixtureBin, 'pwsh.exe'), 'Project setup must start pwsh.exe from an absolute PATH entry, never the planted copy in the project folder');
+      assert.equal(projectInstallerSpawn.options.env.NoDefaultCurrentDirectoryInExePath, '1', 'cmd.exe must not search the project folder for programs');
+    }
     assert.deepEqual(projectInstallerSpawn.args.slice(-2), [skillScopeFlag, 'project'], 'Project setup must state its noninteractive skill scope to the trusted adapter');
     assert.equal(projectInstallerSpawn.options.cwd, project, 'Project setup must run skills commands from the selected project folder');
 

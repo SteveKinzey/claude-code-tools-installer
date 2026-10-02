@@ -12,7 +12,7 @@ const { reconcileInventory } = require('./inventory/reconcile');
 const { compareSkillKeeper, duplicateGroupId, mcpDuplicateGroups, pluginDuplicateGroups, isSafeMcpName, isSafePluginId } = require('./inventory/duplicates');
 const { mcpDefinitions, pluginInstalls } = require('./inventory/config-scan');
 const { planResolution, groupFingerprint } = require('./inventory/resolvers');
-const { spawnSafely } = require('./windows-command');
+const { spawnSafely, resolveWindowsExecutable, windowsPathFromEnv } = require('./windows-command');
 
 if (process.env.CCTI_ELECTRON_TEST === '1' && process.env.CCTI_TEST_HOME) {
   app.setPath('home', path.resolve(process.env.CCTI_TEST_HOME));
@@ -233,12 +233,27 @@ function claudeProcessEnv() {
       path.join(home, '.cargo', 'bin'),
   ];
   const inheritedPath = process.env.PATH || process.env.Path || '';
-  const resolvedPath = [...new Set([nativeBin, bunBin, managedNodeBin, ...commonPaths, inheritedPath].filter(Boolean).join(path.delimiter).split(path.delimiter).filter(Boolean))].join(path.delimiter);
+  // Same as path.delimiter on every real host; spelled out so the Windows rules also hold when the
+  // tests simulate Windows on another platform.
+  const delimiter = process.platform === 'win32' ? ';' : ':';
+  const resolvedPath = [...new Set([nativeBin, bunBin, managedNodeBin, ...commonPaths, inheritedPath].filter(Boolean).join(delimiter).split(delimiter).filter(Boolean))].join(delimiter);
   return {
     ...process.env,
     PATH: resolvedPath,
-    ...(process.platform === 'win32' ? { Path: resolvedPath } : {}),
+    // NoDefaultCurrentDirectoryInExePath stops cmd.exe (and the .cmd shims it runs, such as
+    // npm.cmd looking for node) from picking a program out of the working folder, which may be
+    // an untrusted project.
+    ...(process.platform === 'win32' ? { Path: resolvedPath, NoDefaultCurrentDirectoryInExePath: '1' } : {}),
   };
+}
+
+// On Windows a bare program name is looked up in the working folder before PATH. Resolve it to an
+// absolute path from absolute PATH entries only; throws WINDOWS_EXECUTABLE_NOT_FOUND otherwise.
+// Other platforms are unchanged.
+function trustedExecutable(command, env) {
+  if (process.platform !== 'win32') return command;
+  const source = env || process.env;
+  return resolveWindowsExecutable(command, { pathValue: windowsPathFromEnv(source), pathext: source.PATHEXT });
 }
 
 function catalogResource() {
@@ -1346,7 +1361,14 @@ function quotePosix(value) {
 
 function startDetached(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: false, ...options });
+    let executable;
+    try {
+      executable = trustedExecutable(command, options.env);
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const child = spawn(executable, args, { detached: true, stdio: 'ignore', windowsHide: false, ...options });
     child.once('error', reject);
     child.once('spawn', () => { child.unref(); resolve(); });
   });
@@ -1399,7 +1421,10 @@ async function openSelectedTerminal({ folder, command, preference }) {
   if (process.platform === 'win32') {
     const launchScript = `Set-Location -LiteralPath ${quotePowerShell(folder)}; ${command}`;
     if (terminal.launcher === 'windows-terminal') {
-      await startDetached(terminalCommand, ['-d', folder, 'powershell.exe', '-NoLogo', '-NoProfile', '-NoExit', '-Command', launchScript], { cwd: folder, env });
+      // Windows Terminal starts its command line from the project folder, so pass PowerShell as
+      // an absolute path rather than a bare name it could find there.
+      const powershell = trustedExecutable('powershell.exe', env);
+      await startDetached(terminalCommand, ['-d', folder, powershell, '-NoLogo', '-NoProfile', '-NoExit', '-Command', launchScript], { cwd: folder, env });
     } else {
       await startDetached(terminalCommand, ['-NoLogo', '-NoProfile', '-NoExit', '-Command', launchScript], { cwd: folder, env });
     }
@@ -1924,10 +1949,21 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false, { skillScope = '
       if (timeout) clearTimeout(timeout);
       resolve(result);
     };
-    const child = spawn(definition.command, args, {
+    const env = claudeProcessEnv();
+    let executable;
+    try {
+      // On Windows the installer may run with an untrusted project as its working folder, so
+      // pwsh.exe is resolved to an absolute path and never picked from that folder.
+      executable = trustedExecutable(definition.command, env);
+    } catch (error) {
+      settled = true;
+      reject(new Error(`Could not start ${definition.command}: ${error.message}`));
+      return;
+    }
+    const child = spawn(executable, args, {
       cwd: skillScope === 'project' && projectPath ? projectPath : app.getPath('home'),
       windowsHide: true,
-      env: claudeProcessEnv(),
+      env,
     });
 
     child.stdout.on('data', (chunk) => emit('installer:output', { stream: 'stdout', text: chunk.toString() }));

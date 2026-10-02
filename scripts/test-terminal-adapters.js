@@ -49,7 +49,8 @@ function child() {
 function fakeSpawn(command, args, options = {}) {
   const result = child();
   process.nextTick(() => {
-    if (command === 'which' || command === 'where.exe') {
+    if (platform === 'win32' && command === 'where.exe') throw new Error('where.exe must be resolved to an absolute path before it is spawned');
+    if (command === 'which' || command === 'C:\\Windows\\System32\\where.exe') {
       if (platform === 'win32') assert.match(options.env?.Path || '', /Windows\\System32/, 'Windows command discovery must preserve a mixed-case inherited Path variable');
       const located = commandLocations[args[0]] || '';
       if (located) {
@@ -99,8 +100,28 @@ const originalPreferenceTest = process.env.CCTI_TERMINAL_PREFERENCE_TEST;
 const originalBundlePaths = process.env.CCTI_TEST_TERMINAL_BUNDLE_PATHS;
 const originalPath = process.env.PATH;
 const originalWindowsPath = process.env.Path;
+// On Windows CCTI resolves bare program names (where.exe, powershell.exe) to absolute paths from
+// absolute PATH entries only. Simulate the Windows files those lookups probe.
+const windowsFixtureFiles = new Set(['C:\\Windows\\System32\\where.exe', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe']);
+const windowsFs = {
+  ...fs,
+  statSync(candidate, ...rest) {
+    if (/^[A-Za-z]:\\/.test(String(candidate))) {
+      if (windowsFixtureFiles.has(String(candidate))) return { isFile: () => true };
+      const error = new Error(`ENOENT: ${candidate}`);
+      error.code = 'ENOENT';
+      throw error;
+    }
+    return fs.statSync(candidate, ...rest);
+  },
+  lstatSync(candidate, ...rest) {
+    if (/^[A-Za-z]:\\/.test(String(candidate))) return windowsFs.statSync(candidate);
+    return fs.lstatSync(candidate, ...rest);
+  },
+};
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'electron') return electronStub;
+  if (request === 'node:fs' && platform === 'win32') return windowsFs;
   if (request === 'node:child_process') return { spawn: fakeSpawn };
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -110,7 +131,7 @@ process.env.CCTI_TERMINAL_PREFERENCE_TEST = '1';
 process.env.CCTI_TEST_TERMINAL_BUNDLE_PATHS = JSON.stringify(macBundles);
 if (platform === 'win32') {
   delete process.env.PATH;
-  process.env.Path = 'C:\\Windows\\System32';
+  process.env.Path = 'C:\\Windows\\System32;C:\\Windows\\System32\\WindowsPowerShell\\v1.0';
 }
 
 async function select(setPreference, terminalId) {
@@ -159,7 +180,15 @@ async function run() {
       assert.equal(launched.ok, true);
       assert.match(launched.message, /Windows Terminal/);
       assert.equal(launches.at(-1).command, commandLocations['wt.exe']);
-      assert.deepEqual(launches.at(-1).args.slice(0, 6), ['-d', home, 'powershell.exe', '-NoLogo', '-NoProfile', '-NoExit']);
+      assert.deepEqual(launches.at(-1).args.slice(0, 6), ['-d', home, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', '-NoLogo', '-NoProfile', '-NoExit'], 'Windows Terminal must receive PowerShell as an absolute path, never a bare name it could find in the project folder');
+      // A bare program name that is not on an absolute PATH entry fails instead of being searched
+      // for in the project folder.
+      const savedPath = process.env.Path;
+      process.env.Path = 'C:\\Windows\\System32';
+      const refused = await runClaude(null, { projectPath: home });
+      process.env.Path = savedPath;
+      assert.equal(refused.ok, false, 'an unresolvable powershell.exe must stop the launch');
+      assert.equal(launches.at(-1).args[2], 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 'nothing new may be launched when powershell.exe cannot be resolved');
       assert.match(launches.at(-1).args.at(-1), /Set-Location -LiteralPath/);
       assert.match(launches.at(-1).args.at(-1), /ComSpec/);
       assert.match(launches.at(-1).args.at(-1), /claude\.cmd/);
