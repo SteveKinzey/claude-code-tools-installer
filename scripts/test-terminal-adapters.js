@@ -22,9 +22,10 @@ const fakeClaudePath = platform === 'win32'
   : path.join(home, '.local', 'bin', 'claude');
 const handlers = new Map();
 const launches = [];
+const externalUrls = [];
 let readyCallback;
 
-const macBundles = Object.fromEntries(['iTerm.app', 'Ghostty.app', 'WezTerm.app', 'Alacritty.app', 'kitty.app'].map((bundle) => [bundle, path.join(home, 'Applications', bundle)]));
+const macBundles = Object.fromEntries(['iTerm.app', 'Ghostty.app', 'WezTerm.app', 'Alacritty.app', 'kitty.app', 'Warp.app', 'Hyper.app', 'Tabby.app'].map((bundle) => [bundle, path.join(home, 'Applications', bundle)]));
 const commandLocations = {
   claude: fakeClaudePath,
   'pwsh.exe': 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
@@ -36,6 +37,18 @@ const commandLocations = {
   xterm: '/usr/bin/xterm',
   kitty: '/usr/bin/kitty',
   alacritty: '/usr/bin/alacritty',
+  'warp-terminal': '/usr/bin/warp-terminal',
+  hyper: '/usr/bin/hyper',
+  tabby: '/usr/bin/tabby',
+};
+// Windows terminal apps found at absolute known install folders (Hyper, Tabby, Warp) or, for
+// Git Bash, next to the git.exe found on an absolute PATH entry.
+const windowsApps = {
+  hyper: 'C:\\Users\\fixture\\AppData\\Local\\Programs\\Hyper\\Hyper.exe',
+  tabby: 'C:\\Program Files\\Tabby\\Tabby.exe',
+  warp: 'C:\\Users\\fixture\\AppData\\Local\\Programs\\Warp\\warp.exe',
+  git: 'D:\\Tools\\Git\\cmd\\git.exe',
+  gitBash: 'D:\\Tools\\Git\\git-bash.exe',
 };
 
 function child() {
@@ -89,7 +102,7 @@ const electronStub = {
   BrowserWindow: class { static getAllWindows() { return []; } constructor() { this.webContents = { send: () => {} }; } async loadFile() {} isDestroyed() { return false; } },
   dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showSaveDialog: async () => ({ canceled: true, filePath: '' }) },
   Notification: class { static isSupported() { return false; } },
-  shell: { openExternal: async () => {} },
+  shell: { openExternal: async (url) => { externalUrls.push(url); } },
   ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
 };
 
@@ -100,9 +113,10 @@ const originalPreferenceTest = process.env.CCTI_TERMINAL_PREFERENCE_TEST;
 const originalBundlePaths = process.env.CCTI_TEST_TERMINAL_BUNDLE_PATHS;
 const originalPath = process.env.PATH;
 const originalWindowsPath = process.env.Path;
+const originalWindowsFolders = { LOCALAPPDATA: process.env.LOCALAPPDATA, ProgramFiles: process.env.ProgramFiles, 'ProgramFiles(x86)': process.env['ProgramFiles(x86)'] };
 // On Windows CCTI resolves bare program names (where.exe, powershell.exe) to absolute paths from
 // absolute PATH entries only. Simulate the Windows files those lookups probe.
-const windowsFixtureFiles = new Set(['C:\\Windows\\System32\\where.exe', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe']);
+const windowsFixtureFiles = new Set(['C:\\Windows\\System32\\where.exe', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', ...Object.values(windowsApps)]);
 const windowsFs = {
   ...fs,
   statSync(candidate, ...rest) {
@@ -131,7 +145,32 @@ process.env.CCTI_TERMINAL_PREFERENCE_TEST = '1';
 process.env.CCTI_TEST_TERMINAL_BUNDLE_PATHS = JSON.stringify(macBundles);
 if (platform === 'win32') {
   delete process.env.PATH;
-  process.env.Path = 'C:\\Windows\\System32;C:\\Windows\\System32\\WindowsPowerShell\\v1.0';
+  process.env.Path = 'C:\\Windows\\System32;C:\\Windows\\System32\\WindowsPowerShell\\v1.0;D:\\Tools\\Git\\cmd';
+  process.env.LOCALAPPDATA = 'C:\\Users\\fixture\\AppData\\Local';
+  process.env.ProgramFiles = 'C:\\Program Files';
+  process.env['ProgramFiles(x86)'] = 'C:\\Program Files (x86)';
+}
+
+const warpUrl = (folder) => `warp://action/new_window?path=${encodeURIComponent(folder)}`;
+
+// Folder-only apps open the folder and say, in the status text, to type claude there.
+async function assertFolderOnly(runClaude, testTerminal, label) {
+  const launched = await runClaude(null, { projectPath: home });
+  assert.equal(launched.ok, true, `${label} must open`);
+  assert.equal(launched.manualStart, true);
+  assert.equal(launched.message, `${label} opened in the selected folder. ${label} does not let CCTI start programs, so type claude in the new ${label} window and press Enter to start Claude Code.`);
+  const tested = await testTerminal();
+  assert.equal(tested.ok, true, `${label} must be testable`);
+  assert.match(tested.message, new RegExp(`^Opened ${label} in your home folder\\. .*a new ${label} window means the test passed\\. .*type claude`));
+}
+
+// A folder-only app that disappears falls back to the default terminal exactly as before.
+async function assertFallback(getPreference, terminalId, removeApp) {
+  await removeApp();
+  const fallback = await getPreference();
+  assert.equal(fallback.storedId, terminalId);
+  assert.equal(fallback.selectedId, 'default', `${terminalId} must fall back to the default terminal when it is removed`);
+  assert.match(fallback.message, /not installed/);
 }
 
 async function select(setPreference, terminalId) {
@@ -159,7 +198,8 @@ async function run() {
     assert.ok(initial.options.every((option) => option.available), `${platform} fixture terminal options must be available`);
 
     if (platform === 'darwin') {
-      assert.deepEqual(initial.options.map((option) => option.id), ['default', 'iterm2', 'ghostty', 'wezterm', 'alacritty', 'kitty']);
+      assert.deepEqual(initial.options.map((option) => option.id), ['default', 'iterm2', 'ghostty', 'wezterm', 'alacritty', 'kitty', 'warp', 'hyper', 'tabby']);
+      assert.deepEqual(initial.options.filter((option) => option.runsCommand === false).map((option) => option.id), ['warp', 'hyper', 'tabby']);
       await select(setPreference, 'ghostty');
       const ghostty = await runClaude(null, { projectPath: home });
       assert.equal(ghostty.ok, true);
@@ -173,8 +213,28 @@ async function run() {
       assert.equal(launches.at(-1).command, 'osascript');
       assert.match(launches.at(-1).args[1], /CCTI terminal launch test passed/);
       assert.match(launches.at(-1).args[1], /tell application id "com\.googlecode\.iterm2"/);
+
+      await select(setPreference, 'warp');
+      const launchCount = launches.length;
+      await assertFolderOnly(runClaude, testTerminal, 'Warp');
+      assert.equal(launches.length, launchCount, 'Warp opens through its documented URI, not a spawned program');
+      assert.deepEqual(externalUrls.slice(-2), [warpUrl(home), warpUrl(home)]);
+
+      await select(setPreference, 'hyper');
+      await assertFolderOnly(runClaude, testTerminal, 'Hyper');
+      assert.deepEqual(launches.at(-2), { command: '/usr/bin/open', args: ['-a', macBundles['Hyper.app'], home], options: null });
+
+      await select(setPreference, 'tabby');
+      await assertFolderOnly(runClaude, testTerminal, 'Tabby');
+      assert.match(launches.at(-2).command.replace(/\\/g, '/'), /Tabby\.app\/Contents\/MacOS\/Tabby$/);
+      assert.deepEqual(launches.at(-2).args, ['open', home]);
+
+      await assertFallback(getPreference, 'tabby', () => fsp.rm(macBundles['Tabby.app'], { recursive: true, force: true }));
+      const fallbackLaunch = await runClaude(null, { projectPath: home });
+      assert.match(fallbackLaunch.message, /^Claude Code opened in Default Terminal .*saved Tabby preference is unavailable/);
+      assert.match(launches.at(-1).args[1], /tell application id "com\.apple\.Terminal"/);
     } else if (platform === 'win32') {
-      assert.deepEqual(initial.options.map((option) => option.id), ['default', 'windows-terminal']);
+      assert.deepEqual(initial.options.map((option) => option.id), ['default', 'windows-terminal', 'git-bash', 'warp', 'hyper', 'tabby']);
       await select(setPreference, 'windows-terminal');
       const launched = await runClaude(null, { projectPath: home });
       assert.equal(launched.ok, true);
@@ -192,17 +252,68 @@ async function run() {
       assert.match(launches.at(-1).args.at(-1), /Set-Location -LiteralPath/);
       assert.match(launches.at(-1).args.at(-1), /ComSpec/);
       assert.match(launches.at(-1).args.at(-1), /claude\.cmd/);
+
+      await select(setPreference, 'git-bash');
+      await assertFolderOnly(runClaude, testTerminal, 'Git Bash');
+      assert.deepEqual(launches.at(-2), { command: windowsApps.gitBash, args: [`--cd=${home}`], options: null }, 'Git Bash is the absolute git-bash.exe next to the git.exe on PATH and opens in the folder');
+
+      await select(setPreference, 'hyper');
+      await assertFolderOnly(runClaude, testTerminal, 'Hyper');
+      assert.deepEqual(launches.at(-2), { command: windowsApps.hyper, args: [home], options: null });
+
+      await select(setPreference, 'tabby');
+      await assertFolderOnly(runClaude, testTerminal, 'Tabby');
+      assert.deepEqual(launches.at(-2), { command: windowsApps.tabby, args: ['open', home], options: null });
+
+      await select(setPreference, 'warp');
+      const launchCount = launches.length;
+      await assertFolderOnly(runClaude, testTerminal, 'Warp');
+      assert.equal(launches.length, launchCount, 'Warp opens through its documented URI, not a spawned program');
+      assert.deepEqual(externalUrls.slice(-2), [warpUrl(home), warpUrl(home)]);
+
+      // Known install folders only come from absolute environment values.
+      const savedLocalAppData = process.env.LOCALAPPDATA;
+      process.env.LOCALAPPDATA = 'relative\\AppData';
+      assert.equal((await getPreference()).options.find((option) => option.id === 'hyper').available, false, 'a relative LOCALAPPDATA must never be used to find Hyper');
+      process.env.LOCALAPPDATA = savedLocalAppData;
+
+      await select(setPreference, 'git-bash');
+      await assertFallback(getPreference, 'git-bash', async () => {
+        windowsFixtureFiles.delete(windowsApps.gitBash);
+      });
+      const fallbackLaunch = await runClaude(null, { projectPath: home });
+      assert.match(fallbackLaunch.message, /^Claude Code opened in PowerShell .*saved Git Bash preference is unavailable/);
+      assert.ok(launches.every((launch) => /^[A-Za-z]:\\/.test(launch.command)), 'every Windows terminal program is started by absolute path');
     } else {
-      assert.deepEqual(initial.options.map((option) => option.id), ['default', 'gnome-terminal', 'konsole', 'xterm', 'kitty', 'alacritty']);
+      assert.deepEqual(initial.options.map((option) => option.id), ['default', 'gnome-terminal', 'konsole', 'xterm', 'kitty', 'alacritty', 'warp', 'hyper', 'tabby']);
       await select(setPreference, 'kitty');
       const launched = await runClaude(null, { projectPath: home });
       assert.equal(launched.ok, true);
       assert.match(launched.message, /Kitty/);
       assert.equal(launches.at(-1).command, commandLocations.kitty);
       assert.deepEqual(launches.at(-1).args, ['--directory', home, 'bash', '-lc', `cd '${home}'; exec '${fakeClaudePath}'`]);
+
+      await select(setPreference, 'hyper');
+      await assertFolderOnly(runClaude, testTerminal, 'Hyper');
+      assert.deepEqual(launches.at(-2), { command: commandLocations.hyper, args: [home], options: null });
+
+      await select(setPreference, 'tabby');
+      await assertFolderOnly(runClaude, testTerminal, 'Tabby');
+      assert.deepEqual(launches.at(-2), { command: commandLocations.tabby, args: ['open', home], options: null });
+
+      await select(setPreference, 'warp');
+      const launchCount = launches.length;
+      await assertFolderOnly(runClaude, testTerminal, 'Warp');
+      assert.equal(launches.length, launchCount, 'Warp opens through its documented URI, not a spawned program');
+      assert.deepEqual(externalUrls.slice(-2), [warpUrl(home), warpUrl(home)]);
+
+      await assertFallback(getPreference, 'warp', async () => { delete commandLocations['warp-terminal']; });
+      const fallbackLaunch = await runClaude(null, { projectPath: home });
+      assert.match(fallbackLaunch.message, /^Claude Code opened in Default system terminal .*saved Warp preference is unavailable/);
+      assert.equal(launches.at(-1).command, commandLocations['x-terminal-emulator']);
     }
 
-    console.log(JSON.stringify({ ok: true, platform, availableChoices: initial.options.map((option) => option.id), checkedLaunches: launches.length }));
+    console.log(JSON.stringify({ ok: true, platform, availableChoices: initial.options.map((option) => option.id), checkedLaunches: launches.length, checkedUriOpens: externalUrls.length }));
   } finally {
     Module._load = originalLoad;
     global.setInterval = originalSetInterval;
@@ -215,6 +326,10 @@ async function run() {
     else process.env.PATH = originalPath;
     if (originalWindowsPath === undefined) delete process.env.Path;
     else process.env.Path = originalWindowsPath;
+    for (const [name, value] of Object.entries(originalWindowsFolders)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     await fsp.rm(tempRoot, { recursive: true, force: true });
   }
 }

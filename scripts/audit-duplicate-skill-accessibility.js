@@ -192,6 +192,9 @@ async function run() {
       { id: 'resolve-duplicate-dialog-status', role: 'status', live: 'polite', busy: null },
       { id: 'permanent-delete-dialog-status', role: 'status', live: 'polite', busy: null },
       { id: 'typed-confirm-status', role: 'status', live: 'polite', busy: null },
+      { id: 'terminal-profile-guide-status', role: 'status', live: 'polite', busy: null },
+      { id: 'terminal-report-filter-summary', role: 'status', live: 'polite', busy: null },
+      { id: 'terminal-report-status', role: 'status', live: 'polite', busy: null },
       { id: 'runtime-path-health-cards', role: null, live: 'polite', busy: null },
       { id: 'runtime-path-health-summary', role: 'status', live: 'polite', busy: null },
     ];
