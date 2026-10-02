@@ -214,5 +214,6 @@ jobs:
             releases/test-builds/*-linux-x64.tar.gz
             releases/test-builds/*-linux-x64.tar.gz.sha256
             releases/test-builds/*-linux-x64.tar.gz.sigstore.json
+            ${{ runner.temp }}/ccti-layout-evidence/*
           if-no-files-found: warn
           retention-days: 14
