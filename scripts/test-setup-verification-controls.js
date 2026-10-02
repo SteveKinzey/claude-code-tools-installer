@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { externalBridgeTag } = require('./renderer-fixture-bridge');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow } = require('electron');
 
@@ -47,6 +48,7 @@ function injectedBridge() {
     window.confirm = () => true;
     window.prompt = () => { calls.push({ method: 'window.prompt' }); return ''; };
     const record = (method, payload) => calls.push({ method, payload });
+    document.addEventListener('securitypolicyviolation', (event) => calls.push({ method: 'csp-violation', payload: { directive: event.effectiveDirective, blocked: event.blockedURI } }));
 
     window.installer = {
       getCatalog: async () => [],
@@ -175,7 +177,7 @@ async function run() {
 
   const fixtureHtml = rawHtml
     .replace('<head>', `<head><base href="${pathToFileURL(`${rendererDir}${path.sep}`).href}">`)
-    .replace('    <script src="../project-interview.js"></script>', `${injectedBridge()}\n    <script src="../project-interview.js"></script>`);
+    .replace('    <script src="../project-interview.js"></script>', `${externalBridgeTag(injectedBridge(), fixturePath)}\n    <script src="../project-interview.js"></script>`);
   await fs.writeFile(fixturePath, fixtureHtml, 'utf8');
 
   const window = new BrowserWindow({
@@ -435,6 +437,21 @@ async function run() {
     await evaluate(window, "document.querySelector('#cancel-start-fresh-button').click()");
     await waitFor(window, () => document.querySelector('#start-fresh-dialog')?.open === false, 'Start fresh cancel');
     assert.equal(await evaluate(window, "window.__setupVerificationFixture.calls.filter((call) => call.method === 'runCompleteSetup').length"), 2, 'Cancel must not run Start fresh');
+
+    // The renderer runs under its Content-Security-Policy: the whole flow above caused no
+    // violation, and an inline script is refused.
+    const csp = await evaluate(window, `(() => {
+      const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+      const before = window.__setupVerificationFixture.calls.filter((call) => call.method === 'csp-violation').length;
+      const probe = document.createElement('script');
+      probe.textContent = 'window.__cctiInlineScriptRan = true;';
+      document.body.append(probe);
+      return { policy: meta?.content, before, inlineRan: window.__cctiInlineScriptRan === true };
+    })()`);
+    assert.equal(csp.policy, "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'", 'the renderer must declare its Content-Security-Policy');
+    assert.equal(csp.before, 0, 'the renderer must not trigger any Content-Security-Policy violation');
+    assert.equal(csp.inlineRan, false, 'the Content-Security-Policy must block inline scripts');
+    await waitFor(window, () => window.__setupVerificationFixture.calls.some((call) => call.method === 'csp-violation'), 'inline script violation report');
 
     await evaluate(window, "document.querySelector('#run-diagnostics-button').click()");
     await waitFor(window, () => !document.querySelector('#runtime-path-health')?.hidden && document.querySelectorAll('.runtime-path-health-card').length === 3, 'runtime PATH health dashboard');

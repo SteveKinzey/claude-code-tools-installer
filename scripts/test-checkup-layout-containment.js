@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { externalBridgeTag } = require('./renderer-fixture-bridge');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow } = require('electron');
 
@@ -137,7 +138,7 @@ async function run() {
   const rendererBase = pathToFileURL(`${rendererDir}${path.sep}`).href;
   const fixtureHtml = rawHtml
     .replace('<head>', `<head><base href="${rendererBase}">`)
-    .replace('    <script src="../project-interview.js"></script>', `${injectedBridge()}\n    <script src="../project-interview.js"></script>`);
+    .replace('    <script src="../project-interview.js"></script>', `${externalBridgeTag(injectedBridge(), fixturePath)}\n    <script src="../project-interview.js"></script>`);
   await fs.writeFile(fixturePath, fixtureHtml, 'utf8');
 
   const viewports = [

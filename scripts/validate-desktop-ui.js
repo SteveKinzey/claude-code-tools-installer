@@ -13,6 +13,15 @@ const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'pa
 const duplicateUiTestPath = path.join(root, 'scripts', 'test-duplicate-skill-ui.js');
 const duplicateUiLauncherPath = path.join(root, 'scripts', 'run-duplicate-skill-ui-test.js');
 
+// The renderer declares a strict Content-Security-Policy, so it may not use inline scripts,
+// inline styles, inline event handlers, or external resources.
+if (!html.includes(`<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'" />`)) {
+  throw new Error('The renderer must declare its Content-Security-Policy meta tag.');
+}
+if (/<script(?![^>]*\ssrc=)[^>]*>|<style[\s>]|\sstyle="|\son[a-z]+="|(?:src|href)="(?:https?:)?\/\//i.test(html)) {
+  throw new Error('The renderer HTML must not use inline scripts, inline styles, inline event handlers, or external resources; the Content-Security-Policy blocks them.');
+}
+
 const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]));
 const selectorIds = new Set([...renderer.matchAll(/querySelector\(['"]#([^'"]+)['"]\)/g)].map((match) => match[1]));
 const missingIds = [...selectorIds].filter((id) => !ids.has(id));
