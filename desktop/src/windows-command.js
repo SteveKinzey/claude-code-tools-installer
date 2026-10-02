@@ -23,6 +23,8 @@
 //   backslashes inside a quoted value are doubled to reach the program unchanged.
 
 const childProcess = require('node:child_process');
+const nodeFs = require('node:fs');
+const path = require('node:path');
 
 const PLAIN_TOKEN = /^[A-Za-z0-9._@:/\\=+,-]+$/;
 // eslint-disable-next-line no-control-regex
@@ -63,23 +65,103 @@ function usesWindowsCommandShell(command, platform = process.platform) {
   return platform === 'win32' && /\.cmd$/i.test(String(command));
 }
 
+// Threat: on Windows, a bare command name (npm.cmd, pwsh.exe, powershell.exe) is looked up in
+// the *working directory first* -- by libuv when Node spawns without a shell, and by cmd.exe when
+// it runs a .cmd. CCTI runs some commands with a user-chosen project folder as the working
+// directory, so a planted `npm.cmd` or `pwsh.exe` in that folder would run instead of the real
+// one. resolveWindowsExecutable turns a bare name into an absolute path by searching only
+// absolute PATH entries (never the working directory, never an empty, relative or drive-relative
+// entry), honoring PATHEXT. It refuses rather than falling back to the bare name.
+const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
+const ABSOLUTE_WINDOWS_PATH = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/;
+
+function executableNotFoundError(command, reason) {
+  const error = new Error(`CCTI could not find ${command} in a trusted folder on this computer's PATH${reason ? ` (${reason})` : ''}. Install it or add its folder to PATH, then try again. Nothing was started.`);
+  error.code = 'WINDOWS_EXECUTABLE_NOT_FOUND';
+  return error;
+}
+
+function defaultIsFile(candidate) {
+  try {
+    return nodeFs.statSync(candidate).isFile();
+  } catch {
+    // App execution aliases (for example %LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe) are
+    // reparse points that stat cannot follow; lstat still proves the entry exists.
+    try {
+      const entry = nodeFs.lstatSync(candidate);
+      return entry.isFile() || entry.isSymbolicLink();
+    } catch {
+      return false;
+    }
+  }
+}
+
+function isAbsoluteWindowsPath(value) {
+  return ABSOLUTE_WINDOWS_PATH.test(String(value || ''));
+}
+
+// `options` exists for tests: { pathValue, pathext, isFile }.
+function resolveWindowsExecutable(command, options = {}) {
+  const name = typeof command === 'string' ? command.trim() : '';
+  if (!name) throw executableNotFoundError(String(command), 'no command name was given');
+  // A drive or UNC path, or a rooted path such as \Tools\x.exe, never depends on the working
+  // folder; a relative or drive-relative path (.\x.cmd, bin\x.cmd, C:x.cmd) does and is refused.
+  if (isAbsoluteWindowsPath(name) || (path.win32.isAbsolute(name) && !/^[A-Za-z]:(?![\\/])/.test(name))) return name;
+  if (/[\\/]/.test(name) || /^[A-Za-z]:/.test(name)) {
+    throw executableNotFoundError(name, 'a relative path would resolve against the working folder');
+  }
+  const isFile = options.isFile || defaultIsFile;
+  const pathValue = options.pathValue !== undefined ? options.pathValue : (process.env.PATH || process.env.Path || '');
+  const pathextValue = options.pathext !== undefined ? options.pathext : (process.env.PATHEXT || DEFAULT_PATHEXT);
+  const extensions = String(pathextValue || DEFAULT_PATHEXT).split(';').map((ext) => ext.trim()).filter((ext) => /^\.[A-Za-z0-9]+$/.test(ext));
+  const hasKnownExtension = extensions.some((ext) => name.toLowerCase().endsWith(ext.toLowerCase()));
+  const candidates = hasKnownExtension ? [name] : extensions.map((ext) => `${name}${ext.toLowerCase()}`);
+  const directories = String(pathValue || '')
+    .split(';')
+    .map((entry) => entry.trim().replace(/^"(.*)"$/, '$1').trim())
+    .filter((entry) => entry && isAbsoluteWindowsPath(entry));
+  for (const directory of directories) {
+    for (const candidate of candidates) {
+      const fullPath = path.win32.join(directory, candidate);
+      if (isAbsoluteWindowsPath(fullPath) && isFile(fullPath)) return fullPath;
+    }
+  }
+  throw executableNotFoundError(name);
+}
+
+function windowsPathFromEnv(env) {
+  const source = env || process.env;
+  return source.PATH || source.Path || '';
+}
+
 // The single place CCTI spawns a process that may be a Windows .cmd script. On Windows a .cmd
 // target is quoted and run through cmd.exe; every other target and every other platform is
 // spawned exactly as before, without a shell. Throws UNSAFE_WINDOWS_ARGUMENT (before spawning
 // anything) when an argument cannot be passed safely.
-// `internals` exists only for tests: { platform, spawn }.
+// On Windows every command is first resolved to an absolute path (see resolveWindowsExecutable).
+// `internals` exists only for tests: { platform, spawn, isFile }.
 function spawnSafely(command, args, options = {}, internals = {}) {
   const platform = internals.platform || process.platform;
   const spawnImpl = internals.spawn || ((...spawnArgs) => childProcess.spawn(...spawnArgs));
   const argList = Array.isArray(args) ? args : [];
-  if (!usesWindowsCommandShell(command, platform)) {
+  if (platform !== 'win32') {
     return spawnImpl(command, argList, options);
   }
-  const invocation = windowsShellInvocation(command, argList);
+  // Never let Windows pick the program from the working folder: resolve to an absolute path
+  // from absolute PATH entries first (throws WINDOWS_EXECUTABLE_NOT_FOUND before spawning).
+  const resolved = resolveWindowsExecutable(command, {
+    pathValue: windowsPathFromEnv(options.env),
+    pathext: (options.env || process.env).PATHEXT,
+    isFile: internals.isFile,
+  });
+  if (!usesWindowsCommandShell(resolved, platform)) {
+    return spawnImpl(resolved, argList, options);
+  }
+  const invocation = windowsShellInvocation(resolved, argList);
   // Node's own shell mode joins command and args with spaces; joining here is identical and
   // keeps the fully quoted command line in one visible place.
   const commandLine = [invocation.command, ...invocation.args].join(' ');
   return spawnImpl(commandLine, [], { ...options, shell: true });
 }
 
-module.exports = { cmdQuote, quoteCommand, windowsShellInvocation, usesWindowsCommandShell, spawnSafely };
+module.exports = { cmdQuote, quoteCommand, windowsShellInvocation, usesWindowsCommandShell, spawnSafely, resolveWindowsExecutable, isAbsoluteWindowsPath, windowsPathFromEnv };

@@ -33,9 +33,10 @@ function spawnStub(command, args = []) {
     return child;
   }
   queueMicrotask(() => {
-    // On Windows, npm.cmd is launched through cmd.exe as one quoted command line
-    // ('"npm.cmd" install <package>'); elsewhere it is "npm" with separate arguments.
-    if (completeSetup || /^"?npm(\.cmd)?"?(\s|$)/.test(String(command))) child.emit('close', 0);
+    // On Windows, npm.cmd is resolved to an absolute path and launched through cmd.exe as one
+    // quoted command line ('"C:\\...\\npm.cmd" install <package>'); elsewhere it is "npm" with
+    // separate arguments.
+    if (completeSetup || /^"?(?:[^"]*[\\/])?npm(\.cmd)?"?(\s|$)/i.test(String(command))) child.emit('close', 0);
     else child.emit('close', 1);
   });
   return child;
@@ -115,7 +116,27 @@ async function run() {
     const firstResult = await firstInstall;
     assert.equal(firstResult.ok, true, 'the original component install should complete after the lock releases');
 
-    console.log('Desktop action boundaries passed: reviewed setup truthfulness, external navigation isolation, and component-install locking are enforced.');
+    // Online Compass must time out instead of waiting forever on a stalled request.
+    const askCompass = handlers.get('compass:ask');
+    const originalFetch = global.fetch;
+    const originalSetTimeout = global.setTimeout;
+    let compassSignal = null;
+    global.fetch = (_url, options = {}) => new Promise((_resolve, reject) => {
+      compassSignal = options.signal;
+      options.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    });
+    global.setTimeout = (callback, delay, ...args) => originalSetTimeout(callback, Math.min(delay, 5), ...args);
+    try {
+      const stalled = await askCompass(null, { message: 'Which tools should I install?' });
+      assert.ok(compassSignal, 'the Compass request must carry an abort signal');
+      assert.equal(stalled.ok, false);
+      assert.match(stalled.error, /took too long/i, 'a stalled Compass request must end with a clear timeout message');
+    } finally {
+      global.fetch = originalFetch;
+      global.setTimeout = originalSetTimeout;
+    }
+
+    console.log('Desktop action boundaries passed: reviewed setup truthfulness, external navigation isolation, component-install locking, and the online Compass timeout are enforced.');
   } finally {
     Module._load = originalLoad;
     await fs.rm(tempRoot, { recursive: true, force: true });

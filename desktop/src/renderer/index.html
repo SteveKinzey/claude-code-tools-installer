@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Claude Code Tools Installer</title>
     <link rel="stylesheet" href="styles.css" />
@@ -558,6 +559,27 @@
           <button id="review-permanent-delete-button" class="button button-secondary" type="button">Review deletion</button>
           <button id="apply-permanent-delete-button" class="button button-danger" type="button" hidden disabled>Delete permanently</button>
           <button id="cancel-permanent-delete-button" class="button button-ghost" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="typed-confirm-dialog" class="duplicate-skill-dialog" aria-labelledby="typed-confirm-heading" aria-describedby="typed-confirm-copy" aria-modal="true">
+      <form method="dialog" class="duplicate-skill-dialog-content">
+        <p class="eyebrow">FINAL CHECK</p>
+        <h2 id="typed-confirm-heading" tabindex="-1">Confirm</h2>
+        <p id="typed-confirm-copy" class="typed-confirm-copy"></p>
+        <div class="resolve-duplicate-changes">
+          <h3 id="typed-confirm-list-heading" hidden></h3>
+          <ul id="typed-confirm-list" class="resolve-duplicate-changes-list" hidden></ul>
+          <p id="typed-confirm-warning" class="permanent-delete-warning" hidden></p>
+          <label class="permanent-delete-confirm" for="typed-confirm-input"><span id="typed-confirm-label">Type the phrase to confirm</span>
+            <input id="typed-confirm-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </label>
+        </div>
+        <p id="typed-confirm-status" role="status" aria-live="polite"></p>
+        <div class="duplicate-skill-dialog-actions">
+          <button id="apply-typed-confirm-button" class="button button-danger" type="button" disabled>Confirm</button>
+          <button id="cancel-typed-confirm-button" class="button button-ghost" type="button">Cancel</button>
         </div>
       </form>
     </dialog>

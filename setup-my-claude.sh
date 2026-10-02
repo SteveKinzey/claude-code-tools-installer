@@ -125,6 +125,27 @@ run_cmd() {
   "$@"
 }
 
+# npm reads a project's own .npmrc (registry, scripts, and other settings) from the folder it
+# runs in. Project-scope setup runs inside a user-chosen project, which may be untrusted, but the
+# skills CLI must run there so skills land in <project>/.claude/skills. `--prefix` points npm at a
+# fresh, empty CCTI-owned folder instead, so npm ignores the project's .npmrc and node_modules
+# while the command itself still runs in the project folder. User and global npm settings
+# (for example a company registry in ~/.npmrc) still apply.
+run_npx_isolated() {
+  local prefix_dir status=0
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "+ npx --prefix <empty CCTI folder> $*"
+    return 0
+  fi
+  mkdir -p "$BASE_DIR"
+  prefix_dir="$(mktemp -d "${BASE_DIR}/npx-prefix.XXXXXX")"
+  log "+ npx --prefix $prefix_dir $*"
+  # The subshell's EXIT trap removes the folder even if setup is interrupted while npx runs.
+  (trap 'rm -rf -- "$prefix_dir"' EXIT; npx --prefix "$prefix_dir" "$@") || status=$?
+  rm -rf -- "$prefix_dir"
+  return "$status"
+}
+
 record_manifest() {
   local kind="$1" target="$2" extra="$3" item="$4"
   [[ "$DRY_RUN" -eq 1 ]] && return 0
@@ -506,7 +527,7 @@ install_skill() {
     log "CCTI did not add '$skill': a folder already uses this Claude Code skill name at $dest. Review it before adding a copy."
     return 0
   fi
-  run_cmd npx -y skills@latest add "$repo" --skill "$skill" --agent claude-code "${scope_args[@]}"
+  run_npx_isolated -y skills@latest add "$repo" --skill "$skill" --agent claude-code "${scope_args[@]}"
   record_manifest "skill" "$dest" "" "$item"
 }
 
@@ -648,7 +669,7 @@ install_item() {
       if [[ -d "${HOME}/.claude-mem" ]]; then
         log "Existing Claude-Mem data directory detected: ~/.claude-mem"
       fi
-      run_cmd npx -y claude-mem install
+      run_npx_isolated -y claude-mem install
       record_manifest "manual-review" "claude-mem" "Run claude-mem docs uninstall steps if needed; data may live in ~/.claude-mem" "$id"
       ;;
     codegraph)

@@ -13,6 +13,23 @@ const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'pa
 const duplicateUiTestPath = path.join(root, 'scripts', 'test-duplicate-skill-ui.js');
 const duplicateUiLauncherPath = path.join(root, 'scripts', 'run-duplicate-skill-ui-test.js');
 
+// The renderer declares a strict Content-Security-Policy, so it may not use inline scripts,
+// inline styles, inline event handlers, or external resources.
+if (!html.includes(`<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'" />`)) {
+  throw new Error('The renderer must declare its Content-Security-Policy meta tag.');
+}
+if (/<script(?![^>]*\ssrc=)[^>]*>|<style[\s>]|\sstyle="|\son[a-z]+="|(?:src|href)="(?:https?:)?\/\//i.test(html)) {
+  throw new Error('The renderer HTML must not use inline scripts, inline styles, inline event handlers, or external resources; the Content-Security-Policy blocks them.');
+}
+
+// Electron does not support window.prompt (it throws), so a typed confirmation must use the
+// in-app dialog. Nothing in the renderer may call it.
+for (const file of fs.readdirSync(path.join(root, 'desktop', 'src', 'renderer'))) {
+  if (/\.(?:js|html)$/.test(file) && /\bwindow\.prompt\s*\(|(?<![.\w])prompt\s*\(/.test(readText('desktop', 'src', 'renderer', file))) {
+    throw new Error(`desktop/src/renderer/${file} calls window.prompt, which Electron does not support. Use requestTypedConfirmation instead.`);
+  }
+}
+
 const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]));
 const selectorIds = new Set([...renderer.matchAll(/querySelector\(['"]#([^'"]+)['"]\)/g)].map((match) => match[1]));
 const missingIds = [...selectorIds].filter((id) => !ids.has(id));
@@ -114,13 +131,13 @@ if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('c
 if (!html.includes('id="verify-setup-button"') || !html.includes('id="setup-verification-results"') || !renderer.includes('async function verifySetup()') || !renderer.includes('function renderSetupVerification(result)') || !preload.includes("verifySetup: (payload) => ipcRenderer.invoke('setup:verify', payload)") || !main.includes('async function verifySetupStatus(')) {
   throw new Error('CCTI must provide a plain-language, read-only in-app setup verification panel.');
 }
-if (!main.includes('completeSetupPluginIds') || !main.includes("option('-AppManagedPlugins', '--app-managed-plugins')") || !main.includes('await installReviewedPlugins(completeSetupPluginIds)')) {
+if (!main.includes('completeSetupPluginIds') || !main.includes("option('-AppManagedPlugins', '--app-managed-plugins')") || !main.includes('await installReviewedPlugins(completeSetupPluginIds, after)')) {
   throw new Error('Complete setup must install supported recommended plugins in CCTI instead of making users run terminal commands.');
 }
 if (!html.includes('id="complete-setup-global-scope-button"') || !html.includes('id="complete-setup-existing-project-button"') || !html.includes('id="complete-setup-new-project-button"') || !html.includes('id="complete-setup-scope-note"') || !renderer.includes('function syncCompleteSetupScope()') || !renderer.includes('async function chooseCompleteSetupProject(createNew)') || !renderer.includes('chooseCompleteSetupProject({ createNew })') || !preload.includes("chooseCompleteSetupProject: (payload) => ipcRenderer.invoke('setup:choose-project', payload)") || !main.includes("ipcMain.handle('setup:choose-project'") || !main.includes('showSaveDialog(mainWindow') || !main.includes('await fs.mkdir(projectPath)') || !main.includes('async function resolveCompleteSetupScope') || !main.includes("option('-SkillScope', '--skill-scope')")) {
   throw new Error('Complete setup must present native global, existing-project, and new-project skill-scope choices before the installer runs.');
 }
-if (!renderer.includes("skillScope: state.completeSetupScope.skillScope") || !renderer.includes('completeSetupScopeDescription()') || !main.includes('verifySetupStatus(setupScope)')) {
+if (!renderer.includes("skillScope: state.completeSetupScope.skillScope") || !renderer.includes('completeSetupScopeDescription()') || !main.includes('verifySetupStatus(setupScope, after)')) {
   throw new Error('Complete setup must send the selected skill scope to both installation and verification.');
 }
 for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-claude-linux.sh']) {

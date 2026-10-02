@@ -12,7 +12,7 @@ const { reconcileInventory } = require('./inventory/reconcile');
 const { compareSkillKeeper, duplicateGroupId, mcpDuplicateGroups, pluginDuplicateGroups, isSafeMcpName, isSafePluginId } = require('./inventory/duplicates');
 const { mcpDefinitions, pluginInstalls } = require('./inventory/config-scan');
 const { planResolution, groupFingerprint } = require('./inventory/resolvers');
-const { spawnSafely } = require('./windows-command');
+const { spawnSafely, resolveWindowsExecutable, windowsPathFromEnv } = require('./windows-command');
 
 if (process.env.CCTI_ELECTRON_TEST === '1' && process.env.CCTI_TEST_HOME) {
   app.setPath('home', path.resolve(process.env.CCTI_TEST_HOME));
@@ -33,7 +33,13 @@ const reviewedClaudeRemovalPlans = new Map();
 const reviewedAppUninstallPlans = new Map();
 const reviewedResolutions = new Map();
 const reviewedPermanentDeletePlans = new Map();
+const reviewedFreshSetupPlans = new Map();
 let activeSkillCleanup = false;
+const MAXIMUM_OPEN_REVIEWS = 20;
+// Keeps a review map bounded: the oldest reviews (Map insertion order) are dropped first.
+function capReviewMap(map) {
+  while (map.size > MAXIMUM_OPEN_REVIEWS) map.delete(map.keys().next().value);
+}
 const diagnosticReports = new Map();
 const diagnosticTimers = new Map();
 const diagnosticReportLifetimeMs = 10 * 60 * 1000;
@@ -48,6 +54,9 @@ const releaseServiceEndpoint = 'https://claudetool.app/api/releases/latest';
 const releaseUrlPrefix = 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/';
 const githubReleaseTimeoutMs = 12_000;
 const releaseServiceTimeoutMs = 8_000;
+// Online Compass and the anonymous success count must never leave a request hanging forever.
+const compassTimeoutMs = 45_000;
+const anonymousSuccessTimeoutMs = 15_000;
 const updateCheckIntervalMs = 6 * 60 * 60 * 1000;
 let updateCheckPromise = null;
 let nativeUpdatePromise = null;
@@ -233,12 +242,27 @@ function claudeProcessEnv() {
       path.join(home, '.cargo', 'bin'),
   ];
   const inheritedPath = process.env.PATH || process.env.Path || '';
-  const resolvedPath = [...new Set([nativeBin, bunBin, managedNodeBin, ...commonPaths, inheritedPath].filter(Boolean).join(path.delimiter).split(path.delimiter).filter(Boolean))].join(path.delimiter);
+  // Same as path.delimiter on every real host; spelled out so the Windows rules also hold when the
+  // tests simulate Windows on another platform.
+  const delimiter = process.platform === 'win32' ? ';' : ':';
+  const resolvedPath = [...new Set([nativeBin, bunBin, managedNodeBin, ...commonPaths, inheritedPath].filter(Boolean).join(delimiter).split(delimiter).filter(Boolean))].join(delimiter);
   return {
     ...process.env,
     PATH: resolvedPath,
-    ...(process.platform === 'win32' ? { Path: resolvedPath } : {}),
+    // NoDefaultCurrentDirectoryInExePath stops cmd.exe (and the .cmd shims it runs, such as
+    // npm.cmd looking for node) from picking a program out of the working folder, which may be
+    // an untrusted project.
+    ...(process.platform === 'win32' ? { Path: resolvedPath, NoDefaultCurrentDirectoryInExePath: '1' } : {}),
   };
+}
+
+// On Windows a bare program name is looked up in the working folder before PATH. Resolve it to an
+// absolute path from absolute PATH entries only; throws WINDOWS_EXECUTABLE_NOT_FOUND otherwise.
+// Other platforms are unchanged.
+function trustedExecutable(command, env) {
+  if (process.platform !== 'win32') return command;
+  const source = env || process.env;
+  return resolveWindowsExecutable(command, { pathValue: windowsPathFromEnv(source), pathext: source.PATHEXT });
 }
 
 function catalogResource() {
@@ -487,8 +511,17 @@ function updateReleaseUrlFor(version) {
   return releaseIdentity ? `${releaseUrlPrefix}tag/${releaseIdentity.tag}` : '';
 }
 
+// Windows builds are not code-signed (no win.publisherName), so the in-app updater only checks
+// the downloaded package's integrity (its SHA-512 from the release feed) there. Windows status
+// text must not claim a signature; macOS updates are signed and keep their wording.
+function signedUpdateWord() {
+  return process.platform === 'win32' ? '' : 'signed ';
+}
+
 function incompleteUpdateMessage(version) {
-  return `CCTI ${version || 'update'} is available, but its signed in-app update did not complete or verify. Your current CCTI app was not changed. Select Check for Updates to retry, or use View Release to update safely.`;
+  return process.platform === 'win32'
+    ? `CCTI ${version || 'update'} is available, but its in-app update did not complete or pass its integrity check. Your current CCTI app was not changed. Select Check for Updates to retry, or use View Release to update safely.`
+    : `CCTI ${version || 'update'} is available, but its signed in-app update did not complete or verify. Your current CCTI app was not changed. Select Check for Updates to retry, or use View Release to update safely.`;
 }
 
 function currentAppVersion() {
@@ -564,7 +597,9 @@ async function checkForUpdates() {
         canInstall: false,
         message: available
           ? canDownload
-            ? `CCTI ${latestVersion} is available. Select Check for Updates to download the signed update now.${releaseSourceNotice}`
+            ? process.platform === 'win32'
+              ? `CCTI ${latestVersion} is available. Select Check for Updates to download the update now; CCTI checks its integrity before installing it.${releaseSourceNotice}`
+              : `CCTI ${latestVersion} is available. Select Check for Updates to download the signed update now.${releaseSourceNotice}`
             : `CCTI ${latestVersion} is available. This build does not support in-app updates; use View Release to update.${releaseSourceNotice}`
           : compareVersions(latestPackageVersion, currentVersion) === 0
             ? `CCTI ${latestVersion} is the newest published release.${releaseSourceNotice}`
@@ -622,7 +657,7 @@ function configureNativeUpdaterEvents() {
     updateStatus = {
       ...updateStatus,
       state: 'checking',
-      message: 'Checking GitHub for a signed CCTI update…',
+      message: `Checking GitHub for a ${signedUpdateWord()}CCTI update…`,
       canDownload: false,
       canInstall: false,
     };
@@ -646,7 +681,7 @@ function configureNativeUpdaterEvents() {
       state: 'downloading',
       latestPackageVersion,
       releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(updateStatus.latestPublicTag),
-      message: `Downloading the signed CCTI ${updateStatus.latestVersion || latestPackageVersion} update…`,
+      message: `Downloading the ${signedUpdateWord()}CCTI ${updateStatus.latestVersion || latestPackageVersion} update…`,
       canDownload: false,
       canInstall: false,
     };
@@ -657,7 +692,7 @@ function configureNativeUpdaterEvents() {
       updateStatus = {
         ...updateStatus,
         state: 'current',
-        message: `CCTI ${currentAppVersion()} is the newest signed update available.`,
+        message: `CCTI ${currentAppVersion()} is the newest ${signedUpdateWord()}update available.`,
         canDownload: false,
         canInstall: false,
       };
@@ -669,7 +704,7 @@ function configureNativeUpdaterEvents() {
     updateStatus = {
       ...updateStatus,
       state: 'downloading',
-      message: `Downloading the signed CCTI ${updateStatus.latestVersion || 'latest'} update… ${percent}%`,
+      message: `Downloading the ${signedUpdateWord()}CCTI ${updateStatus.latestVersion || 'latest'} update… ${percent}%`,
       canDownload: false,
       canInstall: false,
     };
@@ -694,7 +729,9 @@ function configureNativeUpdaterEvents() {
       latestPackageVersion,
       releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(updateStatus.latestPublicTag),
       checkedAt: new Date().toISOString(),
-      message: `CCTI ${updateStatus.latestVersion || latestPackageVersion} is downloaded and verified. Restart CCTI to apply it now.`,
+      message: process.platform === 'win32'
+        ? `CCTI ${updateStatus.latestVersion || latestPackageVersion} is downloaded and passed its integrity check. Restart CCTI to apply it now.`
+        : `CCTI ${updateStatus.latestVersion || latestPackageVersion} is downloaded and verified. Restart CCTI to apply it now.`,
       canDownload: false,
       canInstall: true,
     };
@@ -729,7 +766,7 @@ async function downloadAvailableUpdate() {
     updateStatus = {
       ...status,
       state: 'checking',
-      message: `Checking GitHub for the signed CCTI ${status.latestVersion} update…`,
+      message: `Checking GitHub for the ${signedUpdateWord()}CCTI ${status.latestVersion} update…`,
       canDownload: false,
       canInstall: false,
     };
@@ -812,8 +849,10 @@ function pluginIsInstalled(installedIds, requestedId) {
   return installedIds.some((installed) => installed === requested || installed === requestedName || installed.startsWith(`${requested}@`) || installed.startsWith(`${requestedName}@`));
 }
 
-async function installedClaudePluginIds() {
-  const claude = await claudeStatus();
+// `claudeState` lets a caller that has just checked Claude Code reuse that result. The plugin
+// list itself is always read fresh.
+async function installedClaudePluginIds(claudeState = null) {
+  const claude = claudeState || await claudeStatus();
   if (!claude.installed) return [];
   try {
     const result = await runProcess(claude.path || 'claude', ['plugin', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 8000 });
@@ -846,8 +885,8 @@ async function configuredMcpReady(name, claude = null) {
   }
 }
 
-async function configuredMarketplaceText() {
-  const claude = await claudeStatus();
+async function configuredMarketplaceText(claudeState = null) {
+  const claude = claudeState || await claudeStatus();
   if (!claude.installed) return '';
   try {
     const result = await runProcess(claude.path || 'claude', ['plugin', 'marketplace', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
@@ -857,7 +896,7 @@ async function configuredMarketplaceText() {
   }
 }
 
-async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {}) {
+async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {}, claudeState = null) {
   const home = app.getPath('home');
   const selectedSkillScope = skillScope === 'project' ? 'project' : 'global';
   const selectedProjectPath = selectedSkillScope === 'project'
@@ -869,14 +908,14 @@ async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {
   const selectedSkillLocation = selectedSkillScope === 'project'
     ? 'the selected project'
     : 'your Claude Code setup';
-  const claude = await claudeStatus();
+  const claude = claudeState || await claudeStatus();
   const [bun, repomix, repomixMcpReady, playwrightMcpReady, marketplaceText, pluginIds] = await Promise.all([
     setupCommandReady('bun'),
     setupCommandReady('repomix'),
     configuredMcpReady('repomix', claude),
     configuredMcpReady('playwright', claude),
-    configuredMarketplaceText(),
-    installedClaudePluginIds(),
+    configuredMarketplaceText(claude),
+    installedClaudePluginIds(claude),
   ]);
   const checks = [];
   const add = (id, label, ready, message, state = ready ? 'ready' : 'attention') => checks.push({ id, label, state, message });
@@ -945,11 +984,11 @@ async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {
   };
 }
 
-async function installReviewedPlugins(selectedIds) {
-  const claude = await claudeStatus();
+async function installReviewedPlugins(selectedIds, claudeState = null) {
+  const claude = claudeState || await claudeStatus();
   if (!claude.installed) throw new Error('Claude Code must be ready before CCTI can change a reviewed add-on.');
   const claudeCommand = claude.path || 'claude';
-  const installedIds = await installedClaudePluginIds();
+  const installedIds = await installedClaudePluginIds(claude);
   for (const id of selectedIds) {
     const installAction = (reviewedPluginPlans[id] || []).find((args) => args[0] === 'plugin' && args[1] === 'install');
     const requestedPlugin = installAction?.[2];
@@ -976,7 +1015,7 @@ async function installReviewedPlugins(selectedIds) {
 // folds present+unknown into the "before" set, so a degraded before-probe can never make an
 // already-present tool look newly installed. Skills are never unknown: pathExists is a plain
 // filesystem check with no partial-failure mode worth distinguishing.
-async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '' } = {}) {
+async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '' } = {}, claudeState = null) {
   const tracked = [...new Set(ids)].map((id) => [id, trackedItem(id)]).filter(([, item]) => item);
   const present = new Set();
   const unknown = new Set();
@@ -984,7 +1023,7 @@ async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '
   const skillRoot = skillScope === 'project' && projectPath
     ? path.join(projectPath, '.claude', 'skills')
     : path.join(app.getPath('home'), '.claude', 'skills');
-  const claude = await claudeStatus();
+  const claude = claudeState || await claudeStatus();
   const claudeCommand = claude.path || 'claude';
   const pluginTracked = tracked.filter(([, item]) => item.kind === 'plugin');
   const mcpTracked = tracked.filter(([, item]) => item.kind === 'mcp');
@@ -1036,9 +1075,9 @@ async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '
   return { present, unknown };
 }
 
-async function recordCctiInstalls(ids, before, scope = {}) {
+async function recordCctiInstalls(ids, before, scope = {}, claudeState = null) {
   try {
-    const after = await presentTrackedItems(ids, scope);
+    const after = await presentTrackedItems(ids, scope, claudeState);
     const beforeSet = new Set([...before.present, ...before.unknown]);
     const entries = newlyInstalledEntries(ids, beforeSet, after.present, { tracked: TRACKED_ITEMS, catalog: await readCatalog(), skillScope: scope.skillScope, projectPath: scope.projectPath });
     if (entries.length > 0) await inventoryLedger().recordInstalls(entries);
@@ -1346,7 +1385,14 @@ function quotePosix(value) {
 
 function startDetached(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: false, ...options });
+    let executable;
+    try {
+      executable = trustedExecutable(command, options.env);
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const child = spawn(executable, args, { detached: true, stdio: 'ignore', windowsHide: false, ...options });
     child.once('error', reject);
     child.once('spawn', () => { child.unref(); resolve(); });
   });
@@ -1399,7 +1445,10 @@ async function openSelectedTerminal({ folder, command, preference }) {
   if (process.platform === 'win32') {
     const launchScript = `Set-Location -LiteralPath ${quotePowerShell(folder)}; ${command}`;
     if (terminal.launcher === 'windows-terminal') {
-      await startDetached(terminalCommand, ['-d', folder, 'powershell.exe', '-NoLogo', '-NoProfile', '-NoExit', '-Command', launchScript], { cwd: folder, env });
+      // Windows Terminal starts its command line from the project folder, so pass PowerShell as
+      // an absolute path rather than a bare name it could find there.
+      const powershell = trustedExecutable('powershell.exe', env);
+      await startDetached(terminalCommand, ['-d', folder, powershell, '-NoLogo', '-NoProfile', '-NoExit', '-Command', launchScript], { cwd: folder, env });
     } else {
       await startDetached(terminalCommand, ['-NoLogo', '-NoProfile', '-NoExit', '-Command', launchScript], { cwd: folder, env });
     }
@@ -1463,35 +1512,57 @@ async function knownClaudeRemovalPlan() {
   const removable = [];
   const settings = [];
   const attention = [];
-  if (await pathExists(nativeLauncher)) removable.push({ kind: 'path', path: nativeLauncher, label: 'Claude Code launcher', scope: 'Claude Code CLI' });
-  if (await pathExists(nativeVersions)) removable.push({ kind: 'path', path: nativeVersions, label: 'Claude Code native versions', scope: 'Claude Code CLI' });
-  for (const target of [path.join(home, '.claude'), path.join(home, '.claude.json')]) {
-    if (await pathExists(target)) settings.push({ kind: 'path', path: target, label: path.basename(target), scope: 'Claude Code settings and history' });
-  }
   const cctiData = setupManagerDir();
-  if (await pathExists(cctiData)) removable.push({ kind: 'path', path: cctiData, label: 'CCTI-managed setup data and runtime', scope: 'CCTI only' });
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  if (await commandLocation(npmCommand)) {
+  // Every probe below is read-only and independent, so they run together; the plan is then
+  // assembled in the same fixed order as before.
+  const probeNpm = async () => {
+    if (!await commandLocation(npmCommand)) return false;
     const npm = await runProcess(npmCommand, ['list', '-g', '@anthropic-ai/claude-code', '--depth=0'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1 }));
-    if (npm.code === 0) removable.push({ kind: 'command', command: npmCommand, args: ['uninstall', '-g', '@anthropic-ai/claude-code'], label: 'Claude Code installed with npm', scope: 'Claude Code CLI' });
-  }
-  if (process.platform === 'darwin' && await commandLocation('brew')) {
-    for (const cask of ['claude-code', 'claude-code@latest']) {
+    return npm.code === 0;
+  };
+  const probeBrewCasks = async () => {
+    if (!(process.platform === 'darwin' && await commandLocation('brew'))) return [];
+    const casks = await Promise.all(['claude-code', 'claude-code@latest'].map(async (cask) => {
       const brew = await runProcess('brew', ['list', '--cask', cask], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1 }));
-      if (brew.code === 0) removable.push({ kind: 'command', command: 'brew', args: ['uninstall', '--cask', cask], label: `Claude Code ${cask === 'claude-code@latest' ? 'latest' : 'stable'} cask`, scope: 'Claude Code CLI' });
-    }
-  }
-  if (process.platform === 'win32' && await commandLocation('winget')) {
+      return brew.code === 0 ? cask : '';
+    }));
+    return casks.filter(Boolean);
+  };
+  const probeWinget = async () => {
+    if (!(process.platform === 'win32' && await commandLocation('winget'))) return false;
     const winget = await runProcess('winget', ['list', '--id', 'Anthropic.ClaudeCode', '--exact'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1 }));
-    if (winget.code === 0) removable.push({ kind: 'command', command: 'winget', args: ['uninstall', '--id', 'Anthropic.ClaudeCode', '--exact', '--silent', '--accept-source-agreements'], label: 'Claude Code installed with Windows Package Manager', scope: 'Claude Code CLI' });
+    return winget.code === 0;
+  };
+  const settingsTargets = [path.join(home, '.claude'), path.join(home, '.claude.json')];
+  const [launcherExists, versionsExist, settingsExist, cctiDataExists, npmInstalled, brewCasks, wingetInstalled, status] = await Promise.all([
+    pathExists(nativeLauncher),
+    pathExists(nativeVersions),
+    Promise.all(settingsTargets.map((target) => pathExists(target))),
+    pathExists(cctiData),
+    probeNpm(),
+    probeBrewCasks(),
+    probeWinget(),
+    claudeStatus(),
+  ]);
+  if (launcherExists) removable.push({ kind: 'path', path: nativeLauncher, label: 'Claude Code launcher', scope: 'Claude Code CLI' });
+  if (versionsExist) removable.push({ kind: 'path', path: nativeVersions, label: 'Claude Code native versions', scope: 'Claude Code CLI' });
+  settingsTargets.forEach((target, index) => {
+    if (settingsExist[index]) settings.push({ kind: 'path', path: target, label: path.basename(target), scope: 'Claude Code settings and history' });
+  });
+  if (cctiDataExists) removable.push({ kind: 'path', path: cctiData, label: 'CCTI-managed setup data and runtime', scope: 'CCTI only' });
+  if (npmInstalled) removable.push({ kind: 'command', command: npmCommand, args: ['uninstall', '-g', '@anthropic-ai/claude-code'], label: 'Claude Code installed with npm', scope: 'Claude Code CLI' });
+  for (const cask of brewCasks) {
+    removable.push({ kind: 'command', command: 'brew', args: ['uninstall', '--cask', cask], label: `Claude Code ${cask === 'claude-code@latest' ? 'latest' : 'stable'} cask`, scope: 'Claude Code CLI' });
   }
-  const status = await claudeStatus();
+  if (wingetInstalled) removable.push({ kind: 'command', command: 'winget', args: ['uninstall', '--id', 'Anthropic.ClaudeCode', '--exact', '--silent', '--accept-source-agreements'], label: 'Claude Code installed with Windows Package Manager', scope: 'Claude Code CLI' });
   if (status.installed && removable.length === 0) attention.push('CCTI found a working Claude Code command but could not confirm a safe supported removal method, so it will not delete an unknown command path.');
   if (process.platform === 'linux') attention.push('A Claude Code install made with a system package manager can need an administrator’s approval. CCTI leaves unrecognized system packages unchanged.');
   if (removable.length === 0 && settings.length === 0) return { ok: false, error: attention[0] || 'CCTI did not find Claude Code files it can safely remove.' };
   const reviewId = randomUUID();
   reviewedClaudeRemovalPlans.set(reviewId, { createdAt: Date.now(), removable, settings });
   for (const [id, plan] of reviewedClaudeRemovalPlans) if (Date.now() - plan.createdAt > 10 * 60 * 1000) reviewedClaudeRemovalPlans.delete(id);
+  capReviewMap(reviewedClaudeRemovalPlans);
   const detail = (item) => ({ label: item.label, scope: item.scope, path: item.path || 'Known Claude Code package' });
   return { ok: true, reviewId, removable: removable.map(detail), settings: settings.map(detail), protected: ['Claude Desktop app and its data', 'Claude in Chrome, browser profiles, and browser extensions', 'VS Code and JetBrains extensions', 'Any unrelated Anthropic app or account'], attention };
 }
@@ -1579,10 +1650,9 @@ async function buildInstallationManifest() {
   const generatedAt = new Date().toISOString();
   const timestampUnix = Math.floor(Date.now() / 1000);
   const version = typeof app.getVersion === 'function' ? app.getVersion() : 'unknown';
-  const [claude, discovery] = await Promise.all([
-    claudeStatus(),
-    discoverClaudeSetup().catch(() => ({ findings: [] })),
-  ]);
+  // One Claude Code check serves both the manifest line and the discovery scan.
+  const claude = await claudeStatus();
+  const discovery = await discoverClaudeSetup('', claude).catch(() => ({ findings: [] }));
   const activeItems = (discovery.findings || [])
     .filter((item) => ['tool', 'runtime', 'skill', 'plugin', 'connection', 'follow-up'].includes(item.type))
     .map(manifestLine);
@@ -1824,6 +1894,7 @@ async function resolveAppUninstallPlan() {
   for (const [id, plan] of reviewedAppUninstallPlans) {
     if (Date.now() - plan.createdAt > 10 * 60 * 1000) reviewedAppUninstallPlans.delete(id);
   }
+  capReviewMap(reviewedAppUninstallPlans);
 
   const platformGuidance = platformUninstallGuidance();
 
@@ -1924,10 +1995,21 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false, { skillScope = '
       if (timeout) clearTimeout(timeout);
       resolve(result);
     };
-    const child = spawn(definition.command, args, {
+    const env = claudeProcessEnv();
+    let executable;
+    try {
+      // On Windows the installer may run with an untrusted project as its working folder, so
+      // pwsh.exe is resolved to an absolute path and never picked from that folder.
+      executable = trustedExecutable(definition.command, env);
+    } catch (error) {
+      settled = true;
+      reject(new Error(`Could not start ${definition.command}: ${error.message}`));
+      return;
+    }
+    const child = spawn(executable, args, {
       cwd: skillScope === 'project' && projectPath ? projectPath : app.getPath('home'),
       windowsHide: true,
-      env: claudeProcessEnv(),
+      env,
     });
 
     child.stdout.on('data', (chunk) => emit('installer:output', { stream: 'stdout', text: chunk.toString() }));
@@ -1962,6 +2044,57 @@ async function resolveCompleteSetupScope({ skillScope, projectPath } = {}) {
   return { skillScope: 'global', projectPath: '' };
 }
 
+// Start fresh permanently deletes local Claude Code data, so main issues a single-use review and
+// requires the exact typed phrase before it will run the installer with --fresh. The renderer's
+// own confirmation is never trusted on its own.
+const FRESH_SETUP_CONFIRMATION = 'DELETE CLAUDE DATA';
+const FRESH_SETUP_REVIEW_LIFETIME_MS = 10 * 60 * 1000;
+const FRESH_SETUP_MAX_REVIEWS = 20;
+
+async function reviewFreshSetup(payload = {}) {
+  if (activeInstall) return { ok: false, error: 'An installation is already running.' };
+  let setupScope;
+  try {
+    setupScope = await resolveCompleteSetupScope(payload);
+  } catch (error) {
+    return { ok: false, error: `Choose a valid project folder before installing project skills: ${error.message}` };
+  }
+  for (const [id, plan] of reviewedFreshSetupPlans) {
+    if (Date.now() - plan.createdAt > FRESH_SETUP_REVIEW_LIFETIME_MS) reviewedFreshSetupPlans.delete(id);
+  }
+  const reviewId = randomUUID();
+  reviewedFreshSetupPlans.set(reviewId, { createdAt: Date.now(), ...setupScope });
+  while (reviewedFreshSetupPlans.size > FRESH_SETUP_MAX_REVIEWS) reviewedFreshSetupPlans.delete(reviewedFreshSetupPlans.keys().next().value);
+  return {
+    ok: true,
+    reviewId,
+    confirmation: FRESH_SETUP_CONFIRMATION,
+    skillScope: setupScope.skillScope,
+    projectPath: setupScope.projectPath,
+    items: [
+      'Local Claude Code versions installed on this computer',
+      'Claude Code settings, session history, and MCP configuration',
+      'The local tool stack and reference copies CCTI installed',
+      'The Node.js runtime CCTI manages for this app',
+    ],
+    warning: 'This cannot be undone. Complete setup then runs again to rebuild a clean recommended setup.',
+  };
+}
+
+// Consumes the review (single use) whether or not the rest of the check passes.
+function takeFreshSetupReview({ reviewId, confirmation } = {}) {
+  if (confirmation !== FRESH_SETUP_CONFIRMATION) {
+    return { ok: false, error: `Type ${FRESH_SETUP_CONFIRMATION} exactly to start fresh. Nothing was deleted.` };
+  }
+  const id = String(reviewId || '');
+  const plan = reviewedFreshSetupPlans.get(id);
+  reviewedFreshSetupPlans.delete(id);
+  if (!plan || Date.now() - plan.createdAt > FRESH_SETUP_REVIEW_LIFETIME_MS) {
+    return { ok: false, error: 'This Start fresh review has expired or was already used. Review it again. Nothing was deleted.' };
+  }
+  return { ok: true, setupScope: { skillScope: plan.skillScope, projectPath: plan.projectPath } };
+}
+
 async function selectedComponents(componentIds) {
   if (!Array.isArray(componentIds) || componentIds.length === 0) {
     throw new Error('Add at least one Convex Component to the project plan.');
@@ -1988,7 +2121,7 @@ async function askSitePoweredCompass(payload) {
   safeHistory.push({ role: 'user', content: message.slice(0, 1200) });
 
   try {
-    const response = await fetch(compassOnlineEndpoint, {
+    const response = await fetchWithTimeout(compassOnlineEndpoint, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -1996,14 +2129,15 @@ async function askSitePoweredCompass(payload) {
       body: JSON.stringify({
         '0': { json: { messages: safeHistory } },
       }),
-    });
+    }, compassTimeoutMs);
     if (!response.ok) {
       return { ok: false, error: 'Compass could not answer online right now. Nothing on your computer was changed.' };
     }
     const body = await response.json();
     const answer = body?.[0]?.result?.data?.json?.reply || body?.[0]?.result?.data?.reply;
     return { ok: typeof answer === 'string' && answer.trim().length > 0, answer: answer || 'Compass did not receive a text answer. Please try again.' };
-  } catch {
+  } catch (error) {
+    if (error?.name === 'AbortError') return { ok: false, error: 'Compass took too long to answer online. Nothing on your computer was changed. Please try again.' };
     return { ok: false, error: 'Compass could not reach online help. Check your internet connection and try again.' };
   }
 }
@@ -2015,11 +2149,11 @@ async function reportAnonymousSetupSuccess(payload) {
     return { ok: false, error: 'Choose the anonymous success option before sending it.' };
   }
   try {
-    const response = await fetch(anonymousSuccessEndpoint, {
+    const response = await fetchWithTimeout(anonymousSuccessEndpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ '0': { json: { kind, consent: true } } }),
-    });
+    }, anonymousSuccessTimeoutMs);
     if (!response.ok) return { ok: false, error: 'The anonymous count could not be sent right now.' };
     const body = await response.json();
     const recorded = body?.[0]?.result?.data?.json?.recorded ?? body?.[0]?.result?.data?.recorded;
@@ -2038,7 +2172,7 @@ async function readJsonIfPresent(filePath) {
   }
 }
 
-async function managedPrerequisiteFindings() {
+async function managedPrerequisiteFindings(claudeState = null) {
   const home = app.getPath('home');
   const baseDir = setupManagerDir();
   const nodeLocation = process.platform === 'win32'
@@ -2057,7 +2191,7 @@ async function managedPrerequisiteFindings() {
   } catch {
     // No app-created follow-up checklist exists yet.
   }
-  const claude = await claudeStatus();
+  const claude = claudeState || await claudeStatus();
   if (claude.installed) findings.push({ id: `tool:claude:${claude.path || home}`, type: 'tool', name: 'Claude Code', scope: 'This computer', path: claude.path || 'Claude Code command location', description: `Claude Code can run${claude.version ? `: ${claude.version}` : ''}.` });
   return findings;
 }
@@ -2125,17 +2259,20 @@ async function listRestorableSkillBackups(projectPath = '') {
       backups.push({ id: `backup-root:${location.backupRoot}`, type: 'attention', name: 'Skill backups folder needs attention', scope: location.scope, path: location.backupRoot, description: 'CCTI could not read this skill backup folder. It was not changed.' });
       continue;
     }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-      const backupDetails = backupNameDetails(entry.name);
-      if (!backupDetails) continue;
+    const backupEntries = entries
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .map((entry) => ({ entry, backupDetails: backupNameDetails(entry.name) }))
+      .filter(({ backupDetails }) => backupDetails);
+    // Backups are verified a few at a time; each one settles to exactly one item, kept in
+    // folder listing order.
+    backups.push(...await mapWithConcurrency(backupEntries, skillScanConcurrency, async ({ entry, backupDetails }) => {
       const { name, createdAt: backupCreatedAt } = backupDetails;
       const backupPath = path.join(location.backupRoot, entry.name);
       const destination = path.join(location.skillRoot, name);
       try {
         const manifest = await skillContentManifest(backupPath);
         const destinationExists = await pathExists(destination);
-        backups.push({
+        return {
           id: `backup:${backupPath}`,
           type: 'skill-backup',
           name,
@@ -2150,11 +2287,11 @@ async function listRestorableSkillBackups(projectPath = '') {
           description: destinationExists
             ? 'A preserved skill backup. CCTI will not restore it because its original skill folder already exists.'
             : 'A preserved CCTI skill backup that can be restored to its original Claude Code location.',
-        });
+        };
       } catch (error) {
-        backups.push({ id: `backup:${backupPath}`, type: 'attention', name, scope: location.scope, path: backupPath, destination, description: `This skill backup could not be verified: ${error.message} It was not changed.` });
+        return { id: `backup:${backupPath}`, type: 'attention', name, scope: location.scope, path: backupPath, destination, description: `This skill backup could not be verified: ${error.message} It was not changed.` };
       }
-    }
+    }));
   }
   const backupsByDestination = new Map();
   for (const backup of backups.filter((item) => item.type === 'skill-backup' && item.restorable)) {
@@ -2170,9 +2307,39 @@ async function listRestorableSkillBackups(projectPath = '') {
   return backups;
 }
 
+// Maps items with at most `limit` calls in flight and returns results in input order. Work
+// stops being started after the first failure; once in-flight calls settle, the failure
+// with the lowest index is thrown, which is the same error a sequential loop would throw.
+async function mapWithConcurrency(items, limit, mapper) {
+  const list = Array.from(items);
+  const results = new Array(list.length);
+  const failures = new Map();
+  let next = 0;
+  let stopped = false;
+  const worker = async () => {
+    while (!stopped && next < list.length) {
+      const index = next;
+      next += 1;
+      try {
+        results[index] = await mapper(list[index], index);
+      } catch (error) {
+        failures.set(index, error);
+        stopped = true;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, list.length)) }, worker));
+  if (failures.size > 0) throw failures.get(Math.min(...failures.keys()));
+  return results;
+}
+
+const skillScanConcurrency = 4;
+
 async function skillContentManifest(skillPath) {
   const root = path.resolve(skillPath);
-  const files = [];
+  // Pass 1 walks names and sizes only, in the same order and with the same symlink, file-count,
+  // and byte checks as before, so an oversized skill is refused without reading any contents.
+  const planned = [];
   let totalBytes = 0;
   const walk = async (directory) => {
     const entries = await fs.readdir(directory, { withFileTypes: true });
@@ -2184,16 +2351,21 @@ async function skillContentManifest(skillPath) {
         continue;
       }
       if (!entry.isFile()) continue;
-      if (files.length >= maximumSkillHashFiles) throw new Error('A skill contains too many files to verify safely.');
+      if (planned.length >= maximumSkillHashFiles) throw new Error('A skill contains too many files to verify safely.');
       const metadata = await fs.stat(filePath);
       totalBytes += metadata.size;
       if (totalBytes > maximumSkillHashBytes) throw new Error('A skill is too large to verify safely.');
       const relativePath = path.relative(root, filePath).split(path.sep).join('/');
-      const contents = await fs.readFile(filePath);
-      files.push({ path: relativePath, size: metadata.size, sha256: createHash('sha256').update(contents).digest('hex') });
+      planned.push({ filePath, relativePath, size: metadata.size });
     }
   };
   await walk(root);
+  // Pass 2 hashes only once the whole skill is within the limits.
+  const files = [];
+  for (const file of planned) {
+    const contents = await fs.readFile(file.filePath);
+    files.push({ path: file.relativePath, size: file.size, sha256: createHash('sha256').update(contents).digest('hex') });
+  }
   if (!files.some((file) => file.path === 'SKILL.md')) throw new Error('The skill no longer contains SKILL.md.');
   const identity = createHash('sha256').update(files.map((file) => `${file.path}\0${file.sha256}\0${file.size}\n`).join(''), 'utf8').digest('hex');
   return { identity, files, totalBytes };
@@ -2296,9 +2468,11 @@ async function listSkillsAt(rootPath, scope) {
   const skillRoot = path.join(rootPath, '.claude', 'skills');
   try {
     const entries = await fs.readdir(skillRoot, { withFileTypes: true });
-    const skills = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    const skillEntries = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
+    // Each skill is described independently (and never throws), so a few run at once; results
+    // keep the folder listing order.
+    const described = await mapWithConcurrency(skillEntries, skillScanConcurrency, async (entry) => {
+      const skills = [];
       const skillPath = path.join(skillRoot, entry.name);
       try {
         skills.push(await describeSkillForDiscovery(skillPath, scope, entry.name));
@@ -2321,8 +2495,9 @@ async function listSkillsAt(rootPath, scope) {
           // A folder without SKILL.md is not presented as an installed skill.
         }
       }
-    }
-    return skills;
+      return skills;
+    });
+    return described.flat();
   } catch (error) {
     if (error.code === 'ENOENT') return [];
     return [{ id: `skill-root:${skillRoot}`, type: 'attention', name: 'Skills folder needs attention', scope, path: skillRoot, description: 'The app could not read this skills folder. It did not change anything.' }];
@@ -2352,7 +2527,7 @@ function settingsFindings(json, filePath, scope) {
   return findings;
 }
 
-async function discoverClaudeSetup(projectPath = '') {
+async function discoverClaudeSetup(projectPath = '', claudeState = null) {
   const home = app.getPath('home');
   let managedExtras;
   try {
@@ -2375,9 +2550,22 @@ async function discoverClaudeSetup(projectPath = '') {
     );
   }
 
-  const findings = await managedPrerequisiteFindings();
-  for (const location of skillLocations) {
-    findings.push(...await listSkillsAt(location.root, location.scope));
+  // Claude Code is checked once for this scan. Its three read-only CLI listings start now and
+  // run while the filesystem is scanned; their results are consumed below in the same order.
+  const claude = claudeState || await claudeStatus();
+  const claudeListings = claude.installed
+    ? Promise.all([
+      runProcess(claude.path || 'claude', ['plugin', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
+      // Explicit, and equal to runProcess's default: on timeout the list resolves with a
+      // non-zero code and is reported as not readable, exactly as before.
+      runProcess(claude.path || 'claude', ['mcp', 'list'], { cwd: home, env: claudeProcessEnv(), timeout: 30000 }).catch(() => ({ code: 1, stdout: '' })),
+      currentDuplicateGroups({ claude, homePath: home, projectPath: resolvedProjectPath }).catch(() => ({ groups: [] })),
+    ])
+    : null;
+
+  const findings = await managedPrerequisiteFindings(claude);
+  for (const skills of await Promise.all(skillLocations.map((location) => listSkillsAt(location.root, location.scope)))) {
+    findings.push(...skills);
   }
   for (const location of locations) {
     const settings = await readJsonIfPresent(location.settings);
@@ -2398,18 +2586,12 @@ async function discoverClaudeSetup(projectPath = '') {
   }
   findings.push(...await listRestorableSkillBackups(resolvedProjectPath));
 
-  const claude = await claudeStatus();
   let pluginList = null;
   let mcpList = null;
   let duplicateGroups = [];
   let listedPluginInstalls = [];
-  if (claude.installed) {
-    const claudeCommand = claude.path || 'claude';
-    const [plugins, connections, groups] = await Promise.all([
-      runProcess(claudeCommand, ['plugin', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
-      runProcess(claudeCommand, ['mcp', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
-      currentDuplicateGroups({ claude, homePath: home, projectPath: resolvedProjectPath }).catch(() => ({ groups: [] })),
-    ]);
+  if (claudeListings) {
+    const [plugins, connections, groups] = await claudeListings;
     duplicateGroups = groups.groups;
     listedPluginInstalls = Array.isArray(groups.installs) ? groups.installs : [];
     pluginList = { ok: plugins.code === 0, text: plugins.stdout || '' };
@@ -2784,6 +2966,7 @@ async function reviewPluginChange({ discoveryId, findingId, action }) {
   for (const [id, review] of reviewedPluginChanges) {
     if (Date.now() - review.createdAt > 24 * 60 * 60 * 1000) reviewedPluginChanges.delete(id);
   }
+  capReviewMap(reviewedPluginChanges);
   return { ok: true, reviewId, name: finding.name, scope: finding.scope, action, description: `${action === 'enable' ? 'Turn on' : 'Turn off'} this add-on for ${finding.scope.toLowerCase()}. This does not uninstall it.` };
 }
 
@@ -2871,6 +3054,7 @@ async function reviewProjectPackageRemoval({ discoveryId, findingId }) {
     for (const [id, candidate] of reviewedProjectPackageRemovalPlans) {
       if (Date.now() - candidate.createdAt > 10 * 60 * 1000) reviewedProjectPackageRemovalPlans.delete(id);
     }
+    capReviewMap(reviewedProjectPackageRemovalPlans);
     return {
       ok: true,
       ...plan,
@@ -3008,6 +3192,7 @@ async function reviewManagedExtrasRemoval() {
     for (const [id, candidate] of reviewedManagedExtrasRemovalPlans) {
       if (Date.now() - candidate.createdAt > 10 * 60 * 1000) reviewedManagedExtrasRemovalPlans.delete(id);
     }
+    capReviewMap(reviewedManagedExtrasRemovalPlans);
     return {
       ok: true,
       ...plan,
@@ -3081,8 +3266,10 @@ async function chooseCustomSource() {
   return { canceled: false, source: path.resolve(result.filePaths[0]) };
 }
 
+// A GitHub owner starts with a letter or digit, so a repository source can never be read by the
+// claude CLI as an option (for example `--help/x` or `-x/y`).
 function validRepository(value) {
-  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
+  return /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/.test(value);
 }
 
 // Characters that cmd.exe cannot be kept from interpreting (or that break a command line).
@@ -3110,6 +3297,7 @@ function storeCustomAddOnReview(review, sourceManifest = null) {
   for (const [id, candidate] of reviewedCustomAddOnPlans) {
     if (Date.now() - candidate.createdAt > 10 * 60 * 1000) reviewedCustomAddOnPlans.delete(id);
   }
+  capReviewMap(reviewedCustomAddOnPlans);
   return { ...review, reviewId };
 }
 
@@ -3224,6 +3412,7 @@ async function applyCustomAddOn({ reviewId }) {
     }
   }
   if (UNSAFE_ADD_ON_SOURCE.test(String(plan.source ?? ''))) return unsafeAddOnSourceResult(plan.source);
+  if (String(plan.source ?? '').startsWith('-')) return { ok: false, error: 'This marketplace source looks like a command option. Review a trusted source again.' };
   try {
     const claude = await claudeStatus();
     if (!claude.installed) return { ok: false, error: 'Claude Code is not ready. Check this computer again after Claude Code is available.' };
@@ -3274,7 +3463,19 @@ async function reviewCleanup({ discoveryId, findingId }) {
   return plan;
 }
 
-async function applyCleanup({ reviewId }) {
+async function applyCleanup(payload = {}) {
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) {
+    return { ok: false, error: 'Another CCTI action is running. Wait for it to finish before moving this skill.' };
+  }
+  activeSkillCleanup = true;
+  try {
+    return await applyCleanupUnlocked(payload);
+  } finally {
+    activeSkillCleanup = false;
+  }
+}
+
+async function applyCleanupUnlocked({ reviewId }) {
   const plan = reviewedCleanupPlans.get(reviewId);
   const currentFinding = plan && discoveredSkillCleanup.get(plan.discoveryId)?.skills.get(plan.findingId);
   if (!plan || !currentFinding || currentFinding.path !== plan.source) {
@@ -3712,6 +3913,7 @@ async function reviewAllSkillBackups({ discoveryId } = {}) {
   for (const [id, review] of reviewedBulkRestorePlans) {
     if (Date.now() - review.createdAt > 10 * 60 * 1000) reviewedBulkRestorePlans.delete(id);
   }
+  capReviewMap(reviewedBulkRestorePlans);
   return plan;
 }
 
@@ -3815,6 +4017,7 @@ async function reviewSkillBackupReplacement({ discoveryId, backupId } = {}) {
     for (const [id, review] of reviewedSkillBackupReplacementPlans) {
       if (Date.now() - review.createdAt > 10 * 60 * 1000) reviewedSkillBackupReplacementPlans.delete(id);
     }
+    capReviewMap(reviewedSkillBackupReplacementPlans);
     return plan;
   } catch {
     return { ok: false, error: 'CCTI could not verify both the active skill and the saved backup. Nothing was changed.' };
@@ -4006,27 +4209,41 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('setup:review-fresh', async (_event, payload) => reviewFreshSetup(payload || {}));
+
   ipcMain.handle('setup:complete', async (_event, payload = {}) => {
-    const { fresh } = payload;
+    const fresh = payload.fresh === true;
     if (activeInstall) return { ok: false, error: 'An installation is already running.' };
     let setupScope;
-    try {
-      setupScope = await resolveCompleteSetupScope(payload);
-    } catch (error) {
-      return { ok: false, error: `Choose a valid project folder before installing project skills: ${error.message}` };
+    if (fresh) {
+      // Start fresh runs only the scope main reviewed, after the exact typed phrase.
+      const reviewed = takeFreshSetupReview(payload);
+      if (!reviewed.ok) return { ok: false, error: reviewed.error, installed: false, version: '' };
+      setupScope = reviewed.setupScope;
+    } else {
+      try {
+        setupScope = await resolveCompleteSetupScope(payload);
+      } catch (error) {
+        return { ok: false, error: `Choose a valid project folder before installing project skills: ${error.message}` };
+      }
     }
     activeInstall = true;
     emit('installer:state', { running: true });
     const trackedIds = Object.keys(TRACKED_ITEMS);
     const trackedBefore = await presentTrackedItems(trackedIds, setupScope).catch(() => null);
+    // Checked once after the installer finishes; installing plugins does not move or change
+    // the Claude Code command, so this result stays current for the steps below. Plugin lists
+    // are still read fresh by each step.
+    let claudeAfterInstall = null;
     try {
       const result = await spawnInstaller(fresh ? 'fresh-complete' : 'complete', [], false, setupScope);
       const after = await claudeStatus();
+      claudeAfterInstall = after;
       if (result.code === 0 && after.installed) {
         emit('installer:output', { stream: 'stdout', text: '[CCTI] Installing supported recommended plugins inside the app…\n' });
-        await installReviewedPlugins(completeSetupPluginIds);
+        await installReviewedPlugins(completeSetupPluginIds, after);
       }
-      const verification = result.code === 0 && after.installed ? await verifySetupStatus(setupScope) : null;
+      const verification = result.code === 0 && after.installed ? await verifySetupStatus(setupScope, after) : null;
       return {
         ok: result.code === 0 && after.installed && verification?.ready,
         code: result.code,
@@ -4048,7 +4265,7 @@ app.whenReady().then(async () => {
     } catch (error) {
       return { ok: false, error: error.message, installed: false, version: '' };
     } finally {
-      if (trackedBefore) await recordCctiInstalls(trackedIds, trackedBefore, setupScope);
+      if (trackedBefore) await recordCctiInstalls(trackedIds, trackedBefore, setupScope, claudeAfterInstall);
       activeInstall = false;
       emit('installer:state', { running: false });
     }

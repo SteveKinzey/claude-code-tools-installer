@@ -122,6 +122,17 @@ const permanentDeleteDialogStatusElement = document.querySelector('#permanent-de
 const reviewPermanentDeleteButton = document.querySelector('#review-permanent-delete-button');
 const applyPermanentDeleteButton = document.querySelector('#apply-permanent-delete-button');
 const cancelPermanentDeleteButton = document.querySelector('#cancel-permanent-delete-button');
+const typedConfirmDialogElement = document.querySelector('#typed-confirm-dialog');
+const typedConfirmHeadingElement = document.querySelector('#typed-confirm-heading');
+const typedConfirmCopyElement = document.querySelector('#typed-confirm-copy');
+const typedConfirmListHeadingElement = document.querySelector('#typed-confirm-list-heading');
+const typedConfirmListElement = document.querySelector('#typed-confirm-list');
+const typedConfirmWarningElement = document.querySelector('#typed-confirm-warning');
+const typedConfirmLabelElement = document.querySelector('#typed-confirm-label');
+const typedConfirmInputElement = document.querySelector('#typed-confirm-input');
+const typedConfirmStatusElement = document.querySelector('#typed-confirm-status');
+const applyTypedConfirmButton = document.querySelector('#apply-typed-confirm-button');
+const cancelTypedConfirmButton = document.querySelector('#cancel-typed-confirm-button');
 const duplicateReviewElement = document.querySelector('#duplicate-review');
 const duplicateReviewListElement = document.querySelector('#duplicate-review-list');
 const duplicateReviewSummaryElement = document.querySelector('#duplicate-review-summary');
@@ -307,13 +318,28 @@ function createInlineDetails(item) {
   return panel;
 }
 
+// Each chunk is appended as its own text node (textContent still reads back the same joined
+// text), and scrolling to the newest line happens once per frame instead of once per chunk.
+let outputScrollFrame = 0;
+
+function cancelScheduledOutputScroll() {
+  if (outputScrollFrame) cancelAnimationFrame(outputScrollFrame);
+  outputScrollFrame = 0;
+}
+
 function appendOutput(text, stream = 'stdout') {
-  outputElement.textContent += text;
+  outputElement.append(document.createTextNode(String(text)));
   if (stream === 'stderr') outputElement.classList.add('has-error');
-  outputElement.scrollTop = outputElement.scrollHeight;
+  if (!outputScrollFrame) {
+    outputScrollFrame = requestAnimationFrame(() => {
+      outputScrollFrame = 0;
+      outputElement.scrollTop = outputElement.scrollHeight;
+    });
+  }
 }
 
 function clearOutput() {
+  cancelScheduledOutputScroll();
   outputElement.textContent = '';
   outputElement.classList.remove('has-error');
 }
@@ -880,6 +906,7 @@ async function runDiagnostics() {
     ]);
     if (!result.ok) throw new Error(result.error || 'CCTI could not complete diagnostics.');
     state.diagnostics = { id: result.diagnosticId || '', report: result.report, expiresAt: Date.now() + (10 * 60 * 1000) };
+    cancelScheduledOutputScroll();
     outputElement.textContent = result.report;
     outputElement.classList.remove('has-error');
     setDiagnosticActionsEnabled(hasCurrentDiagnostics());
@@ -898,7 +925,8 @@ async function runDiagnostics() {
 }
 
 async function manuallyCheckForUpdates() {
-  displayUpdateStatus({ state: 'checking', message: 'Checking GitHub for a signed CCTI update…' });
+  // Windows builds are not code-signed, so their status never claims a signature.
+  displayUpdateStatus({ state: 'checking', message: /Windows/.test(navigator.userAgent) ? 'Checking GitHub for a CCTI update…' : 'Checking GitHub for a signed CCTI update…' });
   try {
     displayUpdateStatus(await window.installer.downloadAvailableUpdate());
   } catch (error) {
@@ -954,7 +982,11 @@ function renderCatalog() {
       toggle.addEventListener('click', () => {
         if (state.selected.has(tool.id)) state.selected.delete(tool.id);
         else state.selected.add(tool.id);
-        renderCatalog();
+        // Only this switch reflects the selection, so it is updated in place; the rest of the
+        // catalog, keyboard focus, and any open Details stay as they were.
+        const selected = state.selected.has(tool.id);
+        toggle.setAttribute('aria-checked', String(selected));
+        toggle.textContent = selected ? 'On' : 'Off';
         updateSummary();
       });
 
@@ -1193,7 +1225,12 @@ async function removeClaudeCode() {
   const warning = review.attention.length ? `\n\nNeeds attention:\n${review.attention.map((item) => `• ${item}`).join('\n')}` : '';
   if (!window.confirm(`Review before removal. CCTI can remove only these known Claude Code CLI items:\n${removable}\n\nIt can also remove these Claude Code settings and history items if you choose:\n${settings}\n\nCCTI will NOT touch:\n${protectedItems}${warning}\n\nContinue to choose whether to remove the Claude Code settings and history?`)) return;
   const removeSettings = review.settings.length > 0 && window.confirm('Remove the shown Claude Code settings and history too?\n\nChoose OK to remove them. Choose Cancel to keep them while removing only the known Claude Code CLI items.');
-  const confirmation = window.prompt('Final check: type REMOVE CLAUDE CODE exactly to remove the reviewed items. Nothing will happen until you type it exactly.');
+  const confirmation = await requestTypedConfirmation({
+    title: 'Remove Claude Code',
+    message: 'Final check: type REMOVE CLAUDE CODE exactly to remove the reviewed items. Nothing will happen until you type it exactly.',
+    phrase: 'REMOVE CLAUDE CODE',
+    confirmLabel: 'Remove Claude Code',
+  });
   if (confirmation !== 'REMOVE CLAUDE CODE') return;
   clearOutput();
   appendOutput('[CCTI] Removing only the reviewed Claude Code CLI items…\n');
@@ -1212,13 +1249,92 @@ async function removeClaudeCode() {
   await refreshClaudeStatus();
 }
 
-async function runCompleteSetup(fresh = false) {
+// Destructive flows confirm with an in-app typed phrase (Electron does not support
+// window.prompt; it throws). requestTypedConfirmation resolves to the exact phrase once it is typed
+// and confirmed, or null when the person cancels or closes the dialog. Main still checks the phrase.
+let typedConfirmResolver = null;
+
+function requestTypedConfirmation({ title, message, phrase, confirmLabel, listHeading = '', items = [], warning = '' }) {
+  if (typeof typedConfirmDialogElement?.showModal !== 'function') return Promise.resolve(null);
+  if (typedConfirmResolver) finishTypedConfirmation(null);
+  if (document.activeElement instanceof HTMLElement && !typedConfirmDialogElement.contains(document.activeElement)) state.typedConfirmInvoker = document.activeElement;
+  state.typedConfirmPhrase = phrase;
+  typedConfirmHeadingElement.textContent = title;
+  typedConfirmCopyElement.textContent = message;
+  typedConfirmListHeadingElement.textContent = listHeading;
+  typedConfirmListHeadingElement.hidden = !listHeading || items.length === 0;
+  typedConfirmListElement.replaceChildren(...items.map((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    return item;
+  }));
+  typedConfirmListElement.hidden = items.length === 0;
+  typedConfirmWarningElement.textContent = warning;
+  typedConfirmWarningElement.hidden = !warning;
+  typedConfirmLabelElement.textContent = `Type ${phrase} to confirm`;
+  typedConfirmInputElement.value = '';
+  applyTypedConfirmButton.textContent = confirmLabel;
+  applyTypedConfirmButton.disabled = true;
+  typedConfirmStatusElement.textContent = `Type ${phrase}, then choose ${confirmLabel}.`;
+  const result = new Promise((resolve) => { typedConfirmResolver = resolve; });
+  if (!typedConfirmDialogElement.open) typedConfirmDialogElement.showModal();
+  focusDuplicateDialog(typedConfirmHeadingElement);
+  return result;
+}
+
+function finishTypedConfirmation(value) {
+  const resolve = typedConfirmResolver;
+  typedConfirmResolver = null;
+  state.typedConfirmPhrase = null;
+  typedConfirmInputElement.value = '';
+  applyTypedConfirmButton.disabled = true;
+  if (typedConfirmDialogElement.open) typedConfirmDialogElement.close();
+  resolve?.(value);
+}
+
+const START_FRESH_PHRASE = 'DELETE CLAUDE DATA';
+
+// Main issues a single-use Start fresh review and checks the typed phrase again before anything
+// is deleted.
+async function openStartFreshDialog() {
+  if (state.running) return;
+  startFreshButton.disabled = true;
+  let review;
+  try {
+    review = await window.installer.reviewFreshSetup({
+      skillScope: state.completeSetupScope.skillScope,
+      projectPath: state.completeSetupScope.projectPath,
+    });
+  } catch (error) {
+    review = { ok: false, error: error?.message || 'CCTI could not review Start fresh.' };
+  } finally {
+    startFreshButton.disabled = !state.claudeInstalled || state.running;
+  }
+  if (!review?.ok || !review.reviewId) {
+    const error = review?.error || 'CCTI could not review Start fresh. Nothing was deleted.';
+    setupNoteElement.textContent = error;
+    appendOutput(`${error}\n`, 'stderr');
+    return;
+  }
+  const confirmation = await requestTypedConfirmation({
+    title: 'Start fresh',
+    message: 'Start fresh permanently deletes local Claude Code data, then runs Complete setup again to rebuild a clean recommended setup.',
+    listHeading: 'CCTI will permanently delete',
+    items: review.items || [],
+    warning: review.warning || 'This cannot be undone.',
+    phrase: START_FRESH_PHRASE,
+    confirmLabel: 'Delete and start fresh',
+  });
+  if (confirmation !== START_FRESH_PHRASE) return;
+  runCompleteSetup(true, { reviewId: review.reviewId, confirmation });
+}
+
+async function runCompleteSetup(fresh = false, freshReview = null) {
   const selected = selectedItems();
   const recommendedNames = selected.map((tool) => `• ${tool.name}`).join('\n');
   const scopeDescription = completeSetupScopeDescription();
   if (fresh) {
-    const confirmation = window.prompt('Start fresh permanently deletes local Claude Code versions, settings, session history, MCP configuration, the local tool stack, and this app-managed Node.js runtime.\n\nType DELETE CLAUDE DATA to continue.');
-    if (confirmation !== 'DELETE CLAUDE DATA') return;
+    if (!freshReview?.reviewId || freshReview.confirmation !== START_FRESH_PHRASE) return;
   } else if (!window.confirm(`Complete setup will automatically install missing prerequisites, Claude Code, and this recommended tool set:\n\n${recommendedNames}\n\n${scopeDescription}\n\nCCTI installs supported recommended plugins inside the app. You do not need to type or paste terminal commands. Claude Code will open after installation so you can sign in.`)) {
     return;
   }
@@ -1238,6 +1354,7 @@ async function runCompleteSetup(fresh = false) {
       fresh,
       skillScope: state.completeSetupScope.skillScope,
       projectPath: state.completeSetupScope.projectPath,
+      ...(fresh ? { reviewId: freshReview.reviewId, confirmation: freshReview.confirmation } : {}),
     });
     if (!result) throw new Error('Complete setup did not return a result.');
   } catch (error) {
@@ -1537,9 +1654,12 @@ async function uninstallApplication() {
       window.alert('The manifest could not be saved. You can still cancel now or continue with the reviewed uninstall.');
     }
   }
-  const confirmation = window.prompt(
-    'MANDATORY ACKNOWLEDGMENT:\n\nTo confirm complete removal of Claude Code Tools Installer, type:\nUNINSTALL CCTI\n\n(Claude Code and your tools will NOT be removed).'
-  );
+  const confirmation = await requestTypedConfirmation({
+    title: 'Uninstall CCTI',
+    message: 'MANDATORY ACKNOWLEDGMENT:\n\nTo confirm complete removal of Claude Code Tools Installer, type:\nUNINSTALL CCTI\n\n(Claude Code and your tools will NOT be removed).',
+    phrase: 'UNINSTALL CCTI',
+    confirmLabel: 'Uninstall CCTI',
+  });
 
   if (confirmation !== 'UNINSTALL CCTI') {
     uninstallStatusNoteElement.textContent = 'Uninstallation canceled. The required acknowledgment was not matched.';
@@ -1588,14 +1708,24 @@ function populateComponentCategories() {
   }
 }
 
+// The catalog and its details are loaded once at startup, so each component's lowercase
+// search text is built on first use and reused for every later keystroke.
+const componentSearchText = new WeakMap();
+
+function componentHaystack(component) {
+  let haystack = componentSearchText.get(component);
+  if (haystack === undefined) {
+    const detail = detailFor(component);
+    haystack = `${component.name} ${component.packageName} ${component.category} ${detail.plainPurpose} ${detail.chooseWhen} ${detail.example}`.toLowerCase();
+    componentSearchText.set(component, haystack);
+  }
+  return haystack;
+}
+
 function filteredComponents() {
   const term = componentSearchElement.value.trim().toLowerCase();
   const category = componentCategoryElement.value;
-  return state.componentCatalog.components.filter((component) => {
-    const detail = detailFor(component);
-    const haystack = `${component.name} ${component.packageName} ${component.category} ${detail.plainPurpose} ${detail.chooseWhen} ${detail.example}`.toLowerCase();
-    return (!term || haystack.includes(term)) && (!category || component.category === category);
-  });
+  return state.componentCatalog.components.filter((component) => (!term || componentHaystack(component).includes(term)) && (!category || component.category === category));
 }
 
 function renderComponentDetail() {
@@ -2589,7 +2719,13 @@ function renderSetupManager(report) {
   }
 }
 
+// Every scan gets a sequence number. When scans overlap, only the newest one renders its
+// result or error, so a slower earlier scan can never overwrite a newer one.
+let setupScanSequence = 0;
+let setupScanInFlight = null;
+
 async function scanSetup() {
+  const sequence = ++setupScanSequence;
   setupManagerSummaryElement.textContent = 'Checking the selected Claude Code locations. Nothing is being changed.';
   setupManagerResultsElement.replaceChildren();
   toolInventoryElement.classList.add('is-hidden');
@@ -2598,9 +2734,11 @@ async function scanSetup() {
   duplicateReviewElement.classList.add('is-hidden');
   try {
     const result = await window.installer.discoverSetup({ projectPath: state.managerProjectPath });
+    if (sequence !== setupScanSequence) return;
     if (!result?.ok && result?.error) throw new Error(result.error);
     renderSetupManager(result);
   } catch (error) {
+    if (sequence !== setupScanSequence) return;
     state.managerReport = null;
     state.managerProjectPath = '';
     setupManagerSummaryElement.textContent = error.message || 'CCTI could not check the selected project. Choose the folder again and retry.';
@@ -2655,7 +2793,12 @@ async function reviewAndRemoveProjectPackage(finding) {
   }
   const accepted = window.confirm(`Review project package removal.\n\nPackage: ${review.name}\nProject folder: ${review.projectPath}\nPackage file: ${review.packageJsonPath}\n\nCCTI will run this exact command with package scripts disabled:\n${review.command}\n\nThis changes only the selected project’s package files and installed package folder. It does not remove global tools, skills, add-ons, or other projects. Continue?`);
   if (!accepted) return;
-  const confirmation = window.prompt(`Final check: type REMOVE PROJECT PACKAGE to remove ${review.name} from this selected project. Nothing happens until you type it exactly.`);
+  const confirmation = await requestTypedConfirmation({
+    title: 'Remove project package',
+    message: `Final check: type REMOVE PROJECT PACKAGE to remove ${review.name} from this selected project. Nothing happens until you type it exactly.`,
+    phrase: 'REMOVE PROJECT PACKAGE',
+    confirmLabel: 'Remove package',
+  });
   if (confirmation !== 'REMOVE PROJECT PACKAGE') return;
   cleanupActionsStatusElement.textContent = `Removing ${review.name} from the selected project with package scripts disabled…`;
   const result = await window.installer.applyProjectPackageRemoval({ reviewId: review.reviewId, confirmation });
@@ -2679,7 +2822,12 @@ async function reviewAndRemoveManagedExtras() {
     : '';
   const accepted = window.confirm(`Review CCTI-managed extras removal.\n\n${review.description}\n\nItems CCTI can remove:\n${actionList}${manualNote}\n\nContinue to the final confirmation?`);
   if (!accepted) return;
-  const confirmation = window.prompt('Final check: type REMOVE CCTI EXTRAS exactly. CCTI will remove only the items in the review you just read.');
+  const confirmation = await requestTypedConfirmation({
+    title: 'Remove CCTI extras',
+    message: 'Final check: type REMOVE CCTI EXTRAS exactly. CCTI will remove only the items in the review you just read.',
+    phrase: 'REMOVE CCTI EXTRAS',
+    confirmLabel: 'Remove extras',
+  });
   if (confirmation !== 'REMOVE CCTI EXTRAS') return;
   cleanupActionsStatusElement.textContent = 'Removing only the reviewed CCTI-managed extras…';
   const result = await window.installer.applyManagedExtrasRemoval({ reviewId: review.reviewId, confirmation });
@@ -2934,7 +3082,27 @@ completeSetupExistingProjectButton.addEventListener('click', () => chooseComplet
 completeSetupNewProjectButton.addEventListener('click', () => chooseCompleteSetupProject(true));
 reportAnonymousSuccessButton.addEventListener('click', reportAnonymousSuccess);
 skipAnonymousSuccessButton.addEventListener('click', skipAnonymousSuccess);
-startFreshButton.addEventListener('click', () => runCompleteSetup(true));
+startFreshButton.addEventListener('click', openStartFreshDialog);
+applyTypedConfirmButton.addEventListener('click', () => {
+  if (state.typedConfirmPhrase && typedConfirmInputElement.value === state.typedConfirmPhrase) finishTypedConfirmation(state.typedConfirmPhrase);
+});
+cancelTypedConfirmButton.addEventListener('click', () => finishTypedConfirmation(null));
+typedConfirmInputElement.addEventListener('input', () => {
+  applyTypedConfirmButton.disabled = !state.typedConfirmPhrase || typedConfirmInputElement.value !== state.typedConfirmPhrase;
+});
+// Enter in the confirmation field must never submit the dialog's form (which would close it).
+typedConfirmDialogElement.querySelector('form').addEventListener('submit', (event) => event.preventDefault());
+typedConfirmDialogElement.addEventListener('close', () => {
+  // The close event is queued; if a new confirmation opened meanwhile, it owns the dialog now.
+  if (typedConfirmDialogElement.open) return;
+  // Escape closes the dialog: treat it as Cancel.
+  if (typedConfirmResolver) finishTypedConfirmation(null);
+  const invoker = state.typedConfirmInvoker;
+  state.typedConfirmInvoker = null;
+  setTimeout(() => {
+    if (invoker?.isConnected && !invoker.disabled) invoker.focus();
+  }, 0);
+});
 useExistingButton.addEventListener('click', () => {
   state.claudeInstalled = true;
   state.claudeApproved = true;
@@ -2993,12 +3161,26 @@ exportProjectPrdButton.addEventListener('click', exportProjectPrd);
 queueInterviewSuggestionsButton.addEventListener('click', queueInterviewSuggestionsFromDraft);
 document.querySelector('#open-components-library').addEventListener('click', openComponentLibrary);
 document.querySelector('#close-components-library').addEventListener('click', () => componentLibraryElement.classList.add('is-hidden'));
-componentSearchElement.addEventListener('input', renderComponents);
+let componentSearchTimer = 0;
+componentSearchElement.addEventListener('input', () => {
+  clearTimeout(componentSearchTimer);
+  componentSearchTimer = setTimeout(renderComponents, 100);
+});
 componentCategoryElement.addEventListener('change', renderComponents);
 chooseProjectButton.addEventListener('click', chooseProjectFolder);
 previewComponentsButton.addEventListener('click', previewComponentPlan);
 installComponentsButton.addEventListener('click', installProjectComponents);
-document.querySelector('#scan-setup-button').addEventListener('click', scanSetup);
+// A repeated click while the same folder is still being checked joins that check instead of
+// starting a second full scan. Scans started after a change always run fresh.
+document.querySelector('#scan-setup-button').addEventListener('click', () => {
+  const projectPath = state.managerProjectPath;
+  if (setupScanInFlight && setupScanInFlight.projectPath === projectPath && setupScanInFlight.sequence === setupScanSequence) return setupScanInFlight.promise;
+  const promise = scanSetup();
+  const entry = { projectPath, sequence: setupScanSequence, promise };
+  setupScanInFlight = entry;
+  promise.finally(() => { if (setupScanInFlight === entry) setupScanInFlight = null; }).catch(() => {});
+  return promise;
+});
 toolInventoryResetButton.addEventListener('click', resetToolInventoryRecord);
 document.querySelector('#choose-manager-project-button').addEventListener('click', chooseManagerProject);
 deduplicateAllSkillsButton.addEventListener('click', deduplicateAllSkills);
@@ -3189,8 +3371,8 @@ syncCompleteSetupScope();
     chooseBy((tool) => tool.default);
     updateCompassConnectionUi();
     displayUpdateStatus(initialUpdateStatus);
-    await loadTerminalPreference();
-    await refreshClaudeStatus();
+    // Independent: the terminal preference only updates its own selector and note.
+    await Promise.all([loadTerminalPreference(), refreshClaudeStatus()]);
   } catch (error) {
     bootstrapStatusElement.textContent = 'App setup failed';
     bootstrapStatusElement.className = 'status-chip status-error';

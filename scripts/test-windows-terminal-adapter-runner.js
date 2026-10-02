@@ -95,7 +95,8 @@ function replayLastTerminalPayload() {
   const call = [...spawnCalls].reverse().find((entry) => Array.isArray(entry.args) && entry.args.includes('-Command'));
   if (!call) return { attempted: false, reason: 'No terminal launch payload was captured.' };
   const directPowerShell = /(?:powershell|pwsh)\.exe$/i.test(String(call.command));
-  const nestedPowerShellIndex = call.args.findIndex((arg) => /^(?:powershell|pwsh)\.exe$/i.test(String(arg)));
+  // CCTI passes PowerShell to Windows Terminal as an absolute path (never a bare name).
+  const nestedPowerShellIndex = call.args.findIndex((arg) => /(?:^|[\\/])(?:powershell|pwsh)\.exe$/i.test(String(arg)));
   const command = directPowerShell ? call.command : nestedPowerShellIndex >= 0 ? call.args[nestedPowerShellIndex] : '';
   const sourceArgs = directPowerShell ? call.args : nestedPowerShellIndex >= 0 ? call.args.slice(nestedPowerShellIndex + 1) : [];
   if (!command) return { attempted: false, reason: 'No PowerShell payload was present in the captured terminal launch.' };

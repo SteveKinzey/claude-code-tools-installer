@@ -53,8 +53,23 @@ for (const control of ['a\tb', 'a\u007fb', 'a\u001bb']) {
 // 2. spawnSafely decisions, with a recording spawn so nothing runs.
 const calls = [];
 const recordSpawn = (command, args, options) => { calls.push({ command, args, options }); return { recorded: true }; };
-spawnSafely('npm.cmd', ['uninstall', 'x&calc'], { cwd: 'C:\\p' }, { platform: 'win32', spawn: recordSpawn });
-assert.deepEqual(calls.pop(), { command: 'npm.cmd uninstall "x&calc"', args: [], options: { cwd: 'C:\\p', shell: true } }, 'a Windows .cmd target must run through cmd.exe with every argument quoted');
+// A bare name is resolved from absolute PATH entries only; the project folder (cwd) is never searched.
+const fakeFiles = new Set(['C:\\Tools\\npm.cmd', 'C:\\Program Files\\nodejs\\npm.cmd', 'C:\\Windows\\System32\\where.exe']);
+const fakeIsFile = (candidate) => fakeFiles.has(candidate);
+const winEnv = { PATH: 'C:\\Tools;C:\\Windows\\System32', PATHEXT: '.COM;.EXE;.BAT;.CMD' };
+spawnSafely('npm.cmd', ['uninstall', 'x&calc'], { cwd: 'C:\\p', env: winEnv }, { platform: 'win32', spawn: recordSpawn, isFile: fakeIsFile });
+assert.deepEqual(calls.pop(), { command: 'C:\\Tools\\npm.cmd uninstall "x&calc"', args: [], options: { cwd: 'C:\\p', env: winEnv, shell: true } }, 'a Windows .cmd target must be resolved to an absolute path and run through cmd.exe with every argument quoted');
+const spacedEnv = { PATH: 'C:\\Program Files\\nodejs', PATHEXT: '.EXE;.CMD' };
+spawnSafely('npm.cmd', ['install', 'a'], { cwd: 'C:\\p', env: spacedEnv }, { platform: 'win32', spawn: recordSpawn, isFile: fakeIsFile });
+assert.equal(calls.pop().command, '"C:\\Program Files\\nodejs\\npm.cmd" install a', 'an ABSOLUTE .cmd path with a space is quoted (safe for %~dp0, unlike a quoted bare name)');
+spawnSafely('where.exe', ['wt'], { env: winEnv }, { platform: 'win32', spawn: recordSpawn, isFile: fakeIsFile });
+assert.deepEqual(calls.pop(), { command: 'C:\\Windows\\System32\\where.exe', args: ['wt'], options: { env: winEnv } }, 'a bare .exe is resolved to an absolute path and spawned without a shell');
+// A planted npm.cmd in the project folder must never be chosen: the project is not on PATH and
+// relative/empty/drive-relative PATH entries are ignored.
+const plantedFiles = new Set(['C:\\Project\\npm.cmd', 'npm.cmd', '.\\npm.cmd', 'C:npm.cmd', '\\npm.cmd', 'bin\\npm.cmd']);
+const plantedEnv = { PATH: ';.;bin;C:;\\;', PATHEXT: '.CMD' };
+assert.throws(() => spawnSafely('npm.cmd', ['install'], { cwd: 'C:\\Project', env: plantedEnv }, { platform: 'win32', spawn: recordSpawn, isFile: (candidate) => plantedFiles.has(candidate) }), (error) => error.code === 'WINDOWS_EXECUTABLE_NOT_FOUND', 'an unresolvable command must fail instead of falling back to the bare name');
+assert.equal(calls.length, 0, 'an unresolvable command must never reach spawn');
 spawnSafely('C:\\Users\\Jane Doe\\claude.CMD', ['--version'], {}, { platform: 'win32', spawn: recordSpawn });
 assert.equal(calls.pop().command, '"C:\\Users\\Jane Doe\\claude.CMD" --version', 'a .cmd path with a space must be quoted');
 spawnSafely('C:\\Program Files\\Claude\\claude.exe', ['a&b'], { windowsHide: true }, { platform: 'win32', spawn: recordSpawn });
@@ -63,9 +78,49 @@ spawnSafely('npm.cmd', ['a&b'], { cwd: '/p' }, { platform: 'darwin', spawn: reco
 assert.deepEqual(calls.pop(), { command: 'npm.cmd', args: ['a&b'], options: { cwd: '/p' } }, 'non-Windows behavior must not change');
 spawnSafely('npm', ['install', 'x y'], { cwd: '/p' }, { platform: 'linux', spawn: recordSpawn });
 assert.deepEqual(calls.pop(), { command: 'npm', args: ['install', 'x y'], options: { cwd: '/p' } }, 'non-Windows behavior must not change');
-assert.throws(() => spawnSafely('npm.cmd', ['a%PATH%'], {}, { platform: 'win32', spawn: recordSpawn }), (error) => error.code === 'UNSAFE_WINDOWS_ARGUMENT');
+assert.throws(() => spawnSafely('npm.cmd', ['a%PATH%'], { env: winEnv }, { platform: 'win32', spawn: recordSpawn, isFile: fakeIsFile }), (error) => error.code === 'UNSAFE_WINDOWS_ARGUMENT');
 assert.throws(() => spawnSafely('C:\\100%\\claude.cmd', ['--version'], {}, { platform: 'win32', spawn: recordSpawn }), (error) => error.code === 'UNSAFE_WINDOWS_ARGUMENT');
 assert.equal(calls.length, 0, 'an unsafe argument or command must never reach spawn');
+
+// 3. resolveWindowsExecutable: absolute PATH entries only, PATHEXT honored, never cwd.
+{
+  const { resolveWindowsExecutable, isAbsoluteWindowsPath } = require(path.join(root, 'desktop', 'src', 'windows-command.js'));
+  const files = new Set([
+    'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    'C:\\Users\\Jane\\AppData\\Roaming\\npm\\claude.cmd',
+    'C:\\Users\\Jane\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe',
+    '\\\\server\\share\\tools\\tool.bat',
+  ]);
+  const isFile = (candidate) => files.has(candidate);
+  const PATH = [
+    '', '.', 'relative\\bin', 'C:', '\\rooted-no-drive',
+    '"C:\\Program Files\\PowerShell\\7"',
+    'C:\\Windows\\System32\\WindowsPowerShell\\v1.0',
+    'C:\\Users\\Jane\\AppData\\Roaming\\npm',
+    'C:\\Users\\Jane\\AppData\\Local\\Microsoft\\WindowsApps',
+    '\\\\server\\share\\tools',
+  ].join(';');
+  const opts = { pathValue: PATH, pathext: '.COM;.EXE;.BAT;.CMD', isFile };
+  assert.equal(resolveWindowsExecutable('pwsh.exe', opts), 'C:\\Program Files\\PowerShell\\7\\pwsh.exe', 'a quoted PATH entry is unquoted');
+  assert.equal(resolveWindowsExecutable('powershell.exe', opts), 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  assert.equal(resolveWindowsExecutable('claude', opts), 'C:\\Users\\Jane\\AppData\\Roaming\\npm\\claude.cmd', 'PATHEXT is honored for a name without an extension');
+  assert.equal(resolveWindowsExecutable('winget', opts), 'C:\\Users\\Jane\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe');
+  assert.equal(resolveWindowsExecutable('tool', opts), '\\\\server\\share\\tools\\tool.bat', 'a UNC PATH entry is absolute');
+  assert.equal(resolveWindowsExecutable('C:\\Abs\\x.cmd', opts), 'C:\\Abs\\x.cmd', 'an absolute path is used as given');
+  // claude.cmd is not found when PATHEXT excludes .CMD.
+  assert.throws(() => resolveWindowsExecutable('claude', { ...opts, pathext: '.EXE' }), (error) => error.code === 'WINDOWS_EXECUTABLE_NOT_FOUND');
+  // Relative names, drive-relative names and names absent from absolute PATH entries are refused.
+  const everywhere = () => true;
+  for (const bad of ['.\\npm.cmd', 'bin\\npm.cmd', 'bin/npm.cmd', 'C:npm.cmd', '', '   ', null, undefined]) {
+    assert.throws(() => resolveWindowsExecutable(bad, { ...opts, isFile: everywhere }), (error) => error.code === 'WINDOWS_EXECUTABLE_NOT_FOUND', `${JSON.stringify(bad)} must be refused`);
+  }
+  const seen = [];
+  assert.throws(() => resolveWindowsExecutable('npm.cmd', { pathValue: ';.;relative;C:;\\x', pathext: '.CMD', isFile: (candidate) => { seen.push(candidate); return true; } }), (error) => error.code === 'WINDOWS_EXECUTABLE_NOT_FOUND');
+  assert.deepEqual(seen, [], 'no relative, empty or drive-relative PATH entry is ever probed');
+  for (const value of ['C:\\x', 'c:/x', '\\\\srv\\share']) assert.equal(isAbsoluteWindowsPath(value), true, value);
+  for (const value of ['x', '.\\x', 'C:x', '\\x', '\\\\srv', '']) assert.equal(isAbsoluteWindowsPath(value), false, value);
+}
 
 function collect(child) {
   return new Promise((resolve, reject) => {
@@ -109,6 +164,15 @@ async function run() {
     let spawned = false;
     assert.throws(() => spawnSafely(probe, ['a%PATH%'], { cwd: dir }, { spawn: () => { spawned = true; } }), (error) => error.code === 'UNSAFE_WINDOWS_ARGUMENT');
     assert.equal(spawned, false, 'a %VAR% argument must be refused before anything is spawned');
+
+    // A command planted in the working folder (and absent from PATH) must not be found or run.
+    fs.writeFileSync(path.join(dir, 'ccti-planted-probe.cmd'), '@echo planted>planted-marker.txt\r\n', 'utf8');
+    assert.throws(() => spawnSafely('ccti-planted-probe.cmd', [], { cwd: dir, windowsHide: true }), (error) => error.code === 'WINDOWS_EXECUTABLE_NOT_FOUND');
+    assert.equal(fs.existsSync(path.join(dir, 'planted-marker.txt')), false, 'a command in the working folder must never run');
+    // The same command, reached through an absolute PATH entry, resolves and runs.
+    const viaPath = await collect(spawnSafely('probe.cmd', ['ok'], { cwd: tempRoot, windowsHide: true, env: { ...process.env, PATH: `${dir};${process.env.PATH || process.env.Path || ''}`, Path: undefined } }));
+    assert.equal(viaPath.code, 0, `probe via PATH should exit cleanly: ${viaPath.stderr}`);
+    assert.deepEqual(JSON.parse(viaPath.stdout.trim()), ['ok']);
     console.log('Windows command quoting and live cmd.exe round trip passed.');
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

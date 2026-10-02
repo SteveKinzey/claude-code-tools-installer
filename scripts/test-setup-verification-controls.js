@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { externalBridgeTag } = require('./renderer-fixture-bridge');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow } = require('electron');
 
@@ -45,8 +46,8 @@ function injectedBridge() {
       emitUpdateStatus: (status) => updateStatusListener(status),
     };
     window.confirm = () => true;
-    window.prompt = () => '';
     const record = (method, payload) => calls.push({ method, payload });
+    document.addEventListener('securitypolicyviolation', (event) => calls.push({ method: 'csp-violation', payload: { directive: event.effectiveDirective, blocked: event.blockedURI } }));
 
     window.installer = {
       getCatalog: async () => [],
@@ -86,6 +87,10 @@ function injectedBridge() {
       runCompleteSetup: (payload) => {
         record('runCompleteSetup', payload);
         return new Promise((resolve) => { resolveCompleteSetup = resolve; });
+      },
+      reviewFreshSetup: async (payload) => {
+        record('reviewFreshSetup', payload);
+        return { ok: true, reviewId: '11111111-2222-4333-8444-555555555555', confirmation: 'DELETE CLAUDE DATA', items: ['Local Claude Code versions installed on this computer', 'Claude Code settings, session history, and MCP configuration'], warning: 'This cannot be undone.' };
       },
       verifySetup: () => {
         record('verifySetup');
@@ -171,7 +176,7 @@ async function run() {
 
   const fixtureHtml = rawHtml
     .replace('<head>', `<head><base href="${pathToFileURL(`${rendererDir}${path.sep}`).href}">`)
-    .replace('    <script src="../project-interview.js"></script>', `${injectedBridge()}\n    <script src="../project-interview.js"></script>`);
+    .replace('    <script src="../project-interview.js"></script>', `${externalBridgeTag(injectedBridge(), fixturePath)}\n    <script src="../project-interview.js"></script>`);
   await fs.writeFile(fixturePath, fixtureHtml, 'utf8');
 
   const window = new BrowserWindow({
@@ -385,6 +390,66 @@ async function run() {
       'CCTI verified all 10 setup items. Everything is ready.',
     ], 'The Setup Check live region must announce each workflow transition in order.');
 
+    // Start fresh uses the shared in-app typed confirmation dialog (window.prompt throws in Electron and is not stubbed here).
+    await evaluate(window, "document.querySelector('#start-fresh-button').click()");
+    await waitFor(window, () => document.querySelector('#typed-confirm-dialog')?.open === true, 'Start fresh dialog');
+    const freshDialog = await evaluate(window, `(() => ({
+      items: [...document.querySelectorAll('#typed-confirm-list li')].map((item) => item.textContent),
+      warning: document.querySelector('#typed-confirm-warning').textContent,
+      applyDisabled: document.querySelector('#apply-typed-confirm-button').disabled,
+      reviewCall: window.__setupVerificationFixture.calls.find((call) => call.method === 'reviewFreshSetup'),
+      runCalls: window.__setupVerificationFixture.calls.filter((call) => call.method === 'runCompleteSetup').length,
+    }))()`);
+    assert.deepEqual(freshDialog, {
+      items: ['Local Claude Code versions installed on this computer', 'Claude Code settings, session history, and MCP configuration'],
+      warning: 'This cannot be undone.',
+      applyDisabled: true,
+      reviewCall: { method: 'reviewFreshSetup', payload: { skillScope: 'global', projectPath: '' } },
+      runCalls: 1,
+    }, 'Start fresh must show the main-issued review and keep its action disabled until the phrase is typed.');
+    const typePhrase = (value) => evaluate(window, `(() => {
+      const input = document.querySelector('#typed-confirm-input');
+      input.value = ${JSON.stringify(value)};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return document.querySelector('#apply-typed-confirm-button').disabled;
+    })()`);
+    assert.equal(await typePhrase('delete claude data'), true, 'a near-miss phrase must not enable Start fresh');
+    assert.equal(await typePhrase('DELETE CLAUDE DATA'), false, 'the exact phrase enables Start fresh');
+    await evaluate(window, "document.querySelector('#apply-typed-confirm-button').click()");
+    await waitFor(window, () => document.querySelector('#typed-confirm-dialog')?.open === false && window.__setupVerificationFixture.calls.filter((call) => call.method === 'runCompleteSetup').length === 2, 'Start fresh run');
+    const freshRun = await evaluate(window, `(() => ({
+      runCall: window.__setupVerificationFixture.calls.filter((call) => call.method === 'runCompleteSetup').at(-1),
+      confirmationCleared: document.querySelector('#typed-confirm-input').value,
+    }))()`);
+    assert.deepEqual(freshRun, {
+      runCall: { method: 'runCompleteSetup', payload: { fresh: true, skillScope: 'global', projectPath: '', reviewId: '11111111-2222-4333-8444-555555555555', confirmation: 'DELETE CLAUDE DATA' } },
+      confirmationCleared: '',
+    }, 'Start fresh must pass the main review and typed phrase to main, without window.prompt.');
+    await evaluate(window, "window.__setupVerificationFixture.resolveCompleteSetup({ ok: false, error: 'fixture stop' })");
+    await waitFor(window, () => document.querySelector('#complete-setup-button')?.getAttribute('aria-busy') === 'false', 'Start fresh finished');
+    // Cancel closes the dialog without running anything.
+    await waitFor(window, () => document.querySelector('#start-fresh-button')?.disabled === false, 'Start fresh available again');
+    await evaluate(window, "document.querySelector('#start-fresh-button').click()");
+    await waitFor(window, () => document.querySelector('#typed-confirm-dialog')?.open === true, 'Start fresh dialog again');
+    await evaluate(window, "document.querySelector('#cancel-typed-confirm-button').click()");
+    await waitFor(window, () => document.querySelector('#typed-confirm-dialog')?.open === false, 'Start fresh cancel');
+    assert.equal(await evaluate(window, "window.__setupVerificationFixture.calls.filter((call) => call.method === 'runCompleteSetup').length"), 2, 'Cancel must not run Start fresh');
+
+    // The renderer runs under its Content-Security-Policy: the whole flow above caused no
+    // violation, and an inline script is refused.
+    const csp = await evaluate(window, `(() => {
+      const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+      const before = window.__setupVerificationFixture.calls.filter((call) => call.method === 'csp-violation').length;
+      const probe = document.createElement('script');
+      probe.textContent = 'window.__cctiInlineScriptRan = true;';
+      document.body.append(probe);
+      return { policy: meta?.content, before, inlineRan: window.__cctiInlineScriptRan === true };
+    })()`);
+    assert.equal(csp.policy, "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'", 'the renderer must declare its Content-Security-Policy');
+    assert.equal(csp.before, 0, 'the renderer must not trigger any Content-Security-Policy violation');
+    assert.equal(csp.inlineRan, false, 'the Content-Security-Policy must block inline scripts');
+    await waitFor(window, () => window.__setupVerificationFixture.calls.some((call) => call.method === 'csp-violation'), 'inline script violation report');
+
     await evaluate(window, "document.querySelector('#run-diagnostics-button').click()");
     await waitFor(window, () => !document.querySelector('#runtime-path-health')?.hidden && document.querySelectorAll('.runtime-path-health-card').length === 3, 'runtime PATH health dashboard');
     const runtimeHealth = await evaluate(window, `(() => ({
@@ -407,7 +472,11 @@ async function run() {
     }, 'Diagnostics must show a local-only fallback, CCTI PATH, and sandbox-boundary summary without exposing full PATH entries.');
 
     window.setSize(320, 568);
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    // Measure only after the resize has reached the renderer and the layout has repainted: a fixed
+    // 80 ms wait could sample mid-reflow on slower CI hosts and report overflow that is not there.
+    await waitFor(window, () => window.innerWidth <= 320, 'the compact 320px viewport');
+    await evaluate(window, 'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    await new Promise((resolve) => setTimeout(resolve, 150));
     const compactRuntimeHealth = await evaluate(window, `(() => {
       const cards = document.querySelector('#runtime-path-health-cards');
       return {
