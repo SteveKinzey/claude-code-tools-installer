@@ -503,6 +503,9 @@ function emit(channel, payload) {
   }
 }
 
+// Exit code the setup scripts use when they finished but skipped at least one optional item.
+const SKIPPED_ITEMS_EXIT_CODE = 3;
+
 function runProcess(command, args, options = {}) {
   const timeoutMs = typeof options.timeout === 'number' ? options.timeout : 30000;
   return new Promise((resolve, reject) => {
@@ -4642,9 +4645,16 @@ app.whenReady().then(async () => {
       const result = adapterIds.length > 0
         ? await spawnInstaller('install', adapterIds, Boolean(dryRun))
         : { code: 0 };
-      if (result.code === 0 && !dryRun) await installReviewedPlugins(reviewedPluginIds);
+      // The setup script exits with SKIPPED_ITEMS_EXIT_CODE when it finished but had to skip an
+      // optional item (for example, a reference repository that moved upstream). Everything else
+      // was processed, so the reviewed plugin actions still run; the result reports the skip.
+      const finishedWithSkips = result.code === SKIPPED_ITEMS_EXIT_CODE;
+      if ((result.code === 0 || finishedWithSkips) && !dryRun) await installReviewedPlugins(reviewedPluginIds);
       if (result.code === 0 && dryRun && reviewedPluginIds.length > 0) {
         emit('installer:output', { stream: 'stdout', text: `[CCTI] Preview: ${reviewedPluginIds.length} selected plugin action${reviewedPluginIds.length === 1 ? '' : 's'} would run inside CCTI after Claude Code is ready.\n` });
+      }
+      if (finishedWithSkips) {
+        return { ok: false, code: result.code, error: 'Setup finished, but some selected items were skipped. The activity details list each skipped item and why' };
       }
       return { ok: result.code === 0, code: result.code };
     } catch (error) {

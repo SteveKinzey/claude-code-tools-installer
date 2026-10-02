@@ -527,16 +527,33 @@ mcp_exists() {
   claude mcp get "$name" >/dev/null 2>&1
 }
 
+# Optional reference repositories are copies the user reads, not code setup runs. When one cannot
+# be downloaded or updated (for example, the upstream repository moved or was deleted), CCTI skips
+# that item, keeps installing the rest, and reports every skipped item when setup finishes.
+SKIPPED_ITEMS=()
+
+skip_item() {
+  local item="$1" reason="$2"
+  log "CCTI skipped '$item': $reason"
+  SKIPPED_ITEMS+=("$item: $reason")
+}
+
 clone_or_update() {
   local repo="$1" dest="$2" item="$3"
   if already_path "$dest/.git"; then
     log "Existing git checkout detected: $dest"
-    run_cmd git -C "$dest" pull --ff-only
+    if ! run_cmd git -C "$dest" pull --ff-only; then
+      skip_item "$item" "the existing copy at $dest could not be updated from $repo. The existing copy was left as it was."
+    fi
   elif already_path "$dest"; then
     log "Existing non-git path detected, skipping clone: $dest"
   else
-    run_cmd git clone --depth 1 "$repo" "$dest"
-    record_manifest "path" "$dest" "" "$item"
+    if run_cmd git clone --depth 1 "$repo" "$dest"; then
+      record_manifest "path" "$dest" "" "$item"
+    else
+      rm -rf -- "$dest"
+      skip_item "$item" "$repo could not be downloaded. Check that the repository still exists, then try again."
+    fi
   fi
 }
 
@@ -719,9 +736,9 @@ install_item() {
       log "Productivity is managed by Claude.ai account sync. CCTI did not run a Claude plugin install command. Enable Productivity in Claude.ai, restart Claude Code, and run /reload-plugins if prompted. Then use /productivity:start and /productivity:update."
       ;;
     ui-ux-pro-max)
-      version="$(source_version https://github.com/nextlevelbuilders/ui-ux-pro-max)"
+      version="$(source_version https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)"
       log "Source ui-ux-pro-max HEAD: ${version:-unknown}"
-      clone_or_update https://github.com/nextlevelbuilders/ui-ux-pro-max "${CLONE_DIR}/ui-ux-pro-max" "$id"
+      clone_or_update https://github.com/nextlevelbuilder/ui-ux-pro-max-skill "${CLONE_DIR}/ui-ux-pro-max" "$id"
       ;;
     awesome-claude-skills)
       clone_or_update https://github.com/ComposioHQ/awesome-claude-skills "${CLONE_DIR}/awesome-claude-skills" "$id"
@@ -811,9 +828,9 @@ install_item() {
       log "Queued Claude HUD plugin commands in $PLUGIN_COMMANDS"
       ;;
     caveman)
-      version="$(source_version https://github.com/JuliusBrussel/caveman)"
+      version="$(source_version https://github.com/juliusbrussee/caveman)"
       log "Source caveman HEAD: ${version:-unknown}"
-      clone_or_update https://github.com/JuliusBrussel/caveman "${CLONE_DIR}/caveman" "$id"
+      clone_or_update https://github.com/juliusbrussee/caveman "${CLONE_DIR}/caveman" "$id"
       ;;
     *)
       log "Unknown item id: $id"
@@ -1037,6 +1054,13 @@ EOF
     install_item "$id"
   done
 
+  if [[ "${#SKIPPED_ITEMS[@]}" -gt 0 ]]; then
+    echo
+    echo "CCTI finished, but skipped ${#SKIPPED_ITEMS[@]} item(s):" >&2
+    printf '  - %s\n' "${SKIPPED_ITEMS[@]}" >&2
+    echo "Everything else you selected was processed. Log: $LOG_FILE" >&2
+  fi
+
   echo
   echo "Done."
   echo "Log: $LOG_FILE"
@@ -1049,6 +1073,10 @@ EOF
   if [[ -s "$PLUGIN_COMMANDS" ]]; then
     echo
     echo "Open Claude Code and run the queued slash commands for plugin items."
+  fi
+  # A non-zero exit lets the desktop app show that some items need attention.
+  if [[ "${#SKIPPED_ITEMS[@]}" -gt 0 ]]; then
+    exit 3
   fi
 }
 

@@ -498,6 +498,20 @@ function Test-McpExists {
   }
 }
 
+# Optional reference repositories are copies the user reads, not code setup runs. When one cannot
+# be downloaded or updated (for example, the upstream repository moved or was deleted), CCTI skips
+# that item, keeps installing the rest, and reports every skipped item when setup finishes.
+$script:SkippedItems = New-Object System.Collections.Generic.List[string]
+
+function Skip-Item {
+  param(
+    [string]$ItemId,
+    [string]$Reason
+  )
+  Write-Log "CCTI skipped '$ItemId': $Reason"
+  $script:SkippedItems.Add("${ItemId}: $Reason")
+}
+
 function Clone-OrUpdate {
   param(
     [string]$Repo,
@@ -507,12 +521,20 @@ function Clone-OrUpdate {
   if (Test-Path (Join-Path $Destination ".git")) {
     Write-Log "Existing git checkout detected: $Destination"
     Invoke-Logged git @("-C", $Destination, "pull", "--ff-only")
+    if (-not $DryRun -and $LASTEXITCODE -ne 0) {
+      Skip-Item $ItemId "the existing copy at $Destination could not be updated from $Repo. The existing copy was left as it was."
+    }
   }
   elseif (Test-Path $Destination) {
     Write-Log "Existing non-git path detected, skipping clone: $Destination"
   }
   else {
     Invoke-Logged git @("clone", "--depth", "1", $Repo, $Destination)
+    if (-not $DryRun -and $LASTEXITCODE -ne 0) {
+      if (Test-Path $Destination) { Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction SilentlyContinue }
+      Skip-Item $ItemId "$Repo could not be downloaded. Check that the repository still exists, then try again."
+      return
+    }
     Add-Manifest "path" $Destination "" $ItemId
   }
 }
@@ -790,7 +812,7 @@ function Install-Item {
       Write-Log "Productivity is managed by Claude.ai account sync. CCTI did not run a Claude plugin install command. Enable Productivity in Claude.ai, restart Claude Code, and run /reload-plugins if prompted. Then use /productivity:start and /productivity:update."
     }
     "ui-ux-pro-max" {
-      Clone-OrUpdate "https://github.com/nextlevelbuilders/ui-ux-pro-max" (Join-Path $CloneDir "ui-ux-pro-max") $Id
+      Clone-OrUpdate "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill" (Join-Path $CloneDir "ui-ux-pro-max") $Id
     }
     "awesome-claude-skills" {
       Clone-OrUpdate "https://github.com/ComposioHQ/awesome-claude-skills" (Join-Path $CloneDir "awesome-claude-skills") $Id
@@ -860,7 +882,7 @@ function Install-Item {
       Write-Log "Queued Claude HUD plugin commands in $PluginCommands"
     }
     "caveman" {
-      Clone-OrUpdate "https://github.com/JuliusBrussel/caveman" (Join-Path $CloneDir "caveman") $Id
+      Clone-OrUpdate "https://github.com/juliusbrussee/caveman" (Join-Path $CloneDir "caveman") $Id
     }
     default {
       Write-Log "Unknown item id: $Id"
@@ -994,6 +1016,13 @@ foreach ($id in $selected) {
   Install-Item $id
 }
 
+if ($script:SkippedItems.Count -gt 0) {
+  Write-Host ""
+  [Console]::Error.WriteLine("CCTI finished, but skipped $($script:SkippedItems.Count) item(s):")
+  foreach ($skipped in $script:SkippedItems) { [Console]::Error.WriteLine("  - $skipped") }
+  [Console]::Error.WriteLine("Everything else you selected was processed. Log: $LogFile")
+}
+
 Write-Host ""
 Write-Host "Done."
 Write-Host "Log: $LogFile"
@@ -1005,3 +1034,5 @@ if ($Complete -and -not $DryRun) {
 }
 Write-Host ""
 Write-Host "Open Claude Code and run the queued slash commands for plugin items."
+# A non-zero exit lets the desktop app show that some items need attention.
+if ($script:SkippedItems.Count -gt 0) { exit 3 }

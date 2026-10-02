@@ -1548,6 +1548,10 @@ async function runInstallation() {
       runStatusElement.textContent = preview ? 'Preview complete' : 'Installation complete';
       if (!preview) completionPanelElement.classList.remove('is-hidden');
       if (!preview) offerAnonymousSuccessCount('selected_tools');
+    } else if (result.code === 3 && result.error) {
+      // Exit code 3: setup finished, but the script skipped at least one optional item.
+      appendOutput(`\n${result.error} above.\n`, 'stderr');
+      runStatusElement.textContent = 'Finished with skipped items';
     } else {
       appendOutput(`\nThe installer stopped: ${result.error || `exit code ${result.code}`}. Review the activity details above.\n`, 'stderr');
       runStatusElement.textContent = 'Needs attention';
