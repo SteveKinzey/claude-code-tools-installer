@@ -472,7 +472,11 @@ async function run() {
     }, 'Diagnostics must show a local-only fallback, CCTI PATH, and sandbox-boundary summary without exposing full PATH entries.');
 
     window.setSize(320, 568);
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    // Measure only after the resize has reached the renderer and the layout has repainted: a fixed
+    // 80 ms wait could sample mid-reflow on slower CI hosts and report overflow that is not there.
+    await waitFor(window, () => window.innerWidth <= 320, 'the compact 320px viewport');
+    await evaluate(window, 'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    await new Promise((resolve) => setTimeout(resolve, 150));
     const compactRuntimeHealth = await evaluate(window, `(() => {
       const cards = document.querySelector('#runtime-path-health-cards');
       return {
