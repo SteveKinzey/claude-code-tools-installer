@@ -2,6 +2,16 @@
 
 All notable changes are documented in this file. Version tags use the calendar-based format `vYYYY.MM.DD`.
 
+## v2026.10.02.03 — Setup keeps going when an upstream repository moves
+> **Release boundary:** This entry describes the tagged source. macOS, Windows, and Linux downloads exist only after the exact-tag artifacts pass their own staging gates and a separate GitHub Release publication is approved. Windows NSIS remains unsigned. This release also contains everything in v2026.10.02.02, whose draft was not published.
+
+### Moved reference repositories no longer stop setup
+- UI UX Pro Max moved to `nextlevelbuilder/ui-ux-pro-max-skill` and Caveman to `juliusbrussee/caveman`. All three adapters now use the new addresses. On macOS and Linux the old UI UX Pro Max address stopped the whole run, so every item selected after it, and every reviewed plugin action, was skipped without a clear message.
+- A reference repository that cannot be downloaded or updated is now skipped: any partial copy is removed, nothing is recorded in the manifest, setup continues with the remaining items, and the skipped items and reasons are listed at the end. On Windows the failed download no longer records a folder that was never created.
+- Setup exits with code 3 when it finished but skipped items. The desktop app still runs the reviewed plugin actions and shows **Finished with skipped items** instead of "The installer stopped".
+- Pinned third-party setup code (gstack) still stops setup when its verified fetch fails.
+- Added `scripts/test-reference-repo-resilience.js`, which checks that all adapters skip and report failed downloads and that moved addresses are not used again.
+
 ## v2026.10.02.02 — Pinned setup code, expanded terminal choices, and iTerm2 profiles
 > **Release boundary:** This entry describes the tagged source. macOS, Windows, and Linux downloads exist only after the exact-tag artifacts pass their own staging gates and a separate GitHub Release publication is approved. Windows NSIS remains unsigned.
 
