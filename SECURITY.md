@@ -4,7 +4,7 @@ Claude Code Tools Installer is a desktop app and set of setup scripts that insta
 
 ## Supported Versions
 
-Releases are dated builds (for example, v2026.08.12). Security fixes are applied only to the latest release. Please update to the newest version before reporting an issue you can no longer reproduce there.
+Releases are dated builds (for example, v2026.10.02.01). Security fixes are applied only to the latest release. Please update to the newest version before reporting an issue you can no longer reproduce there.
 
 | Version | Supported |
 | ------- | --------- |

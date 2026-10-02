@@ -35,11 +35,11 @@ Download the package for your computer from [Releases](https://github.com/SteveK
 
 | Your computer | Package | What to do next |
 |---|---|---|
-| **Windows** | SHA-256-backed Windows package when listed | Open the verified Windows package, launch CCTI, then use the same Step 1 choice. |
+| **Windows** | SHA-256-backed `.exe` installer (x64) when listed | Run the verified installer, launch CCTI, then use the same Step 1 choice. The installer is not code-signed yet, so Windows SmartScreen may show **Windows protected your PC**: choose **More info**, then **Run anyway**. See [Code signing](#code-signing). |
 | **macOS** | SHA-256-backed `.dmg` when listed | Open the verified DMG, drag the app to Applications, launch it, then use the same Step 1 choice. |
 | **Linux** | SHA-256-backed application archive when listed | Extract the verified archive, run the desktop app, then use the same Step 1 choice. |
 
-> **Electron 44 compatibility:** Releases built from the security-remediated dependency line require **macOS 13 or later** and 64-bit Windows or Linux. Windows x64 and ARM64 remain supported; Windows 32-bit and Linux ARMv7 are no longer supported by Electron.
+> **Electron 44 compatibility:** Releases built from the security-remediated dependency line require **macOS 13 or later** and 64-bit Windows or Linux. Windows releases are x64 builds; Windows 11 on Arm devices run them through Windows' built-in x64 emulation (not separately tested). Windows 32-bit and Linux ARMv7 are no longer supported by Electron.
 
 The first-run path is intentionally plain: you do **not** need to find a terminal, choose a package manager, visit an installation page, or paste a command. The app checks first and answers **Yes, Claude Code is installed** or **No, Claude Code is not installed**. If the answer is no, choose **Yes, install Claude Code**. The app runs Anthropic’s official installer, waits for it to finish, then checks again before reporting that Claude Code is installed. It does not add optional tools in that path. [1]
 
@@ -205,6 +205,14 @@ The website also offers one optional question: **After your download, were you a
 The macOS, Linux, and Windows setup adapters support dry-run checking. A dry run exits without writing a setup directory, manifest, checklist, log, backup, or Claude Code state. The documented verification procedure uses a disposable home and project folder and confirms that the temporary home remains empty after the command finishes. See [`docs/dry-run-safety-verification.md`](docs/dry-run-safety-verification.md).
 
 Before public release language is changed, verify the custom site domain, managed site domain, exact release asset, redirect response, byte size, and SHA-256. Keep counts distinct: GitHub file downloads are downloads; email opt-ins are signups; voluntary success counts are reported CCTI completion actions; survey answers are answers. None alone proves installations, active users, or demand.
+## Code signing
+
+- **macOS:** releases are signed with an Apple Developer ID and notarized by Apple.
+- **Linux:** archives carry a SHA-256 checksum and a keyless Sigstore signature bound to this repository's release workflow.
+- **Windows:** the installer is currently unsigned and published with a SHA-256 checksum. This project is applying for free open-source code signing from SignPath Foundation; once approved, Windows releases will show SignPath Foundation as the publisher.
+
+Which files are signed, how they are built, and who approves releases are described in the [Code Signing Policy](https://claudetool.app/code-signing).
+
 ## Development and Packaging
 
 The desktop app is an Electron application in `desktop/`. Release resources include the curated catalog, the 145-entry Convex component library, and the macOS, Windows, and Linux setup adapters.
