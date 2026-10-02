@@ -2,6 +2,19 @@
 
 All notable changes are documented in this file. Version tags use the calendar-based format `vYYYY.MM.DD`.
 
+## Unreleased
+
+### Pinned third-party setup code
+
+- The macOS, Linux, and Windows adapters no longer run third-party code at `@latest` or at an unversioned "whatever npm/GitHub serves today". Every package or repository that setup downloads and runs is pinned in one `CCTI pinned third-party setup code` block near the top of each adapter:
+  - npm (exact versions): `skills` 1.7.0 (skill installs), `claude-mem` 13.28.0, `@playwright/mcp` 0.0.83 (Playwright MCP registration), `repomix` 1.18.1 (global CLI and the Repomix MCP registration), `bun` 1.4.2 (gstack prerequisite, macOS/Linux), `@colbymchenry/codegraph` 1.6.1, `firecrawl-cli` 1.25.1, `@musistudio/claude-code-router` 3.1.1.
+  - gstack: fetched by commit `7fca42ad8b6c707b8a38f579f72bf3c4f7de6d85` (`git fetch --depth 1 origin <sha>`, detached checkout) into a staging folder; CCTI verifies `git rev-parse HEAD` equals the pin before moving it into `~/.claude/skills/gstack`, and stops with nothing installed otherwise. gstack's `./setup` only runs after that verification. An existing gstack checkout is still left as it is (its commit is logged).
+- Global npm installs record the bare package name in the manifest as before, so rollback is unchanged. MCP servers that are already registered are not rewritten.
+- Reference repositories that are cloned only for reading (never executed) stay on their default branch.
+- New `scripts/test-pinned-setup-code.js` (part of `npm run check`) fails if an adapter, `desktop/src/main.js`, or the catalogs run an `@latest` or unversioned third-party `npx`/global npm package, if gstack is not fetched by a verified SHA, or if the three adapters' pins differ.
+
+**How to bump a pin:** check the new release (`npm view <pkg>@<version> dist.integrity`, or `git ls-remote https://github.com/garrytan/gstack.git HEAD` for gstack), change the one line in the pin block of `setup-my-claude.sh`, `setup-my-claude-linux.sh`, and `setup-my-claude.ps1` to the same value, run `cd desktop && npm run check`, and note the bump here.
+
 ## v2026.10.02.01 — Desktop safety, working confirmations, and responsiveness
 
 > **Release boundary:** This entry describes the tagged source. macOS, Windows, and Linux downloads exist only after the exact-tag artifacts pass their own staging gates and a separate GitHub Release publication is approved. Windows NSIS remains unsigned.

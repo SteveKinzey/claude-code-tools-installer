@@ -15,6 +15,15 @@ const project = path.join(fixtureRoot, 'untrusted project');
 const fakeBin = path.join(fixtureRoot, 'bin');
 const npxLog = path.join(fixtureRoot, 'npx-calls.log');
 const evilRegistry = 'http://127.0.0.1:9/';
+// The adapters pin the third-party CLIs they run; read the reviewed versions from the macOS adapter
+// (scripts/test-pinned-setup-code.js proves all three adapters carry identical pins).
+const pinnedVersion = (name) => {
+  const match = require('node:fs').readFileSync(path.join(root, 'setup-my-claude.sh'), 'utf8').match(new RegExp(`^${name}="([^"]+)"$`, 'm'));
+  if (!match) throw new Error(`setup-my-claude.sh must pin ${name}`);
+  return match[1];
+};
+const skillsCliVersion = pinnedVersion('CCTI_SKILLS_CLI_VERSION');
+const claudeMemVersion = pinnedVersion('CCTI_CLAUDE_MEM_VERSION');
 
 async function writeExecutable(name, source) {
   await fs.writeFile(path.join(fakeBin, name), source, { encoding: 'utf8', mode: 0o755 });
@@ -33,7 +42,7 @@ if [[ "\${1:-}" == '--prefix' ]]; then prefix="\${2:-}"; fi
 contents=''
 if [[ -n "$prefix" && -d "$prefix" ]]; then contents="$(ls -A "$prefix")"; fi
 printf '%s\\t%s\\t%s\\t%s\\n' "$PWD" "$prefix" "[$contents]" "$*" >> "$CCTI_NPX_LOG"
-if [[ " $* " == *' skills@latest add '* ]]; then
+if [[ " $* " == *' skills@'*' add '* ]]; then
   skill=''
   prev=''
   for arg in "$@"; do
@@ -86,9 +95,9 @@ async function testBashAdapter(scriptName) {
   assert.equal(calls.length, 2, `${scriptName} must run exactly the two npx commands: ${JSON.stringify(calls)}`);
   const [skillCall, memCall] = calls;
   assertIsolated(skillCall, scriptName);
-  assert.equal(skillCall.args, `--prefix ${skillCall.prefix} -y skills@latest add https://github.com/OthmanAdi/planning-with-files --skill planning-with-files --agent claude-code --yes`);
+  assert.equal(skillCall.args, `--prefix ${skillCall.prefix} -y skills@${skillsCliVersion} add https://github.com/OthmanAdi/planning-with-files --skill planning-with-files --agent claude-code --yes`);
   assertIsolated(memCall, scriptName);
-  assert.equal(memCall.args, `--prefix ${memCall.prefix} -y claude-mem install`);
+  assert.equal(memCall.args, `--prefix ${memCall.prefix} -y claude-mem@${claudeMemVersion} install`);
   assert.equal((await fs.readFile(path.join(project, '.claude', 'skills', 'planning-with-files', 'SKILL.md'), 'utf8')).trim(), '# planning-with-files', `${scriptName} must still place a project skill in <project>/.claude/skills`);
   for (const call of calls) {
     await assert.rejects(fs.access(call.prefix), `${scriptName} must remove its temporary prefix folder`);
@@ -131,7 +140,7 @@ async function run() {
     const windowsSource = await fs.readFile(path.join(root, 'setup-my-claude.ps1'), 'utf8');
     assert.match(windowsSource, /Invoke-Logged npx \(@\("--prefix", \$prefixDir\) \+ \$Arguments\)/, 'The Windows adapter must pass --prefix <CCTI folder> to npx.');
     assert.match(windowsSource, /Invoke-NpxIsolated \$skillArguments/, 'The Windows adapter must install skills through the isolated npx helper.');
-    assert.match(windowsSource, /Invoke-NpxIsolated @\("-y", "claude-mem", "install"\)/, 'The Windows adapter must install Claude-Mem through the isolated npx helper.');
+    assert.match(windowsSource, /Invoke-NpxIsolated @\("-y", "claude-mem@\$CCTI_CLAUDE_MEM_VERSION", "install"\)/, 'The Windows adapter must install Claude-Mem through the isolated npx helper.');
     assert.equal(/Invoke-Logged npx (?!\(@\("--prefix")/.test(windowsSource), false, 'The Windows adapter must not run npx without --prefix.');
     for (const scriptName of ['setup-my-claude.sh', 'setup-my-claude-linux.sh']) {
       const source = await fs.readFile(path.join(root, scriptName), 'utf8');

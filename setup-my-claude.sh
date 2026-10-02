@@ -2,6 +2,24 @@
 set -Eeuo pipefail
 
 SCRIPT_VERSION="2026-08-26"
+
+# --- CCTI pinned third-party setup code -----------------------------------------
+# Every third-party package or repository that setup downloads and runs is pinned to
+# an exact version or commit, so a new (or compromised) upstream release cannot change
+# what setup executes until CCTI has reviewed it. To bump one, edit its single line
+# here AND the same line in setup-my-claude.sh, setup-my-claude-linux.sh, and
+# setup-my-claude.ps1; scripts/test-pinned-setup-code.js fails if the three differ.
+CCTI_SKILLS_CLI_VERSION="1.7.0"
+CCTI_CLAUDE_MEM_VERSION="13.28.0"
+CCTI_PLAYWRIGHT_MCP_VERSION="0.0.83"
+CCTI_REPOMIX_VERSION="1.18.1"
+CCTI_BUN_VERSION="1.4.2"
+CCTI_CODEGRAPH_VERSION="1.6.1"
+CCTI_FIRECRAWL_CLI_VERSION="1.25.1"
+CCTI_CLAUDE_CODE_ROUTER_VERSION="3.1.1"
+CCTI_GSTACK_REPO="https://github.com/garrytan/gstack.git"
+CCTI_GSTACK_COMMIT="7fca42ad8b6c707b8a38f579f72bf3c4f7de6d85"
+# ---------------------------------------------------------------------------------
 BASE_DIR="${HOME}/.setup-my-claude"
 CLONE_DIR="${HOME}/.claude/reference-repos"
 NODE_RUNTIME_DIR="${BASE_DIR}/node-runtime"
@@ -271,7 +289,7 @@ ensure_bun() {
   fi
   ensure_node_runtime
   log "Installing Bun for the selected gstack setup"
-  run_cmd npm install -g bun
+  run_cmd npm install -g "bun@${CCTI_BUN_VERSION}"
   refresh_claude_path
   if ! command -v bun >/dev/null 2>&1; then
     echo "CCTI installed Bun, but it is not available in this setup session." >&2
@@ -509,6 +527,39 @@ clone_or_update() {
   fi
 }
 
+fetch_pinned_git_commit() {
+  # Fetches exactly one pinned commit of a third-party repository whose code setup runs,
+  # verifies the checkout is that commit, and only then moves it into place. A failed or
+  # mismatched fetch leaves nothing at the destination and stops setup.
+  local repo="$1" commit="$2" dest="$3" staging actual
+  if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "CCTI stopped: the pinned commit for $repo is not a full 40-character commit SHA." >&2
+    return 1
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "+ git fetch --depth 1 $repo $commit (verify HEAD is $commit, then move to $dest)"
+    return 0
+  fi
+  mkdir -p "$BASE_DIR" "$(dirname "$dest")"
+  staging="$(mktemp -d "${BASE_DIR}/git-fetch.XXXXXX")"
+  if ! { run_cmd git init -q "$staging" \
+      && run_cmd git -C "$staging" remote add origin "$repo" \
+      && run_cmd git -C "$staging" fetch --depth 1 origin "$commit" \
+      && run_cmd git -C "$staging" checkout -q --detach FETCH_HEAD; }; then
+    rm -rf -- "$staging"
+    echo "CCTI stopped: it could not fetch the pinned commit $commit from $repo. Nothing was installed and setup did not run." >&2
+    return 1
+  fi
+  actual="$(git -C "$staging" rev-parse HEAD 2>/dev/null || true)"
+  if [[ "$actual" != "$commit" ]]; then
+    rm -rf -- "$staging"
+    echo "CCTI stopped: $repo checked out ${actual:-no commit}, not the pinned commit $commit. Nothing was installed and setup did not run." >&2
+    return 1
+  fi
+  mv -- "$staging" "$dest"
+  log "Verified $repo at pinned commit $commit"
+}
+
 install_skill() {
   local repo="$1" skill="$2" item="$3"
   local dest scope_args=(--yes)
@@ -527,17 +578,17 @@ install_skill() {
     log "CCTI did not add '$skill': a folder already uses this Claude Code skill name at $dest. Review it before adding a copy."
     return 0
   fi
-  run_npx_isolated -y skills@latest add "$repo" --skill "$skill" --agent claude-code "${scope_args[@]}"
+  run_npx_isolated -y "skills@${CCTI_SKILLS_CLI_VERSION}" add "$repo" --skill "$skill" --agent claude-code "${scope_args[@]}"
   record_manifest "skill" "$dest" "" "$item"
 }
 
 install_npm_global() {
-  local package="$1" bin="$2" item="$3"
+  local package="$1" package_version="$2" bin="$3" item="$4"
   if command -v "$bin" >/dev/null 2>&1; then
     log "Existing command detected: $bin"
     return 0
   fi
-  run_cmd npm install -g "$package"
+  run_cmd npm install -g "${package}@${package_version}"
   record_manifest "npm-global" "$package" "$bin" "$item"
 }
 
@@ -590,11 +641,11 @@ install_item() {
       local dest="${HOME}/.claude/skills/gstack"
       ensure_bun
       version="$(source_version https://github.com/garrytan/gstack)"
-      log "Source gstack HEAD: ${version:-unknown}"
+      log "Source gstack HEAD: ${version:-unknown}; CCTI installs pinned commit ${CCTI_GSTACK_COMMIT}"
       if already_path "$dest/.git"; then
-        log "Existing gstack checkout detected: $dest"
+        log "Existing gstack checkout detected: $dest (commit $(git -C "$dest" rev-parse HEAD 2>/dev/null || echo unknown)). CCTI did not replace it."
       else
-        run_cmd git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git "$dest"
+        fetch_pinned_git_commit "$CCTI_GSTACK_REPO" "$CCTI_GSTACK_COMMIT" "$dest"
         record_manifest "path" "$dest" "" "$id"
       fi
       if [[ -x "$dest/setup" ]]; then
@@ -669,11 +720,11 @@ install_item() {
       if [[ -d "${HOME}/.claude-mem" ]]; then
         log "Existing Claude-Mem data directory detected: ~/.claude-mem"
       fi
-      run_npx_isolated -y claude-mem install
+      run_npx_isolated -y "claude-mem@${CCTI_CLAUDE_MEM_VERSION}" install
       record_manifest "manual-review" "claude-mem" "Run claude-mem docs uninstall steps if needed; data may live in ~/.claude-mem" "$id"
       ;;
     codegraph)
-      install_npm_global @colbymchenry/codegraph codegraph "$id"
+      install_npm_global @colbymchenry/codegraph "$CCTI_CODEGRAPH_VERSION" codegraph "$id"
       if command -v codegraph >/dev/null 2>&1 && [[ "$DRY_RUN" -eq 0 ]]; then
         log "CodeGraph installed. Run 'codegraph install' and 'codegraph init' inside a project when ready."
       fi
@@ -682,8 +733,8 @@ install_item() {
       install_skill https://github.com/Graphify-Labs/graphify graphify "$id"
       ;;
     repomix)
-      install_npm_global repomix repomix "$id"
-      install_mcp_after_dashdash repomix "$id" npx -y repomix --mcp
+      install_npm_global repomix "$CCTI_REPOMIX_VERSION" repomix "$id"
+      install_mcp_after_dashdash repomix "$id" npx -y "repomix@${CCTI_REPOMIX_VERSION}" --mcp
       ;;
     convex)
       append_plugin_command "Convex for Claude Code" "/plugin install convex@claude-plugins-official
@@ -696,7 +747,7 @@ install_item() {
       log "Multica self-hosting requires Docker and make; not started by this installer."
       ;;
     firecrawl)
-      install_npm_global firecrawl-cli firecrawl "$id"
+      install_npm_global firecrawl-cli "$CCTI_FIRECRAWL_CLI_VERSION" firecrawl "$id"
       append_plugin_command "Firecrawl Claude plugin" "/plugin
 # Search for firecrawl and install it, then provide FIRECRAWL_API_KEY when the plugin or MCP server asks for it." "https://github.com/firecrawl/firecrawl-claude-plugin"
       log "Firecrawl CLI installed or detected. Plugin command queued in $PLUGIN_COMMANDS"
@@ -726,10 +777,10 @@ install_item() {
       log "Queued GitHub MCP setup notes in $PLUGIN_COMMANDS"
       ;;
     playwright-mcp)
-      install_mcp playwright "$id" npx @playwright/mcp@latest
+      install_mcp playwright "$id" npx "@playwright/mcp@${CCTI_PLAYWRIGHT_MCP_VERSION}"
       ;;
     claude-code-router)
-      install_npm_global @musistudio/claude-code-router ccr "$id"
+      install_npm_global @musistudio/claude-code-router "$CCTI_CLAUDE_CODE_ROUTER_VERSION" ccr "$id"
       log "Claude Code Router installed or detected. Configure providers before using 'ccr code'."
       ;;
     awesome-mcp-servers)
