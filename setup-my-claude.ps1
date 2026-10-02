@@ -512,6 +512,13 @@ function Skip-Item {
   $script:SkippedItems.Add("${ItemId}: $Reason")
 }
 
+# Upstream addresses that moved, keyed by the new address. A copy cloned from the old address is
+# pointed at the new one before it is updated. Copies whose origin is anything else are left as they are.
+$script:MovedReferenceRepos = @{
+  "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill" = "https://github.com/nextlevelbuilders/ui-ux-pro-max"
+  "https://github.com/juliusbrussee/caveman" = "https://github.com/JuliusBrussel/caveman"
+}
+
 function Clone-OrUpdate {
   param(
     [string]$Repo,
@@ -520,6 +527,16 @@ function Clone-OrUpdate {
   )
   if (Test-Path (Join-Path $Destination ".git")) {
     Write-Log "Existing git checkout detected: $Destination"
+    $origin = (& git -C $Destination remote get-url origin 2>$null | Select-Object -First 1)
+    $oldRepo = $script:MovedReferenceRepos[$Repo]
+    if ($oldRepo -and $origin -and ($origin -replace '\.git$', '') -eq $oldRepo) {
+      Write-Log "The '$ItemId' repository moved from $oldRepo to $Repo; updating this copy's origin."
+      Invoke-Logged git @("-C", $Destination, "remote", "set-url", "origin", $Repo)
+      if (-not $DryRun -and $LASTEXITCODE -ne 0) {
+        Skip-Item $ItemId "the existing copy at $Destination could not be pointed at the new address $Repo. The existing copy was left as it was."
+        return
+      }
+    }
     Invoke-Logged git @("-C", $Destination, "pull", "--ff-only")
     if (-not $DryRun -and $LASTEXITCODE -ne 0) {
       Skip-Item $ItemId "the existing copy at $Destination could not be updated from $Repo. The existing copy was left as it was."
@@ -531,7 +548,13 @@ function Clone-OrUpdate {
   else {
     Invoke-Logged git @("clone", "--depth", "1", $Repo, $Destination)
     if (-not $DryRun -and $LASTEXITCODE -ne 0) {
-      if (Test-Path $Destination) { Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction SilentlyContinue }
+      if (Test-Path $Destination) {
+        try { Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction Stop } catch {}
+        if (Test-Path $Destination) {
+          # A partial copy left behind would look like an existing folder and block every retry.
+          throw "CCTI stopped: $Repo could not be downloaded, and the partial copy at $Destination could not be removed. Delete that folder, then run setup again."
+        }
+      }
       Skip-Item $ItemId "$Repo could not be downloaded. Check that the repository still exists, then try again."
       return
     }

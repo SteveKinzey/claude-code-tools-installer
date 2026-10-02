@@ -538,10 +538,36 @@ skip_item() {
   SKIPPED_ITEMS+=("$item: $reason")
 }
 
+# Upstream addresses that moved, as "old new". A copy cloned from an old address is pointed at the
+# new one before it is updated. Copies whose origin is anything else are left as they are.
+MOVED_REFERENCE_REPOS=(
+  "https://github.com/nextlevelbuilders/ui-ux-pro-max https://github.com/nextlevelbuilder/ui-ux-pro-max-skill"
+  "https://github.com/JuliusBrussel/caveman https://github.com/juliusbrussee/caveman"
+)
+
+# Prints the old address of a moved repository whose new address is $1, if any.
+moved_from() {
+  local pair
+  for pair in "${MOVED_REFERENCE_REPOS[@]}"; do
+    if [[ "${pair#* }" == "$1" ]]; then
+      printf '%s\n' "${pair%% *}"
+    fi
+  done
+}
+
 clone_or_update() {
-  local repo="$1" dest="$2" item="$3"
+  local repo="$1" dest="$2" item="$3" origin old_repo
   if already_path "$dest/.git"; then
     log "Existing git checkout detected: $dest"
+    origin="$(git -C "$dest" remote get-url origin 2>/dev/null || true)"
+    old_repo="$(moved_from "$repo")"
+    if [[ -n "$old_repo" && "${origin%.git}" == "$old_repo" ]]; then
+      log "The '$item' repository moved from $old_repo to $repo; updating this copy's origin."
+      if ! run_cmd git -C "$dest" remote set-url origin "$repo"; then
+        skip_item "$item" "the existing copy at $dest could not be pointed at the new address $repo. The existing copy was left as it was."
+        return 0
+      fi
+    fi
     if ! run_cmd git -C "$dest" pull --ff-only; then
       skip_item "$item" "the existing copy at $dest could not be updated from $repo. The existing copy was left as it was."
     fi

@@ -6,7 +6,8 @@
 //  1. Every adapter skips and reports a failed clone or update instead of stopping, and exits 3
 //     after finishing when anything was skipped; the Electron main process still runs the reviewed
 //     plugin actions on exit code 3.
-//  2. Repository addresses known to have moved are not used again.
+//  2. Repository addresses known to have moved are not used again, except to point copies cloned
+//     from an old address at the new one (only when the origin exactly matches the old address).
 //  3. The bash helper is exercised against a local repository (no network), including failures.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -32,7 +33,9 @@ for (const adapter of bashAdapters) {
 {
   const source = read(windowsAdapter);
   const helper = source.slice(source.indexOf('function Clone-OrUpdate {'), source.indexOf('function Install-Skill {'));
-  assert.equal((helper.match(/\$LASTEXITCODE -ne 0\) \{\n\s+(?:if \(Test-Path \$Destination\) \{ Remove-Item[^\n]+\n\s+)?Skip-Item/g) || []).length, 2, `${windowsAdapter}: a failed clone or update must skip the item (git failures do not throw in PowerShell).`);
+  assert.equal((helper.match(/\$LASTEXITCODE -ne 0\) \{\n\s+(?:if \(Test-Path \$Destination\) \{[\s\S]*?\n\s+\}\n\s+)?Skip-Item/g) || []).length, 3, `${windowsAdapter}: a failed origin move, update, or clone must skip the item (git failures do not throw in PowerShell).`);
+  assert.match(helper, /Remove-Item -LiteralPath \$Destination -Recurse -Force -ErrorAction Stop[\s\S]*?if \(Test-Path \$Destination\) \{[\s\S]*?throw "CCTI stopped:/, `${windowsAdapter}: a partial copy that cannot be removed must stop setup, not be reported as a skip.`);
+  assert.match(helper, /\(\$origin -replace '\\\.git\$', ''\) -eq \$oldRepo/, `${windowsAdapter}: only an origin that exactly matches the old address may be moved.`);
   assert.match(helper, /Skip-Item[^\n]+\n\s+return\n\s+\}\n\s+Add-Manifest/, `${windowsAdapter}: a failed clone must not be recorded in the manifest.`);
   assert.match(source, /if \(\$script:SkippedItems\.Count -gt 0\) \{ exit 3 \}\n$/, `${windowsAdapter}: setup must exit 3 after finishing when an item was skipped.`);
 }
@@ -49,16 +52,23 @@ const moved = {
 };
 for (const adapter of adapters) {
   const source = read(adapter);
+  // Old addresses may appear only in the moved-repository table, which points old copies at the new address.
+  const table = adapter.endsWith('.ps1')
+    ? source.match(/^\$script:MovedReferenceRepos = @\{\n[\s\S]*?\n\}\n/m)[0]
+    : source.match(/^MOVED_REFERENCE_REPOS=\(\n[\s\S]*?\n\)\n/m)[0];
+  const outsideTable = source.replace(table, '');
   for (const [oldUrl, newUrl] of Object.entries(moved)) {
-    assert.equal(source.includes(oldUrl), false, `${adapter} still uses ${oldUrl}, which moved to ${newUrl}.`);
-    assert.ok(source.includes(newUrl), `${adapter} must use ${newUrl}.`);
+    assert.equal(outsideTable.includes(oldUrl), false, `${adapter} still uses ${oldUrl}, which moved to ${newUrl}.`);
+    assert.ok(outsideTable.includes(newUrl), `${adapter} must use ${newUrl}.`);
+    const entry = adapter.endsWith('.ps1') ? `"${newUrl}" = "${oldUrl}"` : `"${oldUrl} ${newUrl}"`;
+    assert.ok(table.includes(entry), `${adapter} must point copies cloned from ${oldUrl} at ${newUrl}.`);
   }
 }
 
 // ---- 3. Behavioral check of the bash helper (no network) ---------------------------------------
 function behavioralCloneCheck(adapter) {
   const source = read(adapter);
-  const helpers = ['skip_item', 'clone_or_update'].map((name) => source.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))[0]).join('\n');
+  const helpers = ['skip_item', 'moved_from', 'clone_or_update'].map((name) => source.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?\\n\\}\\n`, 'm'))[0]).join('\n');
   const work = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'ccti-reference-repo-'));
   const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_AUTHOR_NAME: 'CCTI', GIT_AUTHOR_EMAIL: 'ccti@example.invalid', GIT_COMMITTER_NAME: 'CCTI', GIT_COMMITTER_EMAIL: 'ccti@example.invalid' };
   const git = (args, cwd = work) => {
@@ -72,7 +82,10 @@ function behavioralCloneCheck(adapter) {
     git(['add', 'README.md'], upstream);
     git(['commit', '-q', '-m', 'reference'], upstream);
     const manifest = path.join(work, 'manifest');
-    // Clone a missing repository, then a good one, then update a copy whose upstream disappeared.
+    const moved = path.join(work, 'moved');
+    git(['clone', '-q', upstream, moved]);
+    // Clone a missing repository, then a good one; update a copy cloned from a moved address and a
+    // copy with a customized origin; then update a copy whose upstream disappeared.
     const run = spawnSync('bash', ['-c', `set -Eeuo pipefail
 DRY_RUN=0
 log() { printf '%s\\n' "$*"; }
@@ -80,9 +93,17 @@ run_cmd() { "$@"; }
 already_path() { [[ -e "$1" ]]; }
 record_manifest() { printf '%s\\n' "$4" >> "$MANIFEST"; }
 SKIPPED_ITEMS=()
+MOVED_REFERENCE_REPOS=("file://$1/old-address file://$1/moved")
 ${helpers}
 clone_or_update "file://$1/gone" "$1/repos/gone" gone-item
 clone_or_update "file://$1/upstream" "$1/repos/good" good-item
+git clone -q "file://$1/upstream" "$1/repos/old-copy"
+git -C "$1/repos/old-copy" remote set-url origin "file://$1/old-address.git"
+clone_or_update "file://$1/moved" "$1/repos/old-copy" moved-item
+git clone -q "file://$1/upstream" "$1/repos/custom-copy"
+clone_or_update "file://$1/moved" "$1/repos/custom-copy" custom-item
+printf 'old-copy=%s\\n' "$(git -C "$1/repos/old-copy" remote get-url origin)"
+printf 'custom-copy=%s\\n' "$(git -C "$1/repos/custom-copy" remote get-url origin)"
 rm -rf "$1/upstream"
 clone_or_update "file://$1/upstream" "$1/repos/good" good-item
 printf 'skipped=%s\\n' "\${#SKIPPED_ITEMS[@]}"
@@ -91,6 +112,8 @@ printf '%s\\n' "\${SKIPPED_ITEMS[@]}"`, 'ccti', work], { encoding: 'utf8', env: 
     assert.match(run.stdout, /skipped=2\n/, `${adapter}: both failures must be reported.\n${run.stdout}`);
     assert.match(run.stdout, /gone-item: file:\/\/.+\/gone could not be downloaded/);
     assert.match(run.stdout, /good-item: the existing copy at .+ could not be updated .+ left as it was/);
+    assert.match(run.stdout, /old-copy=file:\/\/.+\/moved\n/, `${adapter}: a copy cloned from a moved address must be pointed at the new address.`);
+    assert.match(run.stdout, /custom-copy=file:\/\/.+\/upstream\n/, `${adapter}: a copy with any other origin must be left as it is.`);
     assert.equal(fs.existsSync(path.join(work, 'repos', 'gone')), false, `${adapter}: a failed clone must leave nothing behind.`);
     assert.ok(fs.existsSync(path.join(work, 'repos', 'good', 'README.md')), `${adapter}: a failed update must keep the existing copy.`);
     assert.deepEqual(fs.readFileSync(manifest, 'utf8').trim().split('\n'), ['good-item'], `${adapter}: only the successful clone is recorded.`);
