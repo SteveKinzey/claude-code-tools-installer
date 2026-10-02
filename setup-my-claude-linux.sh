@@ -140,7 +140,8 @@ run_npx_isolated() {
   mkdir -p "$BASE_DIR"
   prefix_dir="$(mktemp -d "${BASE_DIR}/npx-prefix.XXXXXX")"
   log "+ npx --prefix $prefix_dir $*"
-  npx --prefix "$prefix_dir" "$@" || status=$?
+  # The subshell's EXIT trap removes the folder even if setup is interrupted while npx runs.
+  (trap 'rm -rf -- "$prefix_dir"' EXIT; npx --prefix "$prefix_dir" "$@") || status=$?
   rm -rf -- "$prefix_dir"
   return "$status"
 }

@@ -122,6 +122,8 @@ function Invoke-NpxIsolated {
   New-Item -ItemType Directory -Force -Path $prefixDir | Out-Null
   try {
     Invoke-Logged npx (@("--prefix", $prefixDir) + $Arguments)
+    # Like the macOS and Linux adapters (set -e), a failed npx stops setup instead of being recorded as installed.
+    if ($LASTEXITCODE -ne 0) { throw "npx failed with exit code $LASTEXITCODE." }
   }
   finally {
     Remove-Item -LiteralPath $prefixDir -Recurse -Force -ErrorAction SilentlyContinue

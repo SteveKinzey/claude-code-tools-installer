@@ -100,7 +100,13 @@ async function testBashAdapter(scriptName) {
 // Real npm (no network): the project's .npmrc is honored by default, and ignored with --prefix.
 function testRealNpmBehavior() {
   if (process.platform === 'win32') return 'skipped on Windows';
-  const npm = (args) => spawnSync('npm', args, { cwd: project, encoding: 'utf8', env: { ...process.env, npm_config_registry: undefined } });
+  // Use the empty fixture home and drop every registry override, so neither the developer's own
+  // ~/.npmrc nor an inherited npm_config_registry (any casing) can decide the result.
+  const npmEnv = { ...process.env, HOME: home, USERPROFILE: home };
+  for (const key of Object.keys(npmEnv)) {
+    if (key.toLowerCase() === 'npm_config_registry' || key.toLowerCase() === 'npm_config_userconfig') delete npmEnv[key];
+  }
+  const npm = (args) => spawnSync('npm', args, { cwd: project, encoding: 'utf8', env: npmEnv });
   const baseline = npm(['config', 'get', 'registry']);
   if (baseline.status !== 0) return 'skipped: npm unavailable';
   assert.equal(baseline.stdout.trim(), evilRegistry, 'fixture sanity: npm reads the project .npmrc when run in the project without --prefix');
