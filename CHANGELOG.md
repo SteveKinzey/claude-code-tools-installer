@@ -2,6 +2,26 @@
 
 All notable changes are documented in this file. Version tags use the calendar-based format `vYYYY.MM.DD`.
 
+## v2026.10.02.01 — Desktop safety, working confirmations, and responsiveness
+
+> **Release boundary:** This entry describes the tagged source. macOS, Windows, and Linux downloads exist only after the exact-tag artifacts pass their own staging gates and a separate GitHub Release publication is approved. Windows NSIS remains unsigned.
+
+### Five confirmation flows repaired ([#60](https://github.com/SteveKinzey/claude-code-tools-installer/pull/60))
+
+- Replaced Electron 44's unsupported `window.prompt()` with an in-app, exact-phrase confirmation dialog for **Remove Claude Code**, **Uninstall CCTI**, **Remove project package**, **Remove CCTI extras**, and **Start fresh**. Cancel and Escape make no change.
+- Added a main-process, single-use Start fresh review with a ten-minute expiry and an exact `DELETE CLAUDE DATA` check before any deletion.
+
+### Security and performance ([#60](https://github.com/SteveKinzey/claude-code-tools-installer/pull/60))
+
+- Resolve Windows executables from trusted absolute PATH entries rather than an untrusted project folder; isolate project-scoped `npx` from the project's `.npmrc` in macOS, Linux, and Windows adapters.
+- Add renderer Content-Security-Policy, bounds for review maps, an action lock for cleanup, repository-source validation, and timeouts for online Compass and anonymous success-count requests. Windows updater messages describe integrity checks, not signatures; the installer is unsigned.
+- Check Claude once per scan, parallelize bounded skill/backup hashing, reject oversized skill manifests before reading contents, and reduce renderer work for activity logs, overlapping scans, component search, and catalog toggles.
+
+### CI maintenance ([#59](https://github.com/SteveKinzey/claude-code-tools-installer/pull/59))
+
+- Pin CodeQL `init` and `analyze` together to reviewed action v4.38.2; no application-code change from this PR.
+- Bump the desktop package and lockfile from `2026.9.3001` to `2026.10.201` for `v2026.10.02.01`. See the exact-tag draft release for platform-specific verification and built-app confirmation evidence.
+
 ## v2026.09.30.01 — Release preparation
 
 > **Release status:** Source-only release candidate. No signed or verified platform artifacts have been staged or published for this version. Download availability remains tied to existing verified GitHub releases.
