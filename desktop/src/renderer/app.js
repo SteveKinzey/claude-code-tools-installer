@@ -906,7 +906,8 @@ async function runDiagnostics() {
 }
 
 async function manuallyCheckForUpdates() {
-  displayUpdateStatus({ state: 'checking', message: 'Checking GitHub for a signed CCTI update…' });
+  // Windows builds are not code-signed, so their status never claims a signature.
+  displayUpdateStatus({ state: 'checking', message: /Windows/.test(navigator.userAgent) ? 'Checking GitHub for a CCTI update…' : 'Checking GitHub for a signed CCTI update…' });
   try {
     displayUpdateStatus(await window.installer.downloadAvailableUpdate());
   } catch (error) {

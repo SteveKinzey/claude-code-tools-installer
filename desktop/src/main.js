@@ -511,8 +511,17 @@ function updateReleaseUrlFor(version) {
   return releaseIdentity ? `${releaseUrlPrefix}tag/${releaseIdentity.tag}` : '';
 }
 
+// Windows builds are not code-signed (no win.publisherName), so the in-app updater only checks
+// the downloaded package's integrity (its SHA-512 from the release feed) there. Windows status
+// text must not claim a signature; macOS updates are signed and keep their wording.
+function signedUpdateWord() {
+  return process.platform === 'win32' ? '' : 'signed ';
+}
+
 function incompleteUpdateMessage(version) {
-  return `CCTI ${version || 'update'} is available, but its signed in-app update did not complete or verify. Your current CCTI app was not changed. Select Check for Updates to retry, or use View Release to update safely.`;
+  return process.platform === 'win32'
+    ? `CCTI ${version || 'update'} is available, but its in-app update did not complete or pass its integrity check. Your current CCTI app was not changed. Select Check for Updates to retry, or use View Release to update safely.`
+    : `CCTI ${version || 'update'} is available, but its signed in-app update did not complete or verify. Your current CCTI app was not changed. Select Check for Updates to retry, or use View Release to update safely.`;
 }
 
 function currentAppVersion() {
@@ -588,7 +597,9 @@ async function checkForUpdates() {
         canInstall: false,
         message: available
           ? canDownload
-            ? `CCTI ${latestVersion} is available. Select Check for Updates to download the signed update now.${releaseSourceNotice}`
+            ? process.platform === 'win32'
+              ? `CCTI ${latestVersion} is available. Select Check for Updates to download the update now; CCTI checks its integrity before installing it.${releaseSourceNotice}`
+              : `CCTI ${latestVersion} is available. Select Check for Updates to download the signed update now.${releaseSourceNotice}`
             : `CCTI ${latestVersion} is available. This build does not support in-app updates; use View Release to update.${releaseSourceNotice}`
           : compareVersions(latestPackageVersion, currentVersion) === 0
             ? `CCTI ${latestVersion} is the newest published release.${releaseSourceNotice}`
@@ -646,7 +657,7 @@ function configureNativeUpdaterEvents() {
     updateStatus = {
       ...updateStatus,
       state: 'checking',
-      message: 'Checking GitHub for a signed CCTI update…',
+      message: `Checking GitHub for a ${signedUpdateWord()}CCTI update…`,
       canDownload: false,
       canInstall: false,
     };
@@ -670,7 +681,7 @@ function configureNativeUpdaterEvents() {
       state: 'downloading',
       latestPackageVersion,
       releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(updateStatus.latestPublicTag),
-      message: `Downloading the signed CCTI ${updateStatus.latestVersion || latestPackageVersion} update…`,
+      message: `Downloading the ${signedUpdateWord()}CCTI ${updateStatus.latestVersion || latestPackageVersion} update…`,
       canDownload: false,
       canInstall: false,
     };
@@ -681,7 +692,7 @@ function configureNativeUpdaterEvents() {
       updateStatus = {
         ...updateStatus,
         state: 'current',
-        message: `CCTI ${currentAppVersion()} is the newest signed update available.`,
+        message: `CCTI ${currentAppVersion()} is the newest ${signedUpdateWord()}update available.`,
         canDownload: false,
         canInstall: false,
       };
@@ -693,7 +704,7 @@ function configureNativeUpdaterEvents() {
     updateStatus = {
       ...updateStatus,
       state: 'downloading',
-      message: `Downloading the signed CCTI ${updateStatus.latestVersion || 'latest'} update… ${percent}%`,
+      message: `Downloading the ${signedUpdateWord()}CCTI ${updateStatus.latestVersion || 'latest'} update… ${percent}%`,
       canDownload: false,
       canInstall: false,
     };
@@ -718,7 +729,9 @@ function configureNativeUpdaterEvents() {
       latestPackageVersion,
       releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(updateStatus.latestPublicTag),
       checkedAt: new Date().toISOString(),
-      message: `CCTI ${updateStatus.latestVersion || latestPackageVersion} is downloaded and verified. Restart CCTI to apply it now.`,
+      message: process.platform === 'win32'
+        ? `CCTI ${updateStatus.latestVersion || latestPackageVersion} is downloaded and passed its integrity check. Restart CCTI to apply it now.`
+        : `CCTI ${updateStatus.latestVersion || latestPackageVersion} is downloaded and verified. Restart CCTI to apply it now.`,
       canDownload: false,
       canInstall: true,
     };
@@ -753,7 +766,7 @@ async function downloadAvailableUpdate() {
     updateStatus = {
       ...status,
       state: 'checking',
-      message: `Checking GitHub for the signed CCTI ${status.latestVersion} update…`,
+      message: `Checking GitHub for the ${signedUpdateWord()}CCTI ${status.latestVersion} update…`,
       canDownload: false,
       canInstall: false,
     };

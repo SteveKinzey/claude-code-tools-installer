@@ -202,6 +202,34 @@ async function run() {
     assert.match(unavailableStatus.message, /GitHub did not respond within 12 seconds/i);
     assert.match(unavailableStatus.message, /Check your internet connection/i);
     assert.match(unavailableStatus.message, /No GitHub sign-in is required/i);
+    // Windows builds are not code-signed: their update status must describe an integrity check
+    // and never claim a signature. (macOS wording, asserted above, keeps "signed".)
+    Object.defineProperty(process, 'platform', { ...originalPlatformDescriptor, value: 'win32' });
+    global.fetch = async (url) => {
+      assert.equal(url, 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases?per_page=100');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [{
+          tag_name: 'v2026.09.11.01',
+          html_url: 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.09.11.01',
+          assets: [{ name: 'Claude-Code-Tools-Installer-2026.9.1101-win-x64.exe', size: 2048, state: 'uploaded', digest: `sha256:${'d'.repeat(64)}` }],
+        }],
+      };
+    };
+    const windowsEventsStart = sentEvents.length;
+    const windowsStatus = await check();
+    assert.equal(windowsStatus.state, 'available');
+    assert.match(windowsStatus.message, /checks its integrity before installing/i);
+    assert.doesNotMatch(windowsStatus.message, /signed/i);
+    const windowsDownloaded = await download();
+    assert.equal(windowsDownloaded.state, 'downloaded');
+    assert.match(windowsDownloaded.message, /passed its integrity check/i);
+    const windowsMessages = sentEvents.slice(windowsEventsStart).filter((event) => event.channel === 'updates:status').map((event) => String(event.payload?.message || ''));
+    assert.ok(windowsMessages.length >= 2, 'Windows update progress must be reported');
+    for (const message of windowsMessages) assert.doesNotMatch(message, /signed/i, `Windows update status must not claim a signature: ${message}`);
+    Object.defineProperty(process, 'platform', { ...originalPlatformDescriptor, value: 'darwin' });
+
     console.log('Desktop update behavior passed: source-only releases are skipped, a corrupted update ZIP leaves the current app unchanged and retryable, GitHub timeouts use the verified public CCTI release fallback, and network errors explain that no GitHub sign-in is required.');
   } finally {
     Module._load = originalLoad;
