@@ -13,6 +13,7 @@ const { compareSkillKeeper, duplicateGroupId, mcpDuplicateGroups, pluginDuplicat
 const { mcpDefinitions, pluginInstalls } = require('./inventory/config-scan');
 const { planResolution, groupFingerprint } = require('./inventory/resolvers');
 const { spawnSafely, resolveWindowsExecutable, windowsPathFromEnv } = require('./windows-command');
+const { displayPathFor } = require('./display-path');
 
 if (process.env.CCTI_ELECTRON_TEST === '1' && process.env.CCTI_TEST_HOME) {
   app.setPath('home', path.resolve(process.env.CCTI_TEST_HOME));
@@ -1212,8 +1213,7 @@ async function claudeStatus() {
 }
 
 function displayLocalPath(value) {
-  const home = app.getPath('home');
-  return String(value || '').split(home).join('~');
+  return displayPathFor(value, app.getPath('home'));
 }
 
 function runtimePathSnapshot() {
