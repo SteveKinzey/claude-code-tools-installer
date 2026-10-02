@@ -54,6 +54,9 @@ const releaseServiceEndpoint = 'https://claudetool.app/api/releases/latest';
 const releaseUrlPrefix = 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/';
 const githubReleaseTimeoutMs = 12_000;
 const releaseServiceTimeoutMs = 8_000;
+// Online Compass and the anonymous success count must never leave a request hanging forever.
+const compassTimeoutMs = 45_000;
+const anonymousSuccessTimeoutMs = 15_000;
 const updateCheckIntervalMs = 6 * 60 * 60 * 1000;
 let updateCheckPromise = null;
 let nativeUpdatePromise = null;
@@ -2083,7 +2086,7 @@ async function askSitePoweredCompass(payload) {
   safeHistory.push({ role: 'user', content: message.slice(0, 1200) });
 
   try {
-    const response = await fetch(compassOnlineEndpoint, {
+    const response = await fetchWithTimeout(compassOnlineEndpoint, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -2091,14 +2094,15 @@ async function askSitePoweredCompass(payload) {
       body: JSON.stringify({
         '0': { json: { messages: safeHistory } },
       }),
-    });
+    }, compassTimeoutMs);
     if (!response.ok) {
       return { ok: false, error: 'Compass could not answer online right now. Nothing on your computer was changed.' };
     }
     const body = await response.json();
     const answer = body?.[0]?.result?.data?.json?.reply || body?.[0]?.result?.data?.reply;
     return { ok: typeof answer === 'string' && answer.trim().length > 0, answer: answer || 'Compass did not receive a text answer. Please try again.' };
-  } catch {
+  } catch (error) {
+    if (error?.name === 'AbortError') return { ok: false, error: 'Compass took too long to answer online. Nothing on your computer was changed. Please try again.' };
     return { ok: false, error: 'Compass could not reach online help. Check your internet connection and try again.' };
   }
 }
@@ -2110,11 +2114,11 @@ async function reportAnonymousSetupSuccess(payload) {
     return { ok: false, error: 'Choose the anonymous success option before sending it.' };
   }
   try {
-    const response = await fetch(anonymousSuccessEndpoint, {
+    const response = await fetchWithTimeout(anonymousSuccessEndpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ '0': { json: { kind, consent: true } } }),
-    });
+    }, anonymousSuccessTimeoutMs);
     if (!response.ok) return { ok: false, error: 'The anonymous count could not be sent right now.' };
     const body = await response.json();
     const recorded = body?.[0]?.result?.data?.json?.recorded ?? body?.[0]?.result?.data?.recorded;
