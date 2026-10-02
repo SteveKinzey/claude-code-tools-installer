@@ -147,8 +147,8 @@ for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-cl
   if (!adapterSource.includes('AppManagedPlugins') && !adapterSource.includes('APP_MANAGED_PLUGINS')) {
     throw new Error(`${adapter} must allow CCTI to keep complete-setup plugin installation inside the desktop app.`);
   }
-  if (!adapterSource.includes('SkillScope') && !adapterSource.includes('SKILL_SCOPE') || !adapterSource.includes('skills@latest') || !adapterSource.includes('--yes')) {
-    throw new Error(`${adapter} must forward the reviewed global or project skill scope to a noninteractive current skills CLI.`);
+  if (!adapterSource.includes('SkillScope') && !adapterSource.includes('SKILL_SCOPE') || !/skills@(\$\{CCTI_SKILLS_CLI_VERSION\}|\$CCTI_SKILLS_CLI_VERSION)/.test(adapterSource) || !adapterSource.includes('--yes')) {
+    throw new Error(`${adapter} must forward the reviewed global or project skill scope to a noninteractive, pinned skills CLI.`);
   }
 }
 if (!html.includes('id="run-claude-button"') || !html.includes('id="remove-claude-button"') || !renderer.includes('async function runClaudeCode()') || !renderer.includes('async function removeClaudeCode()')) {

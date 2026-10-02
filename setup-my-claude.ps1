@@ -23,6 +23,25 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ScriptVersion = "2026-08-26"
+
+# --- CCTI pinned third-party setup code -----------------------------------------
+# Every third-party package or repository that setup downloads and runs is pinned to
+# an exact version or commit, so a new (or compromised) upstream release cannot change
+# what setup executes until CCTI has reviewed it. To bump one, edit its single line
+# here AND the same line in setup-my-claude.sh, setup-my-claude-linux.sh, and
+# setup-my-claude.ps1; scripts/test-pinned-setup-code.js fails if the three differ.
+$CCTI_SKILLS_CLI_VERSION = "1.7.0"
+$CCTI_CLAUDE_MEM_VERSION = "13.28.0"
+$CCTI_PLAYWRIGHT_MCP_VERSION = "0.0.83"
+$CCTI_REPOMIX_VERSION = "1.18.1"
+# Not used on Windows (gstack's setup, which needs Bun, is Unix-only); kept identical to the other adapters.
+$CCTI_BUN_VERSION = "1.4.2"
+$CCTI_CODEGRAPH_VERSION = "1.6.1"
+$CCTI_FIRECRAWL_CLI_VERSION = "1.25.1"
+$CCTI_CLAUDE_CODE_ROUTER_VERSION = "3.1.1"
+$CCTI_GSTACK_REPO = "https://github.com/garrytan/gstack.git"
+$CCTI_GSTACK_COMMIT = "7fca42ad8b6c707b8a38f579f72bf3c4f7de6d85"
+# ---------------------------------------------------------------------------------
 $BaseDir = Join-Path $HOME ".setup-my-claude"
 $CloneDir = Join-Path $HOME ".claude\reference-repos"
 $NodeRuntimeDir = Join-Path $BaseDir "node-runtime"
@@ -525,7 +544,7 @@ function Install-Skill {
     Write-Log "CCTI did not add '$Skill': a folder already uses this Claude Code skill name at $dest. Review it before adding a copy."
     return
   }
-  $skillArguments = @("-y", "skills@latest", "add", $Repo, "--skill", $Skill, "--agent", "claude-code", "--yes")
+  $skillArguments = @("-y", "skills@$CCTI_SKILLS_CLI_VERSION", "add", $Repo, "--skill", $Skill, "--agent", "claude-code", "--yes")
   if ($SkillScope -eq "global") { $skillArguments += "--global" }
   Invoke-NpxIsolated $skillArguments
   Add-Manifest "skill" $dest "" $ItemId
@@ -534,6 +553,7 @@ function Install-Skill {
 function Install-NpmGlobal {
   param(
     [string]$Package,
+    [string]$PackageVersion,
     [string]$Bin,
     [string]$ItemId
   )
@@ -541,8 +561,44 @@ function Install-NpmGlobal {
     Write-Log "Existing command detected: $Bin"
     return
   }
-  Invoke-Logged npm @("install", "-g", $Package)
+  Invoke-Logged npm @("install", "-g", "$Package@$PackageVersion")
   Add-Manifest "npm-global" $Package $Bin $ItemId
+}
+
+# Fetches exactly one pinned commit of a third-party repository, verifies the checkout is that
+# commit, and only then moves it into place. A failed or mismatched fetch leaves nothing at the
+# destination and stops setup.
+function Get-PinnedGitCommit {
+  param(
+    [string]$Repo,
+    [string]$Commit,
+    [string]$Destination
+  )
+  if ($Commit -cnotmatch '^[0-9a-f]{40}$') { throw "CCTI stopped: the pinned commit for $Repo is not a full 40-character commit SHA." }
+  if ($DryRun) {
+    Write-Log "+ git fetch --depth 1 $Repo $Commit (verify HEAD is $Commit, then move to $Destination)"
+    return
+  }
+  New-Item -ItemType Directory -Force -Path $BaseDir, (Split-Path -Parent $Destination) | Out-Null
+  $staging = Join-Path $BaseDir ("git-fetch-" + [guid]::NewGuid().ToString("N"))
+  try {
+    $fetchFailed = "CCTI stopped: it could not fetch the pinned commit $Commit from $Repo. Nothing was installed."
+    Invoke-Logged git @("init", "-q", $staging)
+    if ($LASTEXITCODE -ne 0) { throw $fetchFailed }
+    Invoke-Logged git @("-C", $staging, "remote", "add", "origin", $Repo)
+    if ($LASTEXITCODE -ne 0) { throw $fetchFailed }
+    Invoke-Logged git @("-C", $staging, "fetch", "--depth", "1", "origin", $Commit)
+    if ($LASTEXITCODE -ne 0) { throw $fetchFailed }
+    Invoke-Logged git @("-C", $staging, "checkout", "-q", "--detach", "FETCH_HEAD")
+    if ($LASTEXITCODE -ne 0) { throw $fetchFailed }
+    $actual = ((& git -C $staging rev-parse HEAD 2>$null) -join "").Trim()
+    if ($actual -ne $Commit) { throw "CCTI stopped: $Repo checked out '$actual', not the pinned commit $Commit. Nothing was installed." }
+    Move-Item -LiteralPath $staging -Destination $Destination
+    Write-Log "Verified $Repo at pinned commit $Commit"
+  }
+  finally {
+    if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue }
+  }
 }
 
 function Install-Mcp {
@@ -679,12 +735,12 @@ function Install-Item {
     }
     "gstack" {
       $dest = Join-Path $HOME ".claude\skills\gstack"
-      Write-Log "Source gstack HEAD: $(Get-SourceVersion 'https://github.com/garrytan/gstack')"
+      Write-Log "Source gstack HEAD: $(Get-SourceVersion 'https://github.com/garrytan/gstack'); CCTI installs pinned commit $CCTI_GSTACK_COMMIT"
       if (Test-Path (Join-Path $dest ".git")) {
-        Write-Log "Existing gstack checkout detected: $dest"
+        Write-Log "Existing gstack checkout detected: $dest (commit $((& git -C $dest rev-parse HEAD 2>$null) -join '')). CCTI did not replace it."
       }
       else {
-        Invoke-Logged git @("clone", "--single-branch", "--depth", "1", "https://github.com/garrytan/gstack.git", $dest)
+        Get-PinnedGitCommit $CCTI_GSTACK_REPO $CCTI_GSTACK_COMMIT $dest
         Add-Manifest "path" $dest "" $Id
       }
       $setup = Join-Path $dest "setup"
@@ -743,18 +799,18 @@ function Install-Item {
       Install-Skill "https://github.com/OthmanAdi/planning-with-files" "planning-with-files" $Id
     }
     "claude-mem" {
-      Invoke-NpxIsolated @("-y", "claude-mem", "install")
+      Invoke-NpxIsolated @("-y", "claude-mem@$CCTI_CLAUDE_MEM_VERSION", "install")
       Add-Manifest "manual-review" "claude-mem" "Run claude-mem docs uninstall steps if needed; data may live in ~/.claude-mem" $Id
     }
     "codegraph" {
-      Install-NpmGlobal "@colbymchenry/codegraph" "codegraph" $Id
+      Install-NpmGlobal "@colbymchenry/codegraph" $CCTI_CODEGRAPH_VERSION "codegraph" $Id
     }
     "graphify" {
       Install-Skill "https://github.com/Graphify-Labs/graphify" "graphify" $Id
     }
     "repomix" {
-      Install-NpmGlobal "repomix" "repomix" $Id
-      Install-McpAfterDashDash "repomix" $Id @("npx", "-y", "repomix", "--mcp")
+      Install-NpmGlobal "repomix" $CCTI_REPOMIX_VERSION "repomix" $Id
+      Install-McpAfterDashDash "repomix" $Id @("npx", "-y", "repomix@$CCTI_REPOMIX_VERSION", "--mcp")
     }
     "convex" {
       Add-PluginCommand "Convex for Claude Code" "/plugin install convex@claude-plugins-official`n/reload-plugins`n# Open a Convex project before using deployment access. The plugin may request a deployment connection when needed." "https://docs.convex.dev/ai/using-claude-code"
@@ -765,7 +821,7 @@ function Install-Item {
       Write-Log "Multica self-hosting requires Docker and make; not started by this installer."
     }
     "firecrawl" {
-      Install-NpmGlobal "firecrawl-cli" "firecrawl" $Id
+      Install-NpmGlobal "firecrawl-cli" $CCTI_FIRECRAWL_CLI_VERSION "firecrawl" $Id
       Add-PluginCommand "Firecrawl Claude plugin" "/plugin`n# Search for firecrawl and install it, then provide FIRECRAWL_API_KEY when the plugin or MCP server asks for it." "https://github.com/firecrawl/firecrawl-claude-plugin"
       Write-Log "Firecrawl CLI installed or detected. Plugin command queued in $PluginCommands"
     }
@@ -780,10 +836,10 @@ function Install-Item {
       Write-Log "Queued GitHub MCP setup notes in $PluginCommands"
     }
     "playwright-mcp" {
-      Install-Mcp "playwright" $Id @("npx", "@playwright/mcp@latest")
+      Install-Mcp "playwright" $Id @("npx", "@playwright/mcp@$CCTI_PLAYWRIGHT_MCP_VERSION")
     }
     "claude-code-router" {
-      Install-NpmGlobal "@musistudio/claude-code-router" "ccr" $Id
+      Install-NpmGlobal "@musistudio/claude-code-router" $CCTI_CLAUDE_CODE_ROUTER_VERSION "ccr" $Id
       Write-Log "Claude Code Router installed or detected. Configure providers before using 'ccr code'."
     }
     "awesome-mcp-servers" {
