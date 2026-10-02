@@ -215,7 +215,8 @@ async function run() {
     assert.equal(profileLaunch.ok, true);
     const profileScript = osascriptCalls.at(-1)[1];
     assert.match(profileScript, /^tell application id "com\.googlecode\.iterm2"\nactivate\ncreate window with profile "Claude Code"\ntell current session of current window\nwrite text /);
-    assert.match(profileScript, /exec '.*\.local\/bin\/claude'/, 'the profile launch still runs only the fixed Claude Code command');
+    // The simulated macOS run also executes on Windows CI, where the fixture path uses backslashes.
+    assert.match(profileScript, /exec '.*\.local(?:\\{1,2}|\/)bin(?:\\{1,2}|\/)claude'/, 'the profile launch still runs only the fixed Claude Code command');
     const profileTest = await testTerminal();
     assert.match(profileTest.message, /Opened iTerm2 with the Claude Code profile with the CCTI terminal launch test/);
     assert.match(osascriptCalls.at(-1)[1], /create window with profile "Claude Code"[\s\S]*CCTI terminal launch test passed/);
