@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 
 function externalBridgeTag(bridgeHtml, fixturePath) {
-  const source = String(bridgeHtml).trim().replace(/^<script>/, '').replace(/<\/script>$/, '');
+  const source = String(bridgeHtml).trim().replace(/^<script\b[^>]*>/i, '').replace(/<\/script\s*>$/i, '');
   const bridgePath = fixturePath.replace(/\.html$/, '-bridge.js');
   fs.writeFileSync(bridgePath, source, 'utf8');
   process.once('exit', () => {

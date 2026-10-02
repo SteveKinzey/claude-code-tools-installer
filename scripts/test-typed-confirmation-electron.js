@@ -13,6 +13,13 @@ const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow } = require('electron');
 const { externalBridgeTag } = require('./renderer-fixture-bridge');
 
+// Values embedded in code strings run in the renderer. JSON.stringify alone leaves characters
+// such as < > / U+2028 U+2029 that can break out of the surrounding code, so escape them too.
+const unsafeLiteralCharacters = { '<': '\\u003C', '>': '\\u003E', '/': '\\u002F', '\u2028': '\\u2028', '\u2029': '\\u2029' };
+function jsLiteral(value) {
+  return JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, (character) => unsafeLiteralCharacters[character]);
+}
+
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('headless');
   app.commandLine.appendSwitch('disable-gpu');
@@ -97,14 +104,14 @@ const dialogClosed = () => document.querySelector('#typed-confirm-dialog')?.open
 async function typePhrase(window, value) {
   return evaluate(window, `(() => {
     const input = document.querySelector('#typed-confirm-input');
-    input.value = ${JSON.stringify(value)};
+    input.value = ${jsLiteral(value)};
     input.dispatchEvent(new Event('input', { bubbles: true }));
     return document.querySelector('#apply-typed-confirm-button').disabled;
   })()`);
 }
 
 async function callsOf(window, method) {
-  return evaluate(window, `window.__typedConfirmFixture.calls.filter((call) => call.method === ${JSON.stringify(method)})`);
+  return evaluate(window, `window.__typedConfirmFixture.calls.filter((call) => call.method === ${jsLiteral(method)})`);
 }
 
 const flows = [
@@ -213,7 +220,7 @@ async function run() {
       assert.equal(await typePhrase(window, flow.phrase), false, `${flow.label}: the exact phrase enables the action`);
       await evaluate(window, "document.querySelector('#apply-typed-confirm-button').click()");
       await waitFor(window, dialogClosed, `${flow.label} apply closes the dialog`);
-      await waitFor(window, new Function(`return window.__typedConfirmFixture.calls.some((call) => call.method === ${JSON.stringify(flow.apply)});`), `${flow.label} apply call`);
+      await waitFor(window, new Function(`return window.__typedConfirmFixture.calls.some((call) => call.method === ${jsLiteral(flow.apply)});`), `${flow.label} apply call`);
       const applied = await callsOf(window, flow.apply);
       assert.equal(applied.length, 1, `${flow.label}: exactly one apply call`);
       assert.deepEqual(applied[0].payload, flow.payload, `${flow.label}: apply payload`);
