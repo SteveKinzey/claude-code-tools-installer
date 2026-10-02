@@ -14,7 +14,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
-const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
+// Windows checks files out with CRLF line endings; normalize so every pattern below matches on all platforms.
+const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8').replace(/\r\n/g, '\n');
 const bashAdapters = ['setup-my-claude.sh', 'setup-my-claude-linux.sh'];
 const windowsAdapter = 'setup-my-claude.ps1';
 const adapters = [...bashAdapters, windowsAdapter];
