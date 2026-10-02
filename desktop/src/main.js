@@ -849,8 +849,10 @@ function pluginIsInstalled(installedIds, requestedId) {
   return installedIds.some((installed) => installed === requested || installed === requestedName || installed.startsWith(`${requested}@`) || installed.startsWith(`${requestedName}@`));
 }
 
-async function installedClaudePluginIds() {
-  const claude = await claudeStatus();
+// `claudeState` lets a caller that has just checked Claude Code reuse that result. The plugin
+// list itself is always read fresh.
+async function installedClaudePluginIds(claudeState = null) {
+  const claude = claudeState || await claudeStatus();
   if (!claude.installed) return [];
   try {
     const result = await runProcess(claude.path || 'claude', ['plugin', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 8000 });
@@ -883,8 +885,8 @@ async function configuredMcpReady(name, claude = null) {
   }
 }
 
-async function configuredMarketplaceText() {
-  const claude = await claudeStatus();
+async function configuredMarketplaceText(claudeState = null) {
+  const claude = claudeState || await claudeStatus();
   if (!claude.installed) return '';
   try {
     const result = await runProcess(claude.path || 'claude', ['plugin', 'marketplace', 'list'], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 6000 });
@@ -894,7 +896,7 @@ async function configuredMarketplaceText() {
   }
 }
 
-async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {}) {
+async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {}, claudeState = null) {
   const home = app.getPath('home');
   const selectedSkillScope = skillScope === 'project' ? 'project' : 'global';
   const selectedProjectPath = selectedSkillScope === 'project'
@@ -906,14 +908,14 @@ async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {
   const selectedSkillLocation = selectedSkillScope === 'project'
     ? 'the selected project'
     : 'your Claude Code setup';
-  const claude = await claudeStatus();
+  const claude = claudeState || await claudeStatus();
   const [bun, repomix, repomixMcpReady, playwrightMcpReady, marketplaceText, pluginIds] = await Promise.all([
     setupCommandReady('bun'),
     setupCommandReady('repomix'),
     configuredMcpReady('repomix', claude),
     configuredMcpReady('playwright', claude),
-    configuredMarketplaceText(),
-    installedClaudePluginIds(),
+    configuredMarketplaceText(claude),
+    installedClaudePluginIds(claude),
   ]);
   const checks = [];
   const add = (id, label, ready, message, state = ready ? 'ready' : 'attention') => checks.push({ id, label, state, message });
@@ -982,11 +984,11 @@ async function verifySetupStatus({ skillScope = 'global', projectPath = '' } = {
   };
 }
 
-async function installReviewedPlugins(selectedIds) {
-  const claude = await claudeStatus();
+async function installReviewedPlugins(selectedIds, claudeState = null) {
+  const claude = claudeState || await claudeStatus();
   if (!claude.installed) throw new Error('Claude Code must be ready before CCTI can change a reviewed add-on.');
   const claudeCommand = claude.path || 'claude';
-  const installedIds = await installedClaudePluginIds();
+  const installedIds = await installedClaudePluginIds(claude);
   for (const id of selectedIds) {
     const installAction = (reviewedPluginPlans[id] || []).find((args) => args[0] === 'plugin' && args[1] === 'install');
     const requestedPlugin = installAction?.[2];
@@ -1013,7 +1015,7 @@ async function installReviewedPlugins(selectedIds) {
 // folds present+unknown into the "before" set, so a degraded before-probe can never make an
 // already-present tool look newly installed. Skills are never unknown: pathExists is a plain
 // filesystem check with no partial-failure mode worth distinguishing.
-async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '' } = {}) {
+async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '' } = {}, claudeState = null) {
   const tracked = [...new Set(ids)].map((id) => [id, trackedItem(id)]).filter(([, item]) => item);
   const present = new Set();
   const unknown = new Set();
@@ -1021,7 +1023,7 @@ async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '
   const skillRoot = skillScope === 'project' && projectPath
     ? path.join(projectPath, '.claude', 'skills')
     : path.join(app.getPath('home'), '.claude', 'skills');
-  const claude = await claudeStatus();
+  const claude = claudeState || await claudeStatus();
   const claudeCommand = claude.path || 'claude';
   const pluginTracked = tracked.filter(([, item]) => item.kind === 'plugin');
   const mcpTracked = tracked.filter(([, item]) => item.kind === 'mcp');
@@ -1073,9 +1075,9 @@ async function presentTrackedItems(ids, { skillScope = 'global', projectPath = '
   return { present, unknown };
 }
 
-async function recordCctiInstalls(ids, before, scope = {}) {
+async function recordCctiInstalls(ids, before, scope = {}, claudeState = null) {
   try {
-    const after = await presentTrackedItems(ids, scope);
+    const after = await presentTrackedItems(ids, scope, claudeState);
     const beforeSet = new Set([...before.present, ...before.unknown]);
     const entries = newlyInstalledEntries(ids, beforeSet, after.present, { tracked: TRACKED_ITEMS, catalog: await readCatalog(), skillScope: scope.skillScope, projectPath: scope.projectPath });
     if (entries.length > 0) await inventoryLedger().recordInstalls(entries);
@@ -1510,29 +1512,50 @@ async function knownClaudeRemovalPlan() {
   const removable = [];
   const settings = [];
   const attention = [];
-  if (await pathExists(nativeLauncher)) removable.push({ kind: 'path', path: nativeLauncher, label: 'Claude Code launcher', scope: 'Claude Code CLI' });
-  if (await pathExists(nativeVersions)) removable.push({ kind: 'path', path: nativeVersions, label: 'Claude Code native versions', scope: 'Claude Code CLI' });
-  for (const target of [path.join(home, '.claude'), path.join(home, '.claude.json')]) {
-    if (await pathExists(target)) settings.push({ kind: 'path', path: target, label: path.basename(target), scope: 'Claude Code settings and history' });
-  }
   const cctiData = setupManagerDir();
-  if (await pathExists(cctiData)) removable.push({ kind: 'path', path: cctiData, label: 'CCTI-managed setup data and runtime', scope: 'CCTI only' });
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  if (await commandLocation(npmCommand)) {
+  // Every probe below is read-only and independent, so they run together; the plan is then
+  // assembled in the same fixed order as before.
+  const probeNpm = async () => {
+    if (!await commandLocation(npmCommand)) return false;
     const npm = await runProcess(npmCommand, ['list', '-g', '@anthropic-ai/claude-code', '--depth=0'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1 }));
-    if (npm.code === 0) removable.push({ kind: 'command', command: npmCommand, args: ['uninstall', '-g', '@anthropic-ai/claude-code'], label: 'Claude Code installed with npm', scope: 'Claude Code CLI' });
-  }
-  if (process.platform === 'darwin' && await commandLocation('brew')) {
-    for (const cask of ['claude-code', 'claude-code@latest']) {
+    return npm.code === 0;
+  };
+  const probeBrewCasks = async () => {
+    if (!(process.platform === 'darwin' && await commandLocation('brew'))) return [];
+    const casks = await Promise.all(['claude-code', 'claude-code@latest'].map(async (cask) => {
       const brew = await runProcess('brew', ['list', '--cask', cask], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1 }));
-      if (brew.code === 0) removable.push({ kind: 'command', command: 'brew', args: ['uninstall', '--cask', cask], label: `Claude Code ${cask === 'claude-code@latest' ? 'latest' : 'stable'} cask`, scope: 'Claude Code CLI' });
-    }
-  }
-  if (process.platform === 'win32' && await commandLocation('winget')) {
+      return brew.code === 0 ? cask : '';
+    }));
+    return casks.filter(Boolean);
+  };
+  const probeWinget = async () => {
+    if (!(process.platform === 'win32' && await commandLocation('winget'))) return false;
     const winget = await runProcess('winget', ['list', '--id', 'Anthropic.ClaudeCode', '--exact'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1 }));
-    if (winget.code === 0) removable.push({ kind: 'command', command: 'winget', args: ['uninstall', '--id', 'Anthropic.ClaudeCode', '--exact', '--silent', '--accept-source-agreements'], label: 'Claude Code installed with Windows Package Manager', scope: 'Claude Code CLI' });
+    return winget.code === 0;
+  };
+  const settingsTargets = [path.join(home, '.claude'), path.join(home, '.claude.json')];
+  const [launcherExists, versionsExist, settingsExist, cctiDataExists, npmInstalled, brewCasks, wingetInstalled, status] = await Promise.all([
+    pathExists(nativeLauncher),
+    pathExists(nativeVersions),
+    Promise.all(settingsTargets.map((target) => pathExists(target))),
+    pathExists(cctiData),
+    probeNpm(),
+    probeBrewCasks(),
+    probeWinget(),
+    claudeStatus(),
+  ]);
+  if (launcherExists) removable.push({ kind: 'path', path: nativeLauncher, label: 'Claude Code launcher', scope: 'Claude Code CLI' });
+  if (versionsExist) removable.push({ kind: 'path', path: nativeVersions, label: 'Claude Code native versions', scope: 'Claude Code CLI' });
+  settingsTargets.forEach((target, index) => {
+    if (settingsExist[index]) settings.push({ kind: 'path', path: target, label: path.basename(target), scope: 'Claude Code settings and history' });
+  });
+  if (cctiDataExists) removable.push({ kind: 'path', path: cctiData, label: 'CCTI-managed setup data and runtime', scope: 'CCTI only' });
+  if (npmInstalled) removable.push({ kind: 'command', command: npmCommand, args: ['uninstall', '-g', '@anthropic-ai/claude-code'], label: 'Claude Code installed with npm', scope: 'Claude Code CLI' });
+  for (const cask of brewCasks) {
+    removable.push({ kind: 'command', command: 'brew', args: ['uninstall', '--cask', cask], label: `Claude Code ${cask === 'claude-code@latest' ? 'latest' : 'stable'} cask`, scope: 'Claude Code CLI' });
   }
-  const status = await claudeStatus();
+  if (wingetInstalled) removable.push({ kind: 'command', command: 'winget', args: ['uninstall', '--id', 'Anthropic.ClaudeCode', '--exact', '--silent', '--accept-source-agreements'], label: 'Claude Code installed with Windows Package Manager', scope: 'Claude Code CLI' });
   if (status.installed && removable.length === 0) attention.push('CCTI found a working Claude Code command but could not confirm a safe supported removal method, so it will not delete an unknown command path.');
   if (process.platform === 'linux') attention.push('A Claude Code install made with a system package manager can need an administrator’s approval. CCTI leaves unrecognized system packages unchanged.');
   if (removable.length === 0 && settings.length === 0) return { ok: false, error: attention[0] || 'CCTI did not find Claude Code files it can safely remove.' };
@@ -1627,10 +1650,9 @@ async function buildInstallationManifest() {
   const generatedAt = new Date().toISOString();
   const timestampUnix = Math.floor(Date.now() / 1000);
   const version = typeof app.getVersion === 'function' ? app.getVersion() : 'unknown';
-  const [claude, discovery] = await Promise.all([
-    claudeStatus(),
-    discoverClaudeSetup().catch(() => ({ findings: [] })),
-  ]);
+  // One Claude Code check serves both the manifest line and the discovery scan.
+  const claude = await claudeStatus();
+  const discovery = await discoverClaudeSetup('', claude).catch(() => ({ findings: [] }));
   const activeItems = (discovery.findings || [])
     .filter((item) => ['tool', 'runtime', 'skill', 'plugin', 'connection', 'follow-up'].includes(item.type))
     .map(manifestLine);
@@ -2150,7 +2172,7 @@ async function readJsonIfPresent(filePath) {
   }
 }
 
-async function managedPrerequisiteFindings() {
+async function managedPrerequisiteFindings(claudeState = null) {
   const home = app.getPath('home');
   const baseDir = setupManagerDir();
   const nodeLocation = process.platform === 'win32'
@@ -2169,7 +2191,7 @@ async function managedPrerequisiteFindings() {
   } catch {
     // No app-created follow-up checklist exists yet.
   }
-  const claude = await claudeStatus();
+  const claude = claudeState || await claudeStatus();
   if (claude.installed) findings.push({ id: `tool:claude:${claude.path || home}`, type: 'tool', name: 'Claude Code', scope: 'This computer', path: claude.path || 'Claude Code command location', description: `Claude Code can run${claude.version ? `: ${claude.version}` : ''}.` });
   return findings;
 }
@@ -2237,17 +2259,20 @@ async function listRestorableSkillBackups(projectPath = '') {
       backups.push({ id: `backup-root:${location.backupRoot}`, type: 'attention', name: 'Skill backups folder needs attention', scope: location.scope, path: location.backupRoot, description: 'CCTI could not read this skill backup folder. It was not changed.' });
       continue;
     }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-      const backupDetails = backupNameDetails(entry.name);
-      if (!backupDetails) continue;
+    const backupEntries = entries
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .map((entry) => ({ entry, backupDetails: backupNameDetails(entry.name) }))
+      .filter(({ backupDetails }) => backupDetails);
+    // Backups are verified a few at a time; each one settles to exactly one item, kept in
+    // folder listing order.
+    backups.push(...await mapWithConcurrency(backupEntries, skillScanConcurrency, async ({ entry, backupDetails }) => {
       const { name, createdAt: backupCreatedAt } = backupDetails;
       const backupPath = path.join(location.backupRoot, entry.name);
       const destination = path.join(location.skillRoot, name);
       try {
         const manifest = await skillContentManifest(backupPath);
         const destinationExists = await pathExists(destination);
-        backups.push({
+        return {
           id: `backup:${backupPath}`,
           type: 'skill-backup',
           name,
@@ -2262,11 +2287,11 @@ async function listRestorableSkillBackups(projectPath = '') {
           description: destinationExists
             ? 'A preserved skill backup. CCTI will not restore it because its original skill folder already exists.'
             : 'A preserved CCTI skill backup that can be restored to its original Claude Code location.',
-        });
+        };
       } catch (error) {
-        backups.push({ id: `backup:${backupPath}`, type: 'attention', name, scope: location.scope, path: backupPath, destination, description: `This skill backup could not be verified: ${error.message} It was not changed.` });
+        return { id: `backup:${backupPath}`, type: 'attention', name, scope: location.scope, path: backupPath, destination, description: `This skill backup could not be verified: ${error.message} It was not changed.` };
       }
-    }
+    }));
   }
   const backupsByDestination = new Map();
   for (const backup of backups.filter((item) => item.type === 'skill-backup' && item.restorable)) {
@@ -2282,9 +2307,39 @@ async function listRestorableSkillBackups(projectPath = '') {
   return backups;
 }
 
+// Maps items with at most `limit` calls in flight and returns results in input order. Work
+// stops being started after the first failure; once in-flight calls settle, the failure
+// with the lowest index is thrown, which is the same error a sequential loop would throw.
+async function mapWithConcurrency(items, limit, mapper) {
+  const list = Array.from(items);
+  const results = new Array(list.length);
+  const failures = new Map();
+  let next = 0;
+  let stopped = false;
+  const worker = async () => {
+    while (!stopped && next < list.length) {
+      const index = next;
+      next += 1;
+      try {
+        results[index] = await mapper(list[index], index);
+      } catch (error) {
+        failures.set(index, error);
+        stopped = true;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, list.length)) }, worker));
+  if (failures.size > 0) throw failures.get(Math.min(...failures.keys()));
+  return results;
+}
+
+const skillScanConcurrency = 4;
+
 async function skillContentManifest(skillPath) {
   const root = path.resolve(skillPath);
-  const files = [];
+  // Pass 1 walks names and sizes only, in the same order and with the same symlink, file-count,
+  // and byte checks as before, so an oversized skill is refused without reading any contents.
+  const planned = [];
   let totalBytes = 0;
   const walk = async (directory) => {
     const entries = await fs.readdir(directory, { withFileTypes: true });
@@ -2296,16 +2351,21 @@ async function skillContentManifest(skillPath) {
         continue;
       }
       if (!entry.isFile()) continue;
-      if (files.length >= maximumSkillHashFiles) throw new Error('A skill contains too many files to verify safely.');
+      if (planned.length >= maximumSkillHashFiles) throw new Error('A skill contains too many files to verify safely.');
       const metadata = await fs.stat(filePath);
       totalBytes += metadata.size;
       if (totalBytes > maximumSkillHashBytes) throw new Error('A skill is too large to verify safely.');
       const relativePath = path.relative(root, filePath).split(path.sep).join('/');
-      const contents = await fs.readFile(filePath);
-      files.push({ path: relativePath, size: metadata.size, sha256: createHash('sha256').update(contents).digest('hex') });
+      planned.push({ filePath, relativePath, size: metadata.size });
     }
   };
   await walk(root);
+  // Pass 2 hashes only once the whole skill is within the limits.
+  const files = [];
+  for (const file of planned) {
+    const contents = await fs.readFile(file.filePath);
+    files.push({ path: file.relativePath, size: file.size, sha256: createHash('sha256').update(contents).digest('hex') });
+  }
   if (!files.some((file) => file.path === 'SKILL.md')) throw new Error('The skill no longer contains SKILL.md.');
   const identity = createHash('sha256').update(files.map((file) => `${file.path}\0${file.sha256}\0${file.size}\n`).join(''), 'utf8').digest('hex');
   return { identity, files, totalBytes };
@@ -2408,9 +2468,11 @@ async function listSkillsAt(rootPath, scope) {
   const skillRoot = path.join(rootPath, '.claude', 'skills');
   try {
     const entries = await fs.readdir(skillRoot, { withFileTypes: true });
-    const skills = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    const skillEntries = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
+    // Each skill is described independently (and never throws), so a few run at once; results
+    // keep the folder listing order.
+    const described = await mapWithConcurrency(skillEntries, skillScanConcurrency, async (entry) => {
+      const skills = [];
       const skillPath = path.join(skillRoot, entry.name);
       try {
         skills.push(await describeSkillForDiscovery(skillPath, scope, entry.name));
@@ -2433,8 +2495,9 @@ async function listSkillsAt(rootPath, scope) {
           // A folder without SKILL.md is not presented as an installed skill.
         }
       }
-    }
-    return skills;
+      return skills;
+    });
+    return described.flat();
   } catch (error) {
     if (error.code === 'ENOENT') return [];
     return [{ id: `skill-root:${skillRoot}`, type: 'attention', name: 'Skills folder needs attention', scope, path: skillRoot, description: 'The app could not read this skills folder. It did not change anything.' }];
@@ -2464,7 +2527,7 @@ function settingsFindings(json, filePath, scope) {
   return findings;
 }
 
-async function discoverClaudeSetup(projectPath = '') {
+async function discoverClaudeSetup(projectPath = '', claudeState = null) {
   const home = app.getPath('home');
   let managedExtras;
   try {
@@ -2487,9 +2550,22 @@ async function discoverClaudeSetup(projectPath = '') {
     );
   }
 
-  const findings = await managedPrerequisiteFindings();
-  for (const location of skillLocations) {
-    findings.push(...await listSkillsAt(location.root, location.scope));
+  // Claude Code is checked once for this scan. Its three read-only CLI listings start now and
+  // run while the filesystem is scanned; their results are consumed below in the same order.
+  const claude = claudeState || await claudeStatus();
+  const claudeListings = claude.installed
+    ? Promise.all([
+      runProcess(claude.path || 'claude', ['plugin', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
+      // Explicit, and equal to runProcess's default: on timeout the list resolves with a
+      // non-zero code and is reported as not readable, exactly as before.
+      runProcess(claude.path || 'claude', ['mcp', 'list'], { cwd: home, env: claudeProcessEnv(), timeout: 30000 }).catch(() => ({ code: 1, stdout: '' })),
+      currentDuplicateGroups({ claude, homePath: home, projectPath: resolvedProjectPath }).catch(() => ({ groups: [] })),
+    ])
+    : null;
+
+  const findings = await managedPrerequisiteFindings(claude);
+  for (const skills of await Promise.all(skillLocations.map((location) => listSkillsAt(location.root, location.scope)))) {
+    findings.push(...skills);
   }
   for (const location of locations) {
     const settings = await readJsonIfPresent(location.settings);
@@ -2510,18 +2586,12 @@ async function discoverClaudeSetup(projectPath = '') {
   }
   findings.push(...await listRestorableSkillBackups(resolvedProjectPath));
 
-  const claude = await claudeStatus();
   let pluginList = null;
   let mcpList = null;
   let duplicateGroups = [];
   let listedPluginInstalls = [];
-  if (claude.installed) {
-    const claudeCommand = claude.path || 'claude';
-    const [plugins, connections, groups] = await Promise.all([
-      runProcess(claudeCommand, ['plugin', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
-      runProcess(claudeCommand, ['mcp', 'list'], { cwd: home, env: claudeProcessEnv() }).catch(() => ({ code: 1, stdout: '' })),
-      currentDuplicateGroups({ claude, homePath: home, projectPath: resolvedProjectPath }).catch(() => ({ groups: [] })),
-    ]);
+  if (claudeListings) {
+    const [plugins, connections, groups] = await claudeListings;
     duplicateGroups = groups.groups;
     listedPluginInstalls = Array.isArray(groups.installs) ? groups.installs : [];
     pluginList = { ok: plugins.code === 0, text: plugins.stdout || '' };
@@ -4161,14 +4231,19 @@ app.whenReady().then(async () => {
     emit('installer:state', { running: true });
     const trackedIds = Object.keys(TRACKED_ITEMS);
     const trackedBefore = await presentTrackedItems(trackedIds, setupScope).catch(() => null);
+    // Checked once after the installer finishes; installing plugins does not move or change
+    // the Claude Code command, so this result stays current for the steps below. Plugin lists
+    // are still read fresh by each step.
+    let claudeAfterInstall = null;
     try {
       const result = await spawnInstaller(fresh ? 'fresh-complete' : 'complete', [], false, setupScope);
       const after = await claudeStatus();
+      claudeAfterInstall = after;
       if (result.code === 0 && after.installed) {
         emit('installer:output', { stream: 'stdout', text: '[CCTI] Installing supported recommended plugins inside the app…\n' });
-        await installReviewedPlugins(completeSetupPluginIds);
+        await installReviewedPlugins(completeSetupPluginIds, after);
       }
-      const verification = result.code === 0 && after.installed ? await verifySetupStatus(setupScope) : null;
+      const verification = result.code === 0 && after.installed ? await verifySetupStatus(setupScope, after) : null;
       return {
         ok: result.code === 0 && after.installed && verification?.ready,
         code: result.code,
@@ -4190,7 +4265,7 @@ app.whenReady().then(async () => {
     } catch (error) {
       return { ok: false, error: error.message, installed: false, version: '' };
     } finally {
-      if (trackedBefore) await recordCctiInstalls(trackedIds, trackedBefore, setupScope);
+      if (trackedBefore) await recordCctiInstalls(trackedIds, trackedBefore, setupScope, claudeAfterInstall);
       activeInstall = false;
       emit('installer:state', { running: false });
     }

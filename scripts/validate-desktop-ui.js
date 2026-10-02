@@ -131,13 +131,13 @@ if (!renderer.includes('installClaudeOnly') || !main.includes("spawnInstaller('c
 if (!html.includes('id="verify-setup-button"') || !html.includes('id="setup-verification-results"') || !renderer.includes('async function verifySetup()') || !renderer.includes('function renderSetupVerification(result)') || !preload.includes("verifySetup: (payload) => ipcRenderer.invoke('setup:verify', payload)") || !main.includes('async function verifySetupStatus(')) {
   throw new Error('CCTI must provide a plain-language, read-only in-app setup verification panel.');
 }
-if (!main.includes('completeSetupPluginIds') || !main.includes("option('-AppManagedPlugins', '--app-managed-plugins')") || !main.includes('await installReviewedPlugins(completeSetupPluginIds)')) {
+if (!main.includes('completeSetupPluginIds') || !main.includes("option('-AppManagedPlugins', '--app-managed-plugins')") || !main.includes('await installReviewedPlugins(completeSetupPluginIds, after)')) {
   throw new Error('Complete setup must install supported recommended plugins in CCTI instead of making users run terminal commands.');
 }
 if (!html.includes('id="complete-setup-global-scope-button"') || !html.includes('id="complete-setup-existing-project-button"') || !html.includes('id="complete-setup-new-project-button"') || !html.includes('id="complete-setup-scope-note"') || !renderer.includes('function syncCompleteSetupScope()') || !renderer.includes('async function chooseCompleteSetupProject(createNew)') || !renderer.includes('chooseCompleteSetupProject({ createNew })') || !preload.includes("chooseCompleteSetupProject: (payload) => ipcRenderer.invoke('setup:choose-project', payload)") || !main.includes("ipcMain.handle('setup:choose-project'") || !main.includes('showSaveDialog(mainWindow') || !main.includes('await fs.mkdir(projectPath)') || !main.includes('async function resolveCompleteSetupScope') || !main.includes("option('-SkillScope', '--skill-scope')")) {
   throw new Error('Complete setup must present native global, existing-project, and new-project skill-scope choices before the installer runs.');
 }
-if (!renderer.includes("skillScope: state.completeSetupScope.skillScope") || !renderer.includes('completeSetupScopeDescription()') || !main.includes('verifySetupStatus(setupScope)')) {
+if (!renderer.includes("skillScope: state.completeSetupScope.skillScope") || !renderer.includes('completeSetupScopeDescription()') || !main.includes('verifySetupStatus(setupScope, after)')) {
   throw new Error('Complete setup must send the selected skill scope to both installation and verification.');
 }
 for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-claude-linux.sh']) {

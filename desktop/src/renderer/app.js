@@ -318,13 +318,28 @@ function createInlineDetails(item) {
   return panel;
 }
 
+// Each chunk is appended as its own text node (textContent still reads back the same joined
+// text), and scrolling to the newest line happens once per frame instead of once per chunk.
+let outputScrollFrame = 0;
+
+function cancelScheduledOutputScroll() {
+  if (outputScrollFrame) cancelAnimationFrame(outputScrollFrame);
+  outputScrollFrame = 0;
+}
+
 function appendOutput(text, stream = 'stdout') {
-  outputElement.textContent += text;
+  outputElement.append(document.createTextNode(String(text)));
   if (stream === 'stderr') outputElement.classList.add('has-error');
-  outputElement.scrollTop = outputElement.scrollHeight;
+  if (!outputScrollFrame) {
+    outputScrollFrame = requestAnimationFrame(() => {
+      outputScrollFrame = 0;
+      outputElement.scrollTop = outputElement.scrollHeight;
+    });
+  }
 }
 
 function clearOutput() {
+  cancelScheduledOutputScroll();
   outputElement.textContent = '';
   outputElement.classList.remove('has-error');
 }
@@ -891,6 +906,7 @@ async function runDiagnostics() {
     ]);
     if (!result.ok) throw new Error(result.error || 'CCTI could not complete diagnostics.');
     state.diagnostics = { id: result.diagnosticId || '', report: result.report, expiresAt: Date.now() + (10 * 60 * 1000) };
+    cancelScheduledOutputScroll();
     outputElement.textContent = result.report;
     outputElement.classList.remove('has-error');
     setDiagnosticActionsEnabled(hasCurrentDiagnostics());
@@ -966,7 +982,11 @@ function renderCatalog() {
       toggle.addEventListener('click', () => {
         if (state.selected.has(tool.id)) state.selected.delete(tool.id);
         else state.selected.add(tool.id);
-        renderCatalog();
+        // Only this switch reflects the selection, so it is updated in place; the rest of the
+        // catalog, keyboard focus, and any open Details stay as they were.
+        const selected = state.selected.has(tool.id);
+        toggle.setAttribute('aria-checked', String(selected));
+        toggle.textContent = selected ? 'On' : 'Off';
         updateSummary();
       });
 
@@ -1688,14 +1708,24 @@ function populateComponentCategories() {
   }
 }
 
+// The catalog and its details are loaded once at startup, so each component's lowercase
+// search text is built on first use and reused for every later keystroke.
+const componentSearchText = new WeakMap();
+
+function componentHaystack(component) {
+  let haystack = componentSearchText.get(component);
+  if (haystack === undefined) {
+    const detail = detailFor(component);
+    haystack = `${component.name} ${component.packageName} ${component.category} ${detail.plainPurpose} ${detail.chooseWhen} ${detail.example}`.toLowerCase();
+    componentSearchText.set(component, haystack);
+  }
+  return haystack;
+}
+
 function filteredComponents() {
   const term = componentSearchElement.value.trim().toLowerCase();
   const category = componentCategoryElement.value;
-  return state.componentCatalog.components.filter((component) => {
-    const detail = detailFor(component);
-    const haystack = `${component.name} ${component.packageName} ${component.category} ${detail.plainPurpose} ${detail.chooseWhen} ${detail.example}`.toLowerCase();
-    return (!term || haystack.includes(term)) && (!category || component.category === category);
-  });
+  return state.componentCatalog.components.filter((component) => (!term || componentHaystack(component).includes(term)) && (!category || component.category === category));
 }
 
 function renderComponentDetail() {
@@ -2689,7 +2719,13 @@ function renderSetupManager(report) {
   }
 }
 
+// Every scan gets a sequence number. When scans overlap, only the newest one renders its
+// result or error, so a slower earlier scan can never overwrite a newer one.
+let setupScanSequence = 0;
+let setupScanInFlight = null;
+
 async function scanSetup() {
+  const sequence = ++setupScanSequence;
   setupManagerSummaryElement.textContent = 'Checking the selected Claude Code locations. Nothing is being changed.';
   setupManagerResultsElement.replaceChildren();
   toolInventoryElement.classList.add('is-hidden');
@@ -2698,9 +2734,11 @@ async function scanSetup() {
   duplicateReviewElement.classList.add('is-hidden');
   try {
     const result = await window.installer.discoverSetup({ projectPath: state.managerProjectPath });
+    if (sequence !== setupScanSequence) return;
     if (!result?.ok && result?.error) throw new Error(result.error);
     renderSetupManager(result);
   } catch (error) {
+    if (sequence !== setupScanSequence) return;
     state.managerReport = null;
     state.managerProjectPath = '';
     setupManagerSummaryElement.textContent = error.message || 'CCTI could not check the selected project. Choose the folder again and retry.';
@@ -3123,12 +3161,26 @@ exportProjectPrdButton.addEventListener('click', exportProjectPrd);
 queueInterviewSuggestionsButton.addEventListener('click', queueInterviewSuggestionsFromDraft);
 document.querySelector('#open-components-library').addEventListener('click', openComponentLibrary);
 document.querySelector('#close-components-library').addEventListener('click', () => componentLibraryElement.classList.add('is-hidden'));
-componentSearchElement.addEventListener('input', renderComponents);
+let componentSearchTimer = 0;
+componentSearchElement.addEventListener('input', () => {
+  clearTimeout(componentSearchTimer);
+  componentSearchTimer = setTimeout(renderComponents, 100);
+});
 componentCategoryElement.addEventListener('change', renderComponents);
 chooseProjectButton.addEventListener('click', chooseProjectFolder);
 previewComponentsButton.addEventListener('click', previewComponentPlan);
 installComponentsButton.addEventListener('click', installProjectComponents);
-document.querySelector('#scan-setup-button').addEventListener('click', scanSetup);
+// A repeated click while the same folder is still being checked joins that check instead of
+// starting a second full scan. Scans started after a change always run fresh.
+document.querySelector('#scan-setup-button').addEventListener('click', () => {
+  const projectPath = state.managerProjectPath;
+  if (setupScanInFlight && setupScanInFlight.projectPath === projectPath && setupScanInFlight.sequence === setupScanSequence) return setupScanInFlight.promise;
+  const promise = scanSetup();
+  const entry = { projectPath, sequence: setupScanSequence, promise };
+  setupScanInFlight = entry;
+  promise.finally(() => { if (setupScanInFlight === entry) setupScanInFlight = null; }).catch(() => {});
+  return promise;
+});
 toolInventoryResetButton.addEventListener('click', resetToolInventoryRecord);
 document.querySelector('#choose-manager-project-button').addEventListener('click', chooseManagerProject);
 deduplicateAllSkillsButton.addEventListener('click', deduplicateAllSkills);
@@ -3319,8 +3371,8 @@ syncCompleteSetupScope();
     chooseBy((tool) => tool.default);
     updateCompassConnectionUi();
     displayUpdateStatus(initialUpdateStatus);
-    await loadTerminalPreference();
-    await refreshClaudeStatus();
+    // Independent: the terminal preference only updates its own selector and note.
+    await Promise.all([loadTerminalPreference(), refreshClaudeStatus()]);
   } catch (error) {
     bootstrapStatusElement.textContent = 'App setup failed';
     bootstrapStatusElement.className = 'status-chip status-error';
