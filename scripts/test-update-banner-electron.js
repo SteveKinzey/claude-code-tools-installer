@@ -29,6 +29,13 @@ const indexPath = path.join(rendererDir, 'index.html');
 const fixturePath = path.join(os.tmpdir(), `ccti-update-banner-${process.pid}.html`);
 const screenshotDir = process.env.CCTI_UPDATE_BANNER_SCREENSHOTS || '';
 
+// Values embedded in code strings run in the renderer. JSON.stringify alone leaves characters
+// such as < > / U+2028 U+2029 that can break out of the surrounding code, so escape them too.
+const unsafeLiteralCharacters = { '<': '\\u003C', '>': '\\u003E', '/': '\\u002F', '\u2028': '\\u2028', '\u2029': '\\u2029' };
+function jsLiteral(value) {
+  return JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, (character) => unsafeLiteralCharacters[character]);
+}
+
 const releaseUrl = 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.10.02.03';
 const available = { state: 'available', currentVersion: '2026.10.201', latestVersion: '2026.10.02.03', latestPackageVersion: '2026.10.203', releaseUrl, canDownload: true, canInstall: false, message: 'CCTI 2026.10.02.03 is available.' };
 
@@ -41,14 +48,14 @@ function injectedBridge() {
     window.__updateBannerFixture = { calls, push: (status) => pushStatus(status) };
     const record = (method, payload) => calls.push({ method, payload });
     document.addEventListener('securitypolicyviolation', (event) => record('csp-violation', event.effectiveDirective));
-    const downloaded = { ...${JSON.stringify(available)}, state: 'downloaded', canDownload: false, canInstall: true, message: 'CCTI 2026.10.02.03 is downloaded and verified. Restart CCTI to apply it now.' };
+    const downloaded = { ...${jsLiteral(available)}, state: 'downloaded', canDownload: false, canInstall: true, message: 'CCTI 2026.10.02.03 is downloaded and verified. Restart CCTI to apply it now.' };
 
     window.installer = {
       getCatalog: async () => [],
       getCatalogDetails: async () => ({ items: [] }),
       getComponentCatalog: async () => ({ components: [], count: 0 }),
       getCompassStatus: async () => ({ available: false }),
-      getUpdateStatus: async () => ({ state: 'current', currentVersion: '2026.10.203', latestVersion: '2026.10.02.03', releaseUrl: ${JSON.stringify(releaseUrl)}, message: 'CCTI 2026.10.02.03 is the newest published release.' }),
+      getUpdateStatus: async () => ({ state: 'current', currentVersion: '2026.10.203', latestVersion: '2026.10.02.03', releaseUrl: ${jsLiteral(releaseUrl)}, message: 'CCTI 2026.10.02.03 is the newest published release.' }),
       getTerminalPreference: async () => ({ ok: true, selectedId: 'default', options: [{ id: 'default', label: 'Default Terminal', available: true }], message: '' }),
       setTerminalPreference: async () => ({ ok: true, selectedId: 'default', options: [], message: '' }),
       getClaudeStatus: async () => ({ installed: true, version: 'fixture', path: '/fixture-home/.local/bin/claude' }),
@@ -100,9 +107,9 @@ const banner = (window) => evaluate(window, `(() => {
     noticeTop: document.querySelector('.notice').getBoundingClientRect().top,
   };
 })()`);
-const push = (window, status) => evaluate(window, `window.__updateBannerFixture.push(${JSON.stringify(status)})`);
-const callsOf = (window, method) => evaluate(window, `window.__updateBannerFixture.calls.filter((call) => call.method === ${JSON.stringify(method)}).length`);
-const click = (window, selector) => evaluate(window, `document.querySelector(${JSON.stringify(selector)}).click()`);
+const push = (window, status) => evaluate(window, `window.__updateBannerFixture.push(${jsLiteral(status)})`);
+const callsOf = (window, method) => evaluate(window, `window.__updateBannerFixture.calls.filter((call) => call.method === ${jsLiteral(method)}).length`);
+const click = (window, selector) => evaluate(window, `document.querySelector(${jsLiteral(selector)}).click()`);
 
 async function screenshot(window, name) {
   if (!screenshotDir) return;
@@ -140,6 +147,7 @@ async function run() {
     assert.equal(shown.action, 'Update Now');
     assert.ok(shown.top < shown.noticeTop && shown.top < 400, 'banner sits at the top of the app, above the first section');
     await screenshot(window, '1-available');
+    assert.equal(await evaluate(window, "document.querySelector('#update-status-note').getAttribute('aria-live')"), 'off', 'only the banner announces while it is visible');
     checked.push('visible at top');
 
     // Update Now runs the checked download; the banner follows it to Restart to Update.
@@ -162,7 +170,10 @@ async function run() {
     await click(window, '#update-banner-action');
     assert.equal(await callsOf(window, 'installDownloadedUpdate'), 0, 'no restart while an installation runs');
     assert.match((await banner(window)).message, /Wait for the current installation to finish/);
-    await evaluate(window, 'state.running = false');
+    await evaluate(window, 'state.running = false; state.completeSetupRunning = true');
+    await click(window, '#update-banner-action');
+    assert.equal(await callsOf(window, 'installDownloadedUpdate'), 0, 'no restart while Complete setup runs');
+    await evaluate(window, 'state.completeSetupRunning = false');
     await click(window, '#update-banner-action');
     await waitFor(window, () => window.__updateBannerFixture.calls.some((call) => call.method === 'installDownloadedUpdate'), 'restart call');
     checked.push('restart guarded during install');
@@ -197,6 +208,7 @@ async function run() {
     // Failed check or current again: hidden.
     await push(window, { state: 'unavailable', message: 'Update check could not reach the public release service.' });
     assert.equal((await banner(window)).hidden, true, 'no banner when the check failed');
+    assert.equal(await evaluate(window, "document.querySelector('#update-status-note').getAttribute('aria-live')"), 'polite', 'the Diagnostics note announces again once the banner hides');
     await push(window, { ...newer, state: 'current' });
     assert.equal((await banner(window)).hidden, true, 'no banner once current');
     checked.push('hidden when unavailable');

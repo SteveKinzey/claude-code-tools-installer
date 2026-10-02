@@ -803,8 +803,14 @@ function renderUpdateBanner(status) {
   updateBannerElement.hidden = false;
 }
 
+// Only one polite region should announce update progress. While the banner is visible it speaks
+// for the update, so the Diagnostics note below goes quiet; it announces again once the banner hides.
+function syncUpdateAnnouncements() {
+  updateStatusNoteElement.setAttribute('aria-live', updateBannerElement.hidden ? 'polite' : 'off');
+}
+
 async function runUpdateBannerAction() {
-  if (updateBanner.action === 'install' && (state.running || state.componentRunning)) {
+  if (updateBanner.action === 'install' && (state.running || state.completeSetupRunning || state.componentRunning)) {
     // Restarting now would stop the installation that is running.
     updateBannerMessageElement.textContent = 'Wait for the current installation to finish, then restart CCTI to update.';
     return undefined;
@@ -819,10 +825,12 @@ function dismissUpdateBanner() {
   updateBanner.dismissedVersion = updateBanner.version;
   updateBanner.action = '';
   updateBannerElement.hidden = true;
+  syncUpdateAnnouncements();
 }
 
 function displayUpdateStatus(status) {
   renderUpdateBanner(status);
+  syncUpdateAnnouncements();
   const stateName = status?.state || 'idle';
   const checking = stateName === 'checking';
   const downloading = stateName === 'downloading';
