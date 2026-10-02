@@ -35,6 +35,11 @@ const reviewedResolutions = new Map();
 const reviewedPermanentDeletePlans = new Map();
 const reviewedFreshSetupPlans = new Map();
 let activeSkillCleanup = false;
+const MAXIMUM_OPEN_REVIEWS = 20;
+// Keeps a review map bounded: the oldest reviews (Map insertion order) are dropped first.
+function capReviewMap(map) {
+  while (map.size > MAXIMUM_OPEN_REVIEWS) map.delete(map.keys().next().value);
+}
 const diagnosticReports = new Map();
 const diagnosticTimers = new Map();
 const diagnosticReportLifetimeMs = 10 * 60 * 1000;
@@ -1518,6 +1523,7 @@ async function knownClaudeRemovalPlan() {
   const reviewId = randomUUID();
   reviewedClaudeRemovalPlans.set(reviewId, { createdAt: Date.now(), removable, settings });
   for (const [id, plan] of reviewedClaudeRemovalPlans) if (Date.now() - plan.createdAt > 10 * 60 * 1000) reviewedClaudeRemovalPlans.delete(id);
+  capReviewMap(reviewedClaudeRemovalPlans);
   const detail = (item) => ({ label: item.label, scope: item.scope, path: item.path || 'Known Claude Code package' });
   return { ok: true, reviewId, removable: removable.map(detail), settings: settings.map(detail), protected: ['Claude Desktop app and its data', 'Claude in Chrome, browser profiles, and browser extensions', 'VS Code and JetBrains extensions', 'Any unrelated Anthropic app or account'], attention };
 }
@@ -1850,6 +1856,7 @@ async function resolveAppUninstallPlan() {
   for (const [id, plan] of reviewedAppUninstallPlans) {
     if (Date.now() - plan.createdAt > 10 * 60 * 1000) reviewedAppUninstallPlans.delete(id);
   }
+  capReviewMap(reviewedAppUninstallPlans);
 
   const platformGuidance = platformUninstallGuidance();
 
@@ -2872,6 +2879,7 @@ async function reviewPluginChange({ discoveryId, findingId, action }) {
   for (const [id, review] of reviewedPluginChanges) {
     if (Date.now() - review.createdAt > 24 * 60 * 60 * 1000) reviewedPluginChanges.delete(id);
   }
+  capReviewMap(reviewedPluginChanges);
   return { ok: true, reviewId, name: finding.name, scope: finding.scope, action, description: `${action === 'enable' ? 'Turn on' : 'Turn off'} this add-on for ${finding.scope.toLowerCase()}. This does not uninstall it.` };
 }
 
@@ -2959,6 +2967,7 @@ async function reviewProjectPackageRemoval({ discoveryId, findingId }) {
     for (const [id, candidate] of reviewedProjectPackageRemovalPlans) {
       if (Date.now() - candidate.createdAt > 10 * 60 * 1000) reviewedProjectPackageRemovalPlans.delete(id);
     }
+    capReviewMap(reviewedProjectPackageRemovalPlans);
     return {
       ok: true,
       ...plan,
@@ -3096,6 +3105,7 @@ async function reviewManagedExtrasRemoval() {
     for (const [id, candidate] of reviewedManagedExtrasRemovalPlans) {
       if (Date.now() - candidate.createdAt > 10 * 60 * 1000) reviewedManagedExtrasRemovalPlans.delete(id);
     }
+    capReviewMap(reviewedManagedExtrasRemovalPlans);
     return {
       ok: true,
       ...plan,
@@ -3169,8 +3179,10 @@ async function chooseCustomSource() {
   return { canceled: false, source: path.resolve(result.filePaths[0]) };
 }
 
+// A GitHub owner starts with a letter or digit, so a repository source can never be read by the
+// claude CLI as an option (for example `--help/x` or `-x/y`).
 function validRepository(value) {
-  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
+  return /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/.test(value);
 }
 
 // Characters that cmd.exe cannot be kept from interpreting (or that break a command line).
@@ -3198,6 +3210,7 @@ function storeCustomAddOnReview(review, sourceManifest = null) {
   for (const [id, candidate] of reviewedCustomAddOnPlans) {
     if (Date.now() - candidate.createdAt > 10 * 60 * 1000) reviewedCustomAddOnPlans.delete(id);
   }
+  capReviewMap(reviewedCustomAddOnPlans);
   return { ...review, reviewId };
 }
 
@@ -3312,6 +3325,7 @@ async function applyCustomAddOn({ reviewId }) {
     }
   }
   if (UNSAFE_ADD_ON_SOURCE.test(String(plan.source ?? ''))) return unsafeAddOnSourceResult(plan.source);
+  if (String(plan.source ?? '').startsWith('-')) return { ok: false, error: 'This marketplace source looks like a command option. Review a trusted source again.' };
   try {
     const claude = await claudeStatus();
     if (!claude.installed) return { ok: false, error: 'Claude Code is not ready. Check this computer again after Claude Code is available.' };
@@ -3362,7 +3376,19 @@ async function reviewCleanup({ discoveryId, findingId }) {
   return plan;
 }
 
-async function applyCleanup({ reviewId }) {
+async function applyCleanup(payload = {}) {
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) {
+    return { ok: false, error: 'Another CCTI action is running. Wait for it to finish before moving this skill.' };
+  }
+  activeSkillCleanup = true;
+  try {
+    return await applyCleanupUnlocked(payload);
+  } finally {
+    activeSkillCleanup = false;
+  }
+}
+
+async function applyCleanupUnlocked({ reviewId }) {
   const plan = reviewedCleanupPlans.get(reviewId);
   const currentFinding = plan && discoveredSkillCleanup.get(plan.discoveryId)?.skills.get(plan.findingId);
   if (!plan || !currentFinding || currentFinding.path !== plan.source) {
@@ -3800,6 +3826,7 @@ async function reviewAllSkillBackups({ discoveryId } = {}) {
   for (const [id, review] of reviewedBulkRestorePlans) {
     if (Date.now() - review.createdAt > 10 * 60 * 1000) reviewedBulkRestorePlans.delete(id);
   }
+  capReviewMap(reviewedBulkRestorePlans);
   return plan;
 }
 
@@ -3903,6 +3930,7 @@ async function reviewSkillBackupReplacement({ discoveryId, backupId } = {}) {
     for (const [id, review] of reviewedSkillBackupReplacementPlans) {
       if (Date.now() - review.createdAt > 10 * 60 * 1000) reviewedSkillBackupReplacementPlans.delete(id);
     }
+    capReviewMap(reviewedSkillBackupReplacementPlans);
     return plan;
   } catch {
     return { ok: false, error: 'CCTI could not verify both the active skill and the saved backup. Nothing was changed.' };

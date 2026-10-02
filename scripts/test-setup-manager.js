@@ -221,6 +221,20 @@ async function run() {
     assert.doesNotMatch(marketplaceCalls, /different-marketplace/, 'editable renderer fields must not replace the reviewed marketplace source');
   }
 
+  // A repository source must start with a letter or digit so the claude CLI can never read it
+  // as an option.
+  for (const optionLike of ['-x/y', '--help/x', '_x/y', '.x/y']) {
+    const refused = await reviewCustom(null, { source: optionLike, scope: 'user' });
+    assert.equal(refused.ok, false, `${optionLike} must not be accepted as a GitHub marketplace`);
+    assert.equal(refused.reviewId, undefined);
+  }
+  // Open add-on reviews are capped; the oldest is dropped once more than 20 are open.
+  const cappedReviews = [];
+  for (let index = 0; index < 21; index += 1) cappedReviews.push((await reviewCustom(null, { source: `owner/capped-${index}`, scope: 'user' })).reviewId);
+  const evictedReview = await applyCustom(null, { reviewId: cappedReviews[0] });
+  assert.equal(evictedReview.ok, false, 'the oldest open add-on review is evicted past the cap');
+  assert.match(evictedReview.error, /expired/i);
+
   const report = await discover(null, { projectPath: project });
   assert.ok(report.discoveryId, 'a discovery session is required for cleanup');
   assert.ok(report.findings.some((item) => item.type === 'attention' && item.name === 'Project package file will be created when needed' && item.scope === 'This project'), 'the inventory should explain automatic package initialization for a selected project');
@@ -407,8 +421,14 @@ async function run() {
   // because apply re-verifies current state (unchanged content) instead of rejecting on age
   // alone. Reason for updating this assertion: documented "refresh silently" rule.
   Date.now = () => originalDateNow() + 10 * 60 * 1000 + 1;
-  const cleanupResult = await applyCleanup(null, { reviewId: cleanupPlan.reviewId });
+  // applyCleanup takes the shared action lock: a second apply while the first runs is refused.
+  const [cleanupResult, concurrentCleanup] = await Promise.all([
+    applyCleanup(null, { reviewId: cleanupPlan.reviewId }),
+    applyCleanup(null, { reviewId: cleanupPlan.reviewId }),
+  ]);
   Date.now = originalDateNow;
+  assert.equal(concurrentCleanup.ok, false, 'a concurrent cleanup apply must be refused while another action runs');
+  assert.match(concurrentCleanup.error, /Another CCTI action is running/);
   assert.equal(cleanupResult.ok, true, 'apply must succeed once re-verification passes, even past the old 10-minute window');
   await assert.rejects(fsp.access(userSkill.path));
   await fsp.access(path.join(cleanupPlan.destination, 'SKILL.md'));
