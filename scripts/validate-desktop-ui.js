@@ -57,6 +57,8 @@ for (const channel of [
   'terminal:get-preference',
   'terminal:set-preference',
   'terminal:test-preference',
+  'terminal:preview-report',
+  'terminal:export-report',
   'claude:run',
   'claude:review-removal',
   'claude:apply-removal',
@@ -152,11 +154,17 @@ for (const adapter of ['setup-my-claude.ps1', 'setup-my-claude.sh', 'setup-my-cl
 if (!html.includes('id="run-claude-button"') || !html.includes('id="remove-claude-button"') || !renderer.includes('async function runClaudeCode()') || !renderer.includes('async function removeClaudeCode()')) {
   throw new Error('The setup screen must provide visible Run Claude Code and preview-first removal actions.');
 }
-if (!html.includes('id="terminal-preference-select"') || !html.includes('id="test-terminal-preference-button"') || !html.includes('id="terminal-preference-note"') || !renderer.includes('async function changeTerminalPreference()') || !renderer.includes('async function testTerminalPreference()') || !preload.includes("getTerminalPreference: () => ipcRenderer.invoke('terminal:get-preference')") || !preload.includes("setTerminalPreference: (payload) => ipcRenderer.invoke('terminal:set-preference', payload)") || !preload.includes("testTerminalPreference: () => ipcRenderer.invoke('terminal:test-preference')") || !main.includes('async function setTerminalPreference') || !main.includes('async function testSelectedTerminal()')) {
+if (!html.includes('id="terminal-preference-select"') || !html.includes('id="test-terminal-preference-button"') || !html.includes('id="terminal-preference-note"') || !renderer.includes('async function changeTerminalPreference({ withProfile = false } = {})') || !renderer.includes('async function testTerminalPreference()') || !preload.includes("getTerminalPreference: () => ipcRenderer.invoke('terminal:get-preference')") || !preload.includes("setTerminalPreference: (payload) => ipcRenderer.invoke('terminal:set-preference', payload)") || !preload.includes("testTerminalPreference: () => ipcRenderer.invoke('terminal:test-preference')") || !main.includes('async function setTerminalPreference') || !main.includes('async function testSelectedTerminal()')) {
   throw new Error('CCTI must offer an accessible terminal preference dropdown and test action through narrow main-process IPC handlers.');
 }
 if (!main.includes("id: 'iterm2'") || !main.includes("id: 'windows-terminal'") || !main.includes("id: 'gnome-terminal'") || !main.includes('Custom terminal commands are not accepted.') || !main.includes('saved ${supportedTerminalOption(preference.storedId)?.label')) {
   throw new Error('The terminal preference must support detected macOS, Windows, and Linux terminals without accepting arbitrary terminal commands or silently ignoring an unavailable selection.');
+}
+if (!html.includes('id="terminal-profile-select"') || !html.includes('id="terminal-profile-guide-dialog"') || !html.includes('id="terminal-report-dialog"') || !html.includes('id="terminal-report-filter"') || !html.includes('id="terminal-report-kept-local"') || !preload.includes("previewTerminalReport: () => ipcRenderer.invoke('terminal:preview-report')") || !preload.includes("exportTerminalReport: (payload) => ipcRenderer.invoke('terminal:export-report', payload)") || !main.includes('function scrubTerminalReport(text)') || !main.includes("'/usr/bin/plutil', ['-extract', 'New Bookmarks'") || !main.includes('dialog.showSaveDialog(mainWindow, {\n      title: \'Save CCTI terminal report\'')) {
+  throw new Error('iTerm2 profile selection, the profile guide, and the scrubbed terminal report (preview, privacy lists, on-screen filter, save only through the save dialog) must stay wired through narrow IPC.');
+}
+if (/terminal:(?:preview|export)-report[\s\S]{0,400}(?:fetch\(|https?:\/\/|net\.request)/.test(main)) {
+  throw new Error('The terminal report must never be sent over the network.');
 }
 if (!main.includes('async function launchClaudeCode') || !main.includes('async function knownClaudeRemovalPlan') || !main.includes("confirmation !== 'REMOVE CLAUDE CODE'")) {
   throw new Error('Claude Code lifecycle actions must remain fixed, trusted operations with typed removal confirmation.');

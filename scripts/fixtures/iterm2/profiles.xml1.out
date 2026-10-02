@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>Ansi 0 Color</key>
+		<dict>
+			<key>Name</key>
+			<string>nested color name must be ignored</string>
+			<key>Red Component</key>
+			<real>0.10000000000000001</real>
+		</dict>
+		<key>Guid</key>
+		<string>0D5C3F2E-1111-4A8B-9C3D-000000000001</string>
+		<key>Name</key>
+		<string>Default</string>
+	</dict>
+	<dict>
+		<key>Command</key>
+		<string>export FIXTURE_SECRET=do-not-leak; zsh</string>
+		<key>Custom Command</key>
+		<string>Yes</string>
+		<key>Guid</key>
+		<string>0D5C3F2E-2222-4A8B-9C3D-000000000002</string>
+		<key>Name</key>
+		<string>Claude Code</string>
+		<key>Working Directory</key>
+		<string>/Users/fixtureuser/private-client-project</string>
+	</dict>
+	<dict>
+		<key>Guid</key>
+		<string>0D5C3F2E-3333-4A8B-9C3D-000000000003</string>
+		<key>Name</key>
+		<string>claude code</string>
+	</dict>
+	<dict>
+		<key>Guid</key>
+		<string>0D5C3F2E-4444-4A8B-9C3D-000000000004</string>
+		<key>Name</key>
+		<string>Ops "Prod" \ Shell &amp; Logs</string>
+	</dict>
+	<dict>
+		<key>Guid</key>
+		<string>0D5C3F2E-5555-4A8B-9C3D-000000000005</string>
+		<key>Name</key>
+		<string>fixtureuser work</string>
+	</dict>
+	<dict>
+		<key>Guid</key>
+		<string>not a guid; rm -rf /</string>
+		<key>Name</key>
+		<string>Bad guid</string>
+	</dict>
+	<dict>
+		<key>Guid</key>
+		<string>0D5C3F2E-6666-4A8B-9C3D-000000000006</string>
+		<key>Name</key>
+		<integer>42</integer>
+	</dict>
+	<dict>
+		<key>Guid</key>
+		<string>0D5C3F2E-7777-4A8B-9C3D-000000000007</string>
+	</dict>
+</array>
+</plist>

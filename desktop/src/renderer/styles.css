@@ -96,6 +96,19 @@ h3 { margin: 0; font-size: 1rem; }
 .terminal-preference-control select { width: 100%; border: 1px solid #4b7190; border-radius: 8px; background: #091523; color: #e9f3ff; padding: 10px 11px; }
 .terminal-preference-note { min-height: 1.3em; margin: 0 !important; color: #a7cce5 !important; font-size: .78rem !important; }
 .terminal-preference-note.is-error { color: #ffc2d0 !important; }
+.terminal-preference .terminal-profile-label { font-size: .8rem; }
+.terminal-preference-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.terminal-preference-actions .button { flex: 1 1 160px; }
+.terminal-profile-guide-steps { display: grid; gap: 8px; margin: 0; padding-left: 22px; color: #d3e2f2; font-size: .86rem; line-height: 1.5; }
+.terminal-report-dialog { width: min(820px, calc(100vw - 48px)); }
+.terminal-report-privacy { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.terminal-report-privacy > div { padding: 12px 14px; border: 1px solid #3f6680; border-radius: 10px; background: #0c1d2e; }
+.terminal-report-privacy h3 { margin: 0 0 8px; color: #d9edff; font-size: .86rem; }
+.terminal-report-privacy ul { display: grid; gap: 5px; margin: 0; padding-left: 18px; color: #c6d6e8; font-size: .8rem; line-height: 1.4; }
+.terminal-report-filter { display: grid; gap: 6px; color: #d9edff; font-size: .82rem; font-weight: 700; }
+.terminal-report-filter input { min-height: 34px; padding: 0 10px; border: 1px solid #4b7190; border-radius: 8px; background: #091523; color: #e9f3ff; font: inherit; font-weight: 400; }
+.terminal-report-filter-summary { min-height: 1.2em; font-size: .78rem; }
+.terminal-report-preview { max-height: 320px; min-height: 140px; margin: 0; overflow: auto; padding: 12px; border: 1px solid #3b5f7a; border-radius: 8px; background: #071522; color: #cbe6f5; font: .76rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .setup-note { margin-top: 15px !important; }
 .workflow-section { margin-top: 34px; }
 .is-hidden { display: none !important; }

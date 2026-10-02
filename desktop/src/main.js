@@ -3,6 +3,8 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { createHash, randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
+const nodeFs = require('node:fs');
+const os = require('node:os');
 const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
 const { comparePackageVersions, parsePackageVersion, parseReleaseIdentity } = require('./release-identity');
 const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
@@ -12,7 +14,7 @@ const { reconcileInventory } = require('./inventory/reconcile');
 const { compareSkillKeeper, duplicateGroupId, mcpDuplicateGroups, pluginDuplicateGroups, isSafeMcpName, isSafePluginId } = require('./inventory/duplicates');
 const { mcpDefinitions, pluginInstalls } = require('./inventory/config-scan');
 const { planResolution, groupFingerprint } = require('./inventory/resolvers');
-const { spawnSafely, resolveWindowsExecutable, windowsPathFromEnv } = require('./windows-command');
+const { spawnSafely, resolveWindowsExecutable, isAbsoluteWindowsPath, windowsPathFromEnv } = require('./windows-command');
 
 if (process.env.CCTI_ELECTRON_TEST === '1' && process.env.CCTI_TEST_HOME) {
   app.setPath('home', path.resolve(process.env.CCTI_TEST_HOME));
@@ -122,21 +124,51 @@ function macBundlePaths(bundleName) {
   return [`/Applications/${bundleName}`, path.join(app.getPath('home'), 'Applications', bundleName)];
 }
 
+// Absolute install locations for Windows terminal apps that do not put themselves on PATH. Only
+// environment values that are absolute drive or UNC paths are used, so nothing can resolve
+// against the working folder.
+function windowsKnownAppPaths(entries) {
+  const result = [];
+  for (const [variable, ...segments] of entries) {
+    const base = process.env[variable];
+    if (base && isAbsoluteWindowsPath(base)) result.push(path.win32.join(base, ...segments));
+  }
+  return result;
+}
+
+// Terminal apps marked `runsCommand: false` can only be opened in a folder: none of them offers a
+// documented, reliable way for CCTI to start a program, so CCTI opens the folder and tells the
+// person to type `claude` there.
 function supportedTerminalOptions() {
   if (process.platform === 'darwin') {
     return [
       { id: 'default', label: 'Default Terminal', launcher: 'mac-terminal', applicationId: 'com.apple.Terminal', alwaysAvailable: true },
-      { id: 'iterm2', label: 'iTerm2', launcher: 'mac-iterm2', applicationId: 'com.googlecode.iterm2', bundlePaths: macBundlePaths('iTerm.app') },
+      { id: 'iterm2', label: 'iTerm2', launcher: 'mac-iterm2', applicationId: 'com.googlecode.iterm2', bundlePaths: macBundlePaths('iTerm.app'), profileProvider: 'iterm2' },
       { id: 'ghostty', label: 'Ghostty', launcher: 'mac-command', executable: 'ghostty', bundlePaths: macBundlePaths('Ghostty.app') },
       { id: 'wezterm', label: 'WezTerm', launcher: 'mac-command', executable: 'wezterm', bundlePaths: macBundlePaths('WezTerm.app') },
       { id: 'alacritty', label: 'Alacritty', launcher: 'mac-command', executable: 'Alacritty', bundlePaths: macBundlePaths('Alacritty.app') },
       { id: 'kitty', label: 'Kitty', launcher: 'mac-command', executable: 'kitty', bundlePaths: macBundlePaths('kitty.app') },
+      { id: 'warp', label: 'Warp', launcher: 'warp-uri', bundlePaths: macBundlePaths('Warp.app'), runsCommand: false },
+      { id: 'hyper', label: 'Hyper', launcher: 'mac-open-folder', bundlePaths: macBundlePaths('Hyper.app'), runsCommand: false },
+      { id: 'tabby', label: 'Tabby', launcher: 'mac-command', executable: 'Tabby', bundlePaths: macBundlePaths('Tabby.app'), runsCommand: false },
     ];
   }
   if (process.platform === 'win32') {
     return [
       { id: 'default', label: 'PowerShell', launcher: 'windows-powershell', commands: ['pwsh.exe', 'powershell.exe'] },
       { id: 'windows-terminal', label: 'Windows Terminal', launcher: 'windows-terminal', commands: ['wt.exe'] },
+      {
+        id: 'git-bash',
+        label: 'Git Bash',
+        launcher: 'windows-git-bash',
+        runsCommand: false,
+        knownPaths: windowsKnownAppPaths([['ProgramFiles', 'Git', 'git-bash.exe'], ['ProgramFiles(x86)', 'Git', 'git-bash.exe'], ['LOCALAPPDATA', 'Programs', 'Git', 'git-bash.exe']]),
+        pathCommand: 'git-bash.exe',
+        gitInstallRoot: true,
+      },
+      { id: 'warp', label: 'Warp', launcher: 'warp-uri', runsCommand: false, knownPaths: windowsKnownAppPaths([['LOCALAPPDATA', 'Programs', 'Warp', 'warp.exe'], ['ProgramFiles', 'Warp', 'warp.exe']]) },
+      { id: 'hyper', label: 'Hyper', launcher: 'windows-open-folder', runsCommand: false, knownPaths: windowsKnownAppPaths([['LOCALAPPDATA', 'Programs', 'Hyper', 'Hyper.exe'], ['ProgramFiles', 'Hyper', 'Hyper.exe']]) },
+      { id: 'tabby', label: 'Tabby', launcher: 'windows-tabby', runsCommand: false, knownPaths: windowsKnownAppPaths([['LOCALAPPDATA', 'Programs', 'Tabby', 'Tabby.exe'], ['ProgramFiles', 'Tabby', 'Tabby.exe']]) },
     ];
   }
   return [
@@ -146,12 +178,54 @@ function supportedTerminalOptions() {
     { id: 'xterm', label: 'XTerm', launcher: 'linux-xterm', commands: ['xterm'] },
     { id: 'kitty', label: 'Kitty', launcher: 'linux-kitty', commands: ['kitty'] },
     { id: 'alacritty', label: 'Alacritty', launcher: 'linux-alacritty', commands: ['alacritty'] },
+    { id: 'warp', label: 'Warp', launcher: 'warp-uri', commands: ['warp-terminal'], runsCommand: false },
+    { id: 'hyper', label: 'Hyper', launcher: 'linux-open-folder', commands: ['hyper'], runsCommand: false },
+    { id: 'tabby', label: 'Tabby', launcher: 'linux-tabby', commands: ['tabby'], runsCommand: false },
   ];
+}
+
+function windowsFileExists(candidate) {
+  if (!isAbsoluteWindowsPath(candidate)) return false;
+  try {
+    return nodeFs.statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
+}
+
+// Finds a Windows terminal app at an absolute known install path, then on absolute PATH entries
+// (resolveWindowsExecutable never searches the working folder). Git Bash is also found next to the
+// Git for Windows install that provides git.exe (<Git>\cmd\git.exe -> <Git>\git-bash.exe).
+function firstAvailableWindowsApp(option) {
+  for (const candidate of option.knownPaths || []) {
+    if (windowsFileExists(candidate)) return candidate;
+  }
+  const env = claudeProcessEnv();
+  const lookup = (name) => {
+    try {
+      return resolveWindowsExecutable(name, { pathValue: windowsPathFromEnv(env), pathext: env.PATHEXT });
+    } catch {
+      return '';
+    }
+  };
+  if (option.pathCommand) {
+    const resolved = lookup(option.pathCommand);
+    if (resolved) return resolved;
+  }
+  if (option.gitInstallRoot) {
+    const git = lookup('git.exe');
+    if (git && /^(?:cmd|bin)$/i.test(path.win32.basename(path.win32.dirname(git)))) {
+      const candidate = path.win32.join(path.win32.dirname(path.win32.dirname(git)), 'git-bash.exe');
+      if (windowsFileExists(candidate)) return candidate;
+    }
+  }
+  return '';
 }
 
 async function terminalOptionAvailable(option) {
   if (option.alwaysAvailable) return true;
   if (Array.isArray(option.bundlePaths)) return Boolean((await Promise.all(option.bundlePaths.map(pathExists))).find(Boolean));
+  if (Array.isArray(option.knownPaths)) return Boolean(firstAvailableWindowsApp(option));
   if (option.packageExecutable) return Boolean(await firstAvailableTerminalCommand(option));
   return Boolean((await Promise.all((option.commands || []).map(commandLocation))).find(Boolean));
 }
@@ -161,6 +235,7 @@ async function terminalOptionsWithAvailability() {
     id: option.id,
     label: option.label,
     available: await terminalOptionAvailable(option),
+    ...(option.runsCommand === false ? { runsCommand: false } : {}),
   })));
 }
 
@@ -168,42 +243,170 @@ function supportedTerminalOption(id) {
   return supportedTerminalOptions().find((option) => option.id === id) || null;
 }
 
-async function storedTerminalPreference() {
+function typeClaudeInstruction(label) {
+  return `${label} does not let CCTI start programs, so type claude in the new ${label} window and press Enter to start Claude Code.`;
+}
+
+async function readTerminalPreferenceFile() {
   try {
     const raw = JSON.parse(await fs.readFile(terminalPreferencePath(), 'utf8'));
-    return supportedTerminalOption(raw?.terminalId)?.id || 'default';
+    return raw && typeof raw === 'object' ? raw : null;
   } catch {
-    return 'default';
+    return null;
   }
 }
 
+// iTerm2 profile GUIDs are UUID-like; anything else in the preference file is ignored.
+const ITERM2_PROFILE_GUID = /^[A-Za-z0-9-]{1,64}$/;
+const maximumTerminalProfiles = 100;
+const maximumItermPreferenceOutputBytes = 4 * 1024 * 1024;
+
+function cleanProfileText(value) {
+  // eslint-disable-next-line no-control-regex
+  const text = String(value ?? '').replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, '').trim();
+  return text && text.length <= 96 ? text : '';
+}
+
+// Keeps only each profile's display name and GUID. iTerm2 selects a profile by name from
+// AppleScript, so a later profile with a name already seen is skipped as ambiguous.
+function iterm2ProfilesFromEntries(entries) {
+  const profiles = [];
+  const seenGuids = new Set();
+  const seenNames = new Set();
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    if (typeof entry.Name !== 'string' || typeof entry.Guid !== 'string') continue;
+    const name = cleanProfileText(entry.Name);
+    const guid = entry.Guid.trim();
+    if (!name || !ITERM2_PROFILE_GUID.test(guid)) continue;
+    if (seenGuids.has(guid) || seenNames.has(name.toLocaleLowerCase())) continue;
+    seenGuids.add(guid);
+    seenNames.add(name.toLocaleLowerCase());
+    profiles.push({ guid, name });
+    if (profiles.length >= maximumTerminalProfiles) break;
+  }
+  return profiles;
+}
+
+function decodeXmlText(value) {
+  return String(value).replace(/&(?:#x([0-9a-f]+)|#(\d+)|(amp|lt|gt|quot|apos));/gi, (match, hex, decimal, named) => {
+    if (named) return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[named.toLowerCase()];
+    const code = Number.parseInt(hex || decimal, hex ? 16 : 10);
+    return Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+  });
+}
+
+// Reads Name and Guid from the top-level dictionaries of an XML property list whose root is the
+// "New Bookmarks" array. Only <key>, <string> and container tags are interpreted; other values
+// (colors, data, numbers) are skipped. Used when plutil cannot express a profile as JSON.
+function iterm2EntriesFromXml(xml) {
+  const entries = [];
+  const tokens = String(xml || '').matchAll(/<(\/?)(dict|array|key|string)(\s*\/)?>(?:([^<]*)<\/\2>)?/g);
+  let depth = 0;
+  let current = null;
+  let pendingKey = '';
+  for (const [, closing, tag, selfClosing, text] of tokens) {
+    if (tag === 'dict' || tag === 'array') {
+      if (selfClosing) { pendingKey = ''; continue; }
+      if (closing) {
+        depth -= 1;
+        if (tag === 'dict' && depth === 1 && current) { entries.push(current); current = null; }
+      } else {
+        depth += 1;
+        if (tag === 'dict' && depth === 2) current = {};
+      }
+      pendingKey = '';
+      continue;
+    }
+    if (tag === 'key') { pendingKey = depth === 2 ? decodeXmlText(text ?? '') : ''; continue; }
+    if (tag === 'string' && current && depth === 2 && (pendingKey === 'Name' || pendingKey === 'Guid')) current[pendingKey] = decodeXmlText(text ?? '');
+    pendingKey = '';
+  }
+  return entries;
+}
+
+function iterm2PreferencesPath() {
+  return path.join(app.getPath('home'), 'Library', 'Preferences', 'com.googlecode.iterm2.plist');
+}
+
+// Read-only: plutil prints the "New Bookmarks" array to stdout and nothing is written. Any failure
+// (no preferences yet, unreadable or malformed file) means "no detected profiles".
+async function iterm2Profiles() {
+  if (process.platform !== 'darwin') return [];
+  const preferences = iterm2PreferencesPath();
+  if (!await pathExists(preferences)) return [];
+  const extract = async (format) => {
+    try {
+      const result = await runProcess('/usr/bin/plutil', ['-extract', 'New Bookmarks', format, '-o', '-', preferences], { cwd: app.getPath('home'), env: claudeProcessEnv(), timeout: 4000 });
+      if (result.code !== 0 || Buffer.byteLength(result.stdout || '', 'utf8') > maximumItermPreferenceOutputBytes) return null;
+      return result.stdout;
+    } catch {
+      return null;
+    }
+  };
+  const json = await extract('json');
+  if (json !== null) {
+    try {
+      return iterm2ProfilesFromEntries(JSON.parse(json));
+    } catch {}
+  }
+  const xml = await extract('xml1');
+  return xml === null ? [] : iterm2ProfilesFromEntries(iterm2EntriesFromXml(xml));
+}
+
 async function getTerminalPreference() {
-  const [storedId, options] = await Promise.all([storedTerminalPreference(), terminalOptionsWithAvailability()]);
+  const [raw, options] = await Promise.all([readTerminalPreferenceFile(), terminalOptionsWithAvailability()]);
+  const storedId = supportedTerminalOption(raw?.terminalId)?.id || 'default';
   const selected = options.find((option) => option.id === storedId);
   const available = selected?.available !== false;
   const fallback = options.find((option) => option.id === 'default' && option.available) || options.find((option) => option.available) || { id: 'default', label: 'a supported terminal' };
+  const selectedId = available ? storedId : fallback.id;
+  const activeOption = supportedTerminalOption(selectedId);
+  const profileSupported = activeOption?.profileProvider === 'iterm2' && process.platform === 'darwin';
+  const profiles = profileSupported ? await iterm2Profiles() : [];
+  const storedProfileGuid = typeof raw?.terminalProfileGuid === 'string' && ITERM2_PROFILE_GUID.test(raw.terminalProfileGuid) ? raw.terminalProfileGuid : '';
+  const profile = profiles.find((item) => item.guid === storedProfileGuid) || null;
+  const profileNote = profile
+    ? ` with the ${profile.name} profile`
+    : storedProfileGuid && profileSupported ? ' with its default profile because the saved iTerm2 profile was not found' : '';
+  const manualNote = activeOption?.runsCommand === false ? ` ${typeClaudeInstruction(activeOption.label)}` : '';
   return {
     ok: true,
-    selectedId: available ? storedId : fallback.id,
+    selectedId,
     storedId,
     options,
-    message: available ? `Claude Code will open in ${selected?.label || 'Default Terminal'}.` : `${selected?.label || 'Your selected terminal'} is not installed, so CCTI will use ${fallback.label} until it is available again.`,
+    profileSupported,
+    profileOptions: profiles.map(({ guid, name }) => ({ guid, name })),
+    selectedProfileGuid: profile?.guid || '',
+    message: available
+      ? `Claude Code will open in ${selected?.label || 'Default Terminal'}${profileNote}.${manualNote}`
+      : `${selected?.label || 'Your selected terminal'} is not installed, so CCTI will use ${fallback.label} until it is available again.`,
   };
 }
 
-async function setTerminalPreference({ terminalId } = {}) {
+async function setTerminalPreference({ terminalId, terminalProfileGuid } = {}) {
   const requested = String(terminalId || '');
   const option = supportedTerminalOption(requested);
   if (!option) return { ok: false, error: 'Choose a terminal listed by CCTI. Custom terminal commands are not accepted.' };
   const options = await terminalOptionsWithAvailability();
   if (options.find((item) => item.id === option.id)?.available === false) return { ok: false, error: `${option.label} is not installed. Choose Default Terminal or install ${option.label} first.` };
+  const requestedProfile = typeof terminalProfileGuid === 'string' ? terminalProfileGuid : '';
+  let profile = null;
+  if (requestedProfile) {
+    if (option.profileProvider !== 'iterm2') return { ok: false, error: `${option.label} does not use CCTI profile selection.` };
+    profile = (await iterm2Profiles()).find((item) => item.guid === requestedProfile) || null;
+    if (!profile) return { ok: false, error: 'Choose an iTerm2 profile detected by CCTI, or use the iTerm2 default profile.' };
+  }
   try {
     const preferencePath = terminalPreferencePath();
     await fs.mkdir(path.dirname(preferencePath), { recursive: true });
     const temporaryPath = `${preferencePath}.${randomUUID()}.tmp`;
-    await fs.writeFile(temporaryPath, `${JSON.stringify({ terminalId: option.id, updatedAt: new Date().toISOString() })}\n`, { encoding: 'utf8', mode: 0o600 });
+    const record = { terminalId: option.id, ...(profile ? { terminalProfileGuid: profile.guid } : {}), updatedAt: new Date().toISOString() };
+    await fs.writeFile(temporaryPath, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
     await fs.rename(temporaryPath, preferencePath);
-    return { ok: true, selectedId: option.id, options, message: `CCTI will open Claude Code in ${option.label}.` };
+    const saved = await getTerminalPreference();
+    const manualNote = option.runsCommand === false ? ` ${typeClaudeInstruction(option.label)}` : '';
+    return { ...saved, ok: true, selectedId: option.id, options, message: `CCTI will open Claude Code in ${option.label}${profile ? ` with the ${profile.name} profile` : ''}.${manualNote}` };
   } catch {
     return { ok: false, error: 'CCTI could not save the terminal preference. Your current terminal choice was left unchanged.' };
   }
@@ -1417,14 +1620,35 @@ function quotePowerShell(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
+// AppleScript string literal: backslash and double quote are escaped; control characters, which
+// AppleScript cannot carry in a literal, are removed.
+function appleScriptString(value) {
+  // eslint-disable-next-line no-control-regex
+  return `"${String(value).replace(/[\u0000-\u001f\u007f]/g, '').replace(/[\\"]/g, '\\$&')}"`;
+}
+
+// Warp documents warp://action/new_window?path=<folder> for opening a window in a folder. Warp has
+// no documented way to receive a command from another app, so CCTI only opens the folder.
+function warpNewWindowUrl(folder) {
+  return `warp://action/new_window?path=${encodeURIComponent(folder)}`;
+}
+
 async function openSelectedTerminal({ folder, command, preference }) {
   const terminal = supportedTerminalOption(preference.selectedId) || supportedTerminalOption('default');
   if (!terminal) throw new Error('CCTI could not identify a supported terminal.');
   const env = claudeProcessEnv();
+  if (terminal.launcher === 'warp-uri') {
+    await shell.openExternal(warpNewWindowUrl(folder));
+    return terminal;
+  }
   if (process.platform === 'darwin') {
     if (terminal.launcher === 'mac-terminal' || terminal.launcher === 'mac-iterm2') {
+      let profile = null;
+      if (terminal.launcher === 'mac-iterm2' && preference.selectedProfileGuid) {
+        profile = (await iterm2Profiles()).find((item) => item.guid === preference.selectedProfileGuid) || null;
+      }
       const script = terminal.launcher === 'mac-iterm2'
-        ? ['tell application id "com.googlecode.iterm2"', 'activate', 'create window with default profile', 'tell current session of current window', `write text ${JSON.stringify(command)}`, 'end tell', 'end tell'].join('\n')
+        ? ['tell application id "com.googlecode.iterm2"', 'activate', profile ? `create window with profile ${appleScriptString(profile.name)}` : 'create window with default profile', 'tell current session of current window', `write text ${JSON.stringify(command)}`, 'end tell', 'end tell'].join('\n')
         : `tell application id "com.apple.Terminal" to do script ${JSON.stringify(command)}`;
       const result = await runProcess('osascript', ['-e', script], { cwd: folder, env });
       if (result.code !== 0) throw new Error(result.stderr.trim() || `${terminal.label} did not open.`);
@@ -1432,11 +1656,27 @@ async function openSelectedTerminal({ folder, command, preference }) {
     }
     const bundlePath = await firstAvailableTerminalBundle(terminal);
     if (!bundlePath) throw new Error(`${terminal.label} is no longer installed.`);
+    if (terminal.launcher === 'mac-open-folder') {
+      // Same mechanism as Hyper's own `hyper <folder>` command: open the app with the folder.
+      await startDetached('/usr/bin/open', ['-a', bundlePath, folder], { cwd: folder, env });
+      return terminal;
+    }
     const executable = path.join(bundlePath, 'Contents', 'MacOS', terminal.executable);
     if (terminal.id === 'ghostty') await startDetached(executable, ['-e', 'bash', '-lc', command], { cwd: folder, env });
     else if (terminal.id === 'wezterm') await startDetached(executable, ['start', '--cwd', folder, '--', 'bash', '-lc', command], { cwd: folder, env });
     else if (terminal.id === 'alacritty') await startDetached(executable, ['--working-directory', folder, '-e', 'bash', '-lc', command], { cwd: folder, env });
     else if (terminal.id === 'kitty') await startDetached(executable, ['--directory', folder, 'bash', '-lc', command], { cwd: folder, env });
+    else if (terminal.id === 'tabby') await startDetached(executable, ['open', folder], { cwd: folder, env });
+    else throw new Error(`${terminal.label} does not have a verified launch adapter.`);
+    return terminal;
+  }
+  if (process.platform === 'win32' && Array.isArray(terminal.knownPaths)) {
+    // Absolute path from a known install folder or an absolute PATH entry; never a bare name.
+    const appPath = firstAvailableWindowsApp(terminal);
+    if (!appPath) throw new Error(`${terminal.label} is no longer installed.`);
+    if (terminal.launcher === 'windows-git-bash') await startDetached(appPath, [`--cd=${folder}`], { cwd: folder, env });
+    else if (terminal.launcher === 'windows-tabby') await startDetached(appPath, ['open', folder], { cwd: folder, env });
+    else if (terminal.launcher === 'windows-open-folder') await startDetached(appPath, [folder], { cwd: folder, env });
     else throw new Error(`${terminal.label} does not have a verified launch adapter.`);
     return terminal;
   }
@@ -1457,6 +1697,8 @@ async function openSelectedTerminal({ folder, command, preference }) {
   if (terminal.launcher === 'linux-gnome') await startDetached(terminalCommand, ['--', 'bash', '-lc', command], { cwd: folder, env });
   else if (terminal.launcher === 'linux-kitty') await startDetached(terminalCommand, ['--directory', folder, 'bash', '-lc', command], { cwd: folder, env });
   else if (terminal.launcher === 'linux-alacritty') await startDetached(terminalCommand, ['--working-directory', folder, '-e', 'bash', '-lc', command], { cwd: folder, env });
+  else if (terminal.launcher === 'linux-open-folder') await startDetached(terminalCommand, [folder], { cwd: folder, env });
+  else if (terminal.launcher === 'linux-tabby') await startDetached(terminalCommand, ['open', folder], { cwd: folder, env });
   else await startDetached(terminalCommand, ['-e', 'bash', '-lc', command], { cwd: folder, env });
   return terminal;
 }
@@ -1484,6 +1726,9 @@ async function launchClaudeCode({ projectPath } = {}) {
       : `cd ${quotePosix(folder)}; exec ${quotePosix(status.path)}`;
     const terminal = await openSelectedTerminal({ folder, command, preference });
     const fallbackNote = preference.selectedId === preference.storedId ? '' : ` Your saved ${supportedTerminalOption(preference.storedId)?.label || 'terminal'} preference is unavailable, so CCTI used ${terminal.label}.`;
+    if (terminal.runsCommand === false) {
+      return { ok: true, manualStart: true, message: `${terminal.label} opened in the selected folder. ${typeClaudeInstruction(terminal.label)}${fallbackNote}` };
+    }
     return { ok: true, message: `Claude Code opened in ${terminal.label} for the selected folder.${fallbackNote}` };
   } catch (error) {
     return { ok: false, error: `CCTI could not open Claude Code: ${error.message}` };
@@ -1499,9 +1744,117 @@ async function testSelectedTerminal() {
       : 'printf "CCTI terminal launch test passed\\n"; exec "${SHELL:-/bin/zsh}" -l';
     const terminal = await openSelectedTerminal({ folder, command, preference });
     const fallbackNote = preference.selectedId === preference.storedId ? '' : ` ${supportedTerminalOption(preference.storedId)?.label || 'Your saved terminal'} is unavailable, so CCTI used ${terminal.label}.`;
-    return { ok: true, message: `Opened ${terminal.label} with the CCTI terminal launch test.${fallbackNote}` };
+    if (terminal.runsCommand === false) {
+      return { ok: true, manualStart: true, message: `Opened ${terminal.label} in your home folder. ${terminal.label} cannot show CCTI's test message, so a new ${terminal.label} window means the test passed. When you run Claude Code, type claude in that window and press Enter.${fallbackNote}` };
+    }
+    const profile = preference.selectedProfileGuid ? (preference.profileOptions || []).find((item) => item.guid === preference.selectedProfileGuid) : null;
+    return { ok: true, message: `Opened ${terminal.label}${profile ? ` with the ${profile.name} profile` : ''} with the CCTI terminal launch test.${fallbackNote}` };
   } catch (error) {
     return { ok: false, error: `CCTI could not run the terminal test: ${error.message}` };
+  }
+}
+
+// The terminal report (the "diagnostic workbench report") lists which supported terminal apps
+// CCTI detected. It never contains paths, commands, AppleScript or shell output, profile
+// settings, project folders, environment values, or machine identifiers: it is built only from
+// adapter IDs, labels and availability, then scrubbed of the home folder, the account name and
+// the computer name in case a profile name contains one. It is saved only through the save dialog.
+const TERMINAL_REPORT_PRIVACY = {
+  included: [
+    'Supported terminal apps and whether each is installed',
+    'Whether each app can start Claude Code directly or opens the folder for you to type claude',
+    'The terminal CCTI will use, and the chosen iTerm2 profile name',
+    'How many iTerm2 profiles were found and whether one is named Claude Code',
+    'CCTI version and operating system type',
+  ],
+  keptLocal: [
+    'Application and executable paths',
+    'Commands, AppleScript, and shell output',
+    'Terminal profile settings and other profile names',
+    'Project folders and your home folder',
+    'Environment variable values',
+    'Account name, computer name, and other machine identifiers',
+  ],
+};
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function scrubTerminalReport(text) {
+  let result = displayLocalPath(text);
+  const replaceWord = (value, replacement) => {
+    const word = String(value || '').trim();
+    if (word.length < 2) return;
+    result = result.replace(new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(word)}(?![A-Za-z0-9])`, 'gi'), replacement);
+  };
+  const accounts = new Set([process.env.USER, process.env.USERNAME, process.env.LOGNAME]);
+  try { accounts.add(os.userInfo().username); } catch {}
+  for (const account of accounts) replaceWord(account, '<user>');
+  const host = (() => { try { return os.hostname(); } catch { return ''; } })();
+  replaceWord(host, '<computer>');
+  replaceWord(host.split('.')[0], '<computer>');
+  return result;
+}
+
+async function buildTerminalReport() {
+  const preference = await getTerminalPreference();
+  const options = preference.options || [];
+  const selected = options.find((option) => option.id === preference.selectedId);
+  const profile = (preference.profileOptions || []).find((item) => item.guid === preference.selectedProfileGuid) || null;
+  const itermDetected = process.platform === 'darwin' && options.some((option) => option.id === 'iterm2' && option.available);
+  const itermProfiles = itermDetected ? (preference.profileSupported ? preference.profileOptions || [] : await iterm2Profiles()) : [];
+  const lines = [
+    'CCTI TERMINAL REPORT — local only; CCTI does not send this report anywhere.',
+    `Created: ${new Date().toISOString()}`,
+    `CCTI version: ${currentAppVersion()}`,
+    `Operating system: ${process.platform}`,
+    '',
+    'Terminal CCTI will use',
+    `  ${selected?.label || 'Default terminal'}${profile ? ` (iTerm2 profile: ${profile.name})` : ''}`,
+    ...(preference.selectedId === preference.storedId ? [] : [`  The saved choice (${supportedTerminalOption(preference.storedId)?.label || 'unknown'}) is not installed, so CCTI uses this one instead.`]),
+    '',
+    'Supported terminal apps',
+    ...options.map((option) => `  ${option.label} [${option.id}]: ${option.available ? 'installed' : 'not installed'} — ${option.runsCommand === false ? 'opens the folder; you type claude' : 'starts Claude Code directly'}`),
+  ];
+  if (itermDetected) {
+    lines.push('', 'iTerm2 profiles', `  Profiles found: ${itermProfiles.length}`, `  Profile named Claude Code: ${itermProfiles.some((item) => item.name.toLocaleLowerCase() === 'claude code') ? 'found' : 'not found'}`);
+  }
+  lines.push(
+    '',
+    'Included in this report',
+    ...TERMINAL_REPORT_PRIVACY.included.map((item) => `  - ${item}`),
+    'Kept on this computer (not in this report)',
+    ...TERMINAL_REPORT_PRIVACY.keptLocal.map((item) => `  - ${item}`),
+  );
+  return scrubTerminalReport(lines.join('\n'));
+}
+
+async function previewTerminalReport() {
+  try {
+    const report = boundDiagnosticReport(await buildTerminalReport());
+    const reportId = rememberDiagnosticReport(report);
+    return { ok: true, reportId, report, privacy: TERMINAL_REPORT_PRIVACY };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not prepare the terminal report: ${error.message}` };
+  }
+}
+
+async function exportTerminalReport({ reportId } = {}) {
+  purgeExpiredDiagnosticReports();
+  const stored = diagnosticReports.get(String(reportId || ''));
+  if (!stored) return { ok: false, error: 'This terminal report is no longer available. Preview it again before saving.' };
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save CCTI terminal report',
+      defaultPath: `ccti-terminal-report-${new Date().toISOString().slice(0, 10)}.txt`,
+      filters: [{ name: 'Text file', extensions: ['txt'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: true, canceled: true };
+    await fs.writeFile(result.filePath, `${stored.report}\n`, { encoding: 'utf8', mode: 0o600 });
+    return { ok: true, canceled: false, filename: path.basename(result.filePath) };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not save the terminal report: ${error.message}` };
   }
 }
 
@@ -4121,6 +4474,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('terminal:get-preference', getTerminalPreference);
   ipcMain.handle('terminal:set-preference', async (_event, payload) => setTerminalPreference(payload || {}));
   ipcMain.handle('terminal:test-preference', testSelectedTerminal);
+  ipcMain.handle('terminal:preview-report', previewTerminalReport);
+  ipcMain.handle('terminal:export-report', async (_event, payload) => exportTerminalReport(payload || {}));
   ipcMain.handle('claude:run', async (_event, payload) => launchClaudeCode(payload || {}));
   ipcMain.handle('claude:review-removal', knownClaudeRemovalPlan);
   ipcMain.handle('claude:apply-removal', async (_event, payload) => applyKnownClaudeRemoval(payload || {}));

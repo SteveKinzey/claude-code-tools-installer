@@ -142,7 +142,13 @@
               <option value="default">Default Terminal</option>
               <option value="iterm2">iTerm2</option>
             </select>
+            <label id="terminal-profile-label" class="terminal-profile-label" for="terminal-profile-select" hidden>iTerm2 profile</label>
+            <select id="terminal-profile-select" aria-describedby="terminal-preference-note" hidden></select>
             <button id="test-terminal-preference-button" class="button button-ghost" type="button">Test selected terminal</button>
+            <div class="terminal-preference-actions">
+              <button id="terminal-profile-guide-button" class="button button-ghost" type="button" hidden>Create a Claude Code profile in iTerm2</button>
+              <button id="terminal-report-button" class="button button-ghost" type="button">Preview terminal report</button>
+            </div>
             <p id="terminal-preference-note" role="status" aria-live="polite" aria-busy="false">Checking which supported terminal apps are available…</p>
           </div>
         </div>
@@ -580,6 +586,54 @@
         <div class="duplicate-skill-dialog-actions">
           <button id="apply-typed-confirm-button" class="button button-danger" type="button" disabled>Confirm</button>
           <button id="cancel-typed-confirm-button" class="button button-ghost" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="terminal-profile-guide-dialog" class="duplicate-skill-dialog" aria-labelledby="terminal-profile-guide-heading" aria-describedby="terminal-profile-guide-copy" aria-modal="true">
+      <form method="dialog" class="duplicate-skill-dialog-content">
+        <p class="eyebrow">ITERM2 PROFILE</p>
+        <h2 id="terminal-profile-guide-heading" tabindex="-1">Create a Claude Code profile in iTerm2</h2>
+        <p id="terminal-profile-guide-copy">A dedicated profile gives Claude Code its own look in iTerm2, such as a distinct color or font. CCTI reads only the profile names from iTerm2 and still runs only its own Claude Code launch command.</p>
+        <ol id="terminal-profile-guide-steps" class="terminal-profile-guide-steps">
+          <li>Open iTerm2, then choose <strong>iTerm2 › Settings › Profiles</strong>.</li>
+          <li>Click <strong>+</strong> under the profile list and name the new profile <strong>Claude Code</strong>.</li>
+          <li>Choose the colors, font, or window style you want. Leave <strong>Command</strong> set to <strong>Login Shell</strong>; CCTI supplies the project folder and Claude Code command itself.</li>
+          <li>Back in CCTI, choose <strong>iTerm2</strong> under <strong>Open Claude Code in</strong>, then choose the detected <strong>Claude Code</strong> profile under <strong>iTerm2 profile</strong>.</li>
+          <li>Select <strong>Test selected terminal</strong>. When the test window opens with your profile, your choice is already saved as CCTI’s default for <strong>Run Claude Code</strong>.</li>
+        </ol>
+        <p id="terminal-profile-guide-status" role="status" aria-live="polite"></p>
+        <div class="duplicate-skill-dialog-actions">
+          <button id="refresh-terminal-profiles-button" class="button button-secondary" type="button">Check for new profiles</button>
+          <button id="close-terminal-profile-guide-button" class="button button-ghost" type="submit">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="terminal-report-dialog" class="duplicate-skill-dialog terminal-report-dialog" aria-labelledby="terminal-report-heading" aria-describedby="terminal-report-copy" aria-modal="true">
+      <form method="dialog" class="duplicate-skill-dialog-content">
+        <p class="eyebrow">DIAGNOSTIC WORKBENCH REPORT</p>
+        <h2 id="terminal-report-heading" tabindex="-1">Terminal report</h2>
+        <p id="terminal-report-copy">Review exactly what the report says before you save it. CCTI never sends it anywhere; it is saved only if you choose Save report and pick a location.</p>
+        <section class="terminal-report-privacy" aria-label="What the terminal report includes">
+          <div>
+            <h3>Included in the report</h3>
+            <ul id="terminal-report-included"></ul>
+          </div>
+          <div>
+            <h3>Kept on this computer</h3>
+            <ul id="terminal-report-kept-local"></ul>
+          </div>
+        </section>
+        <label class="terminal-report-filter" for="terminal-report-filter">Filter the preview on screen
+          <input id="terminal-report-filter" type="search" autocomplete="off" spellcheck="false" placeholder="App name or status">
+        </label>
+        <p id="terminal-report-filter-summary" class="terminal-report-filter-summary" role="status" aria-live="polite"></p>
+        <pre id="terminal-report-preview" class="terminal-report-preview" tabindex="0" aria-label="Terminal report preview"></pre>
+        <p id="terminal-report-status" role="status" aria-live="polite"></p>
+        <div class="duplicate-skill-dialog-actions">
+          <button id="save-terminal-report-button" class="button button-primary" type="button">Save report…</button>
+          <button id="close-terminal-report-button" class="button button-ghost" type="submit">Close</button>
         </div>
       </form>
     </dialog>

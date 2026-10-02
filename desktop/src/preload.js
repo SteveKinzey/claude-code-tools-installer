@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('installer', {
   getTerminalPreference: () => ipcRenderer.invoke('terminal:get-preference'),
   setTerminalPreference: (payload) => ipcRenderer.invoke('terminal:set-preference', payload),
   testTerminalPreference: () => ipcRenderer.invoke('terminal:test-preference'),
+  previewTerminalReport: () => ipcRenderer.invoke('terminal:preview-report'),
+  exportTerminalReport: (payload) => ipcRenderer.invoke('terminal:export-report', payload),
   runClaudeCode: (payload) => ipcRenderer.invoke('claude:run', payload),
   reviewClaudeRemoval: () => ipcRenderer.invoke('claude:review-removal'),
   applyClaudeRemoval: (payload) => ipcRenderer.invoke('claude:apply-removal', payload),

@@ -29,6 +29,8 @@ const state = {
   projectInterview: { active: false, step: 0, answers: {}, result: null, checked: new Set() },
   anonymousSuccess: { kind: '', reported: false, dismissed: false },
   diagnostics: { id: '', report: '', expiresAt: 0 },
+  terminalReport: { id: '', report: '' },
+  terminalDialogInvoker: null,
 };
 let diagnosticExpiryTimer = null;
 
@@ -64,6 +66,23 @@ const setupVerificationResultsElement = document.querySelector('#setup-verificat
 const terminalPreferenceSelectElement = document.querySelector('#terminal-preference-select');
 const testTerminalPreferenceButton = document.querySelector('#test-terminal-preference-button');
 const terminalPreferenceNoteElement = document.querySelector('#terminal-preference-note');
+const terminalProfileLabelElement = document.querySelector('#terminal-profile-label');
+const terminalProfileSelectElement = document.querySelector('#terminal-profile-select');
+const terminalProfileGuideButton = document.querySelector('#terminal-profile-guide-button');
+const terminalProfileGuideDialogElement = document.querySelector('#terminal-profile-guide-dialog');
+const terminalProfileGuideHeadingElement = document.querySelector('#terminal-profile-guide-heading');
+const terminalProfileGuideStatusElement = document.querySelector('#terminal-profile-guide-status');
+const refreshTerminalProfilesButton = document.querySelector('#refresh-terminal-profiles-button');
+const terminalReportButton = document.querySelector('#terminal-report-button');
+const terminalReportDialogElement = document.querySelector('#terminal-report-dialog');
+const terminalReportHeadingElement = document.querySelector('#terminal-report-heading');
+const terminalReportIncludedElement = document.querySelector('#terminal-report-included');
+const terminalReportKeptLocalElement = document.querySelector('#terminal-report-kept-local');
+const terminalReportFilterElement = document.querySelector('#terminal-report-filter');
+const terminalReportFilterSummaryElement = document.querySelector('#terminal-report-filter-summary');
+const terminalReportPreviewElement = document.querySelector('#terminal-report-preview');
+const terminalReportStatusElement = document.querySelector('#terminal-report-status');
+const saveTerminalReportButton = document.querySelector('#save-terminal-report-button');
 const toggleReferencesButton = document.querySelector('#toggle-references-button');
 const referencesContentElement = document.querySelector('#references-content');
 const referenceSearchElement = document.querySelector('#reference-search');
@@ -1140,13 +1159,36 @@ function displayTerminalPreference(preference) {
   terminalPreferenceSelectElement.replaceChildren(...options.map((option) => {
     const element = document.createElement('option');
     element.value = option.id;
-    element.textContent = option.available === false ? `${option.label} (not installed)` : option.label;
+    element.textContent = option.available === false
+      ? `${option.label} (not installed)`
+      : option.runsCommand === false ? `${option.label} (opens the folder; you type claude)` : option.label;
     element.disabled = option.available === false;
     return element;
   }));
   terminalPreferenceSelectElement.value = options.some((option) => option.id === preference?.selectedId) ? preference.selectedId : 'default';
   terminalPreferenceNoteElement.textContent = preference?.message || 'CCTI will use Default Terminal.';
   terminalPreferenceNoteElement.classList.toggle('is-error', Boolean(preference?.error));
+  terminalProfileGuideButton.hidden = !options.some((option) => option.id === 'iterm2');
+  displayTerminalProfiles(preference);
+}
+
+// iTerm2 profiles detected by CCTI. Only names and GUIDs reach the renderer; the first entry
+// keeps the iTerm2 default profile.
+function displayTerminalProfiles(preference) {
+  const visible = Boolean(preference?.profileSupported);
+  const profiles = visible && Array.isArray(preference?.profileOptions) ? preference.profileOptions : [];
+  terminalProfileLabelElement.hidden = !visible;
+  terminalProfileSelectElement.hidden = !visible;
+  const defaultOption = document.createElement('option');
+  defaultOption.value = '';
+  defaultOption.textContent = profiles.length ? 'iTerm2 default profile' : 'iTerm2 default profile (no other profiles found)';
+  terminalProfileSelectElement.replaceChildren(defaultOption, ...profiles.map((profile) => {
+    const element = document.createElement('option');
+    element.value = profile.guid;
+    element.textContent = profile.name;
+    return element;
+  }));
+  terminalProfileSelectElement.value = profiles.some((profile) => profile.guid === preference?.selectedProfileGuid) ? preference.selectedProfileGuid : '';
 }
 
 async function loadTerminalPreference() {
@@ -1162,13 +1204,15 @@ async function loadTerminalPreference() {
   }
 }
 
-async function changeTerminalPreference() {
+async function changeTerminalPreference({ withProfile = false } = {}) {
   const requestedId = terminalPreferenceSelectElement.value;
   if (typeof window.installer.setTerminalPreference !== 'function') return;
+  const profileGuid = withProfile && !terminalProfileSelectElement.hidden ? terminalProfileSelectElement.value : '';
   terminalPreferenceSelectElement.disabled = true;
+  terminalProfileSelectElement.disabled = true;
   terminalPreferenceNoteElement.setAttribute('aria-busy', 'true');
   try {
-    const result = await window.installer.setTerminalPreference({ terminalId: requestedId });
+    const result = await window.installer.setTerminalPreference(profileGuid ? { terminalId: requestedId, terminalProfileGuid: profileGuid } : { terminalId: requestedId });
     if (result.ok) {
       displayTerminalPreference(result);
       setupNoteElement.textContent = result.message;
@@ -1183,6 +1227,7 @@ async function changeTerminalPreference() {
     await loadTerminalPreference();
   } finally {
     terminalPreferenceSelectElement.disabled = false;
+    terminalProfileSelectElement.disabled = false;
     terminalPreferenceNoteElement.setAttribute('aria-busy', 'false');
   }
 }
@@ -1209,6 +1254,97 @@ async function testTerminalPreference() {
     testTerminalPreferenceButton.disabled = false;
     terminalPreferenceSelectElement.disabled = false;
     terminalPreferenceNoteElement.setAttribute('aria-busy', 'false');
+  }
+}
+
+function openTerminalDialog(dialog, heading) {
+  if (typeof dialog?.showModal !== 'function') return;
+  if (document.activeElement instanceof HTMLElement && !dialog.contains(document.activeElement)) state.terminalDialogInvoker = document.activeElement;
+  if (!dialog.open) dialog.showModal();
+  focusDuplicateDialog(heading);
+}
+
+function restoreTerminalDialogFocus() {
+  const invoker = state.terminalDialogInvoker;
+  state.terminalDialogInvoker = null;
+  setTimeout(() => {
+    if (invoker?.isConnected) invoker.focus();
+  }, 0);
+}
+
+function openTerminalProfileGuide() {
+  terminalProfileGuideStatusElement.textContent = '';
+  openTerminalDialog(terminalProfileGuideDialogElement, terminalProfileGuideHeadingElement);
+}
+
+async function refreshTerminalProfiles() {
+  refreshTerminalProfilesButton.disabled = true;
+  terminalProfileGuideStatusElement.textContent = 'Checking iTerm2 for profiles…';
+  try {
+    await loadTerminalPreference();
+    const found = terminalProfileSelectElement.hidden ? 0 : terminalProfileSelectElement.options.length - 1;
+    terminalProfileGuideStatusElement.textContent = terminalProfileSelectElement.hidden
+      ? 'Choose iTerm2 under Open Claude Code in, then check again to see its profiles.'
+      : `${found} iTerm2 profile${found === 1 ? '' : 's'} found. Choose one under iTerm2 profile.`;
+  } finally {
+    refreshTerminalProfilesButton.disabled = false;
+  }
+}
+
+function renderTerminalReportPrivacy(privacy) {
+  const list = (items) => (Array.isArray(items) ? items : []).map((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    return item;
+  });
+  terminalReportIncludedElement.replaceChildren(...list(privacy?.included));
+  terminalReportKeptLocalElement.replaceChildren(...list(privacy?.keptLocal));
+}
+
+// The filter changes only what is shown; Save report always writes the full previewed report.
+function renderTerminalReportPreview() {
+  const lines = state.terminalReport.report ? state.terminalReport.report.split('\n') : [];
+  const query = terminalReportFilterElement.value.trim().toLocaleLowerCase();
+  const visible = query ? lines.filter((line) => line.toLocaleLowerCase().includes(query)) : lines;
+  terminalReportPreviewElement.textContent = visible.join('\n');
+  terminalReportFilterSummaryElement.textContent = query
+    ? `Showing ${visible.length} of ${lines.length} lines that match “${terminalReportFilterElement.value.trim()}”. Save report still saves the full report.`
+    : '';
+}
+
+async function previewTerminalReport() {
+  if (typeof window.installer.previewTerminalReport !== 'function') return;
+  terminalReportButton.disabled = true;
+  try {
+    const result = await window.installer.previewTerminalReport();
+    if (!result?.ok) throw new Error(result?.error || 'CCTI could not prepare the terminal report.');
+    state.terminalReport = { id: String(result.reportId || ''), report: String(result.report || '') };
+    renderTerminalReportPrivacy(result.privacy);
+    terminalReportFilterElement.value = '';
+    renderTerminalReportPreview();
+    terminalReportStatusElement.textContent = 'Nothing has been saved. Choose Save report to pick where to save it.';
+    saveTerminalReportButton.disabled = !state.terminalReport.id;
+    openTerminalDialog(terminalReportDialogElement, terminalReportHeadingElement);
+  } catch (error) {
+    terminalPreferenceNoteElement.textContent = error.message || 'CCTI could not prepare the terminal report.';
+    terminalPreferenceNoteElement.classList.add('is-error');
+  } finally {
+    terminalReportButton.disabled = false;
+  }
+}
+
+async function saveTerminalReport() {
+  if (!state.terminalReport.id || typeof window.installer.exportTerminalReport !== 'function') return;
+  saveTerminalReportButton.disabled = true;
+  try {
+    const result = await window.installer.exportTerminalReport({ reportId: state.terminalReport.id });
+    terminalReportStatusElement.textContent = !result?.ok
+      ? result?.error || 'CCTI could not save the terminal report.'
+      : result.canceled ? 'Saving was canceled. Nothing was saved.' : `Terminal report saved as ${result.filename}.`;
+  } catch {
+    terminalReportStatusElement.textContent = 'CCTI could not save the terminal report.';
+  } finally {
+    saveTerminalReportButton.disabled = !state.terminalReport.id;
   }
 }
 
@@ -3129,8 +3265,22 @@ cleanupRestoreBackupsButton.addEventListener('click', restoreAllSkillBackups);
 cleanupReviewManagedExtrasButton.addEventListener('click', reviewAndRemoveManagedExtras);
 runClaudeButton.addEventListener('click', runClaudeCode);
 removeClaudeButton.addEventListener('click', removeClaudeCode);
-terminalPreferenceSelectElement.addEventListener('change', changeTerminalPreference);
+terminalPreferenceSelectElement.addEventListener('change', () => changeTerminalPreference());
+terminalProfileSelectElement.addEventListener('change', () => changeTerminalPreference({ withProfile: true }));
 testTerminalPreferenceButton.addEventListener('click', testTerminalPreference);
+terminalProfileGuideButton.addEventListener('click', openTerminalProfileGuide);
+refreshTerminalProfilesButton.addEventListener('click', refreshTerminalProfiles);
+terminalProfileGuideDialogElement.addEventListener('close', restoreTerminalDialogFocus);
+terminalReportButton.addEventListener('click', previewTerminalReport);
+terminalReportFilterElement.addEventListener('input', renderTerminalReportPreview);
+saveTerminalReportButton.addEventListener('click', saveTerminalReport);
+terminalReportDialogElement.addEventListener('close', () => {
+  state.terminalReport = { id: '', report: '' };
+  terminalReportPreviewElement.textContent = '';
+  terminalReportFilterElement.value = '';
+  terminalReportFilterSummaryElement.textContent = '';
+  restoreTerminalDialogFocus();
+});
 toggleReferencesButton.addEventListener('click', toggleReferences);
 referenceSearchElement.addEventListener('input', renderReferences);
 recheckClaudeButton.addEventListener('click', async () => {
