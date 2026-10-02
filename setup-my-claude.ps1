@@ -106,6 +106,28 @@ function Invoke-Logged {
   & $Command @Arguments
 }
 
+# npm reads a project's own .npmrc (registry, scripts, and other settings) from the folder it
+# runs in. Project-scope setup runs inside a user-chosen project, which may be untrusted, but the
+# skills CLI must run there so skills land in <project>\.claude\skills. --prefix points npm at a
+# fresh, empty CCTI-owned folder instead, so npm ignores the project's .npmrc and node_modules
+# while the command itself still runs in the project folder. User and global npm settings still
+# apply.
+function Invoke-NpxIsolated {
+  param([string[]]$Arguments = @())
+  if ($DryRun) {
+    Write-Log ("+ npx --prefix <empty CCTI folder> {0}" -f ($Arguments -join " "))
+    return
+  }
+  $prefixDir = Join-Path $BaseDir ("npx-prefix-" + [guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Force -Path $prefixDir | Out-Null
+  try {
+    Invoke-Logged npx (@("--prefix", $prefixDir) + $Arguments)
+  }
+  finally {
+    Remove-Item -LiteralPath $prefixDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Add-Manifest {
   param(
     [string]$Kind,
@@ -503,7 +525,7 @@ function Install-Skill {
   }
   $skillArguments = @("-y", "skills@latest", "add", $Repo, "--skill", $Skill, "--agent", "claude-code", "--yes")
   if ($SkillScope -eq "global") { $skillArguments += "--global" }
-  Invoke-Logged npx $skillArguments
+  Invoke-NpxIsolated $skillArguments
   Add-Manifest "skill" $dest "" $ItemId
 }
 
@@ -719,7 +741,7 @@ function Install-Item {
       Install-Skill "https://github.com/OthmanAdi/planning-with-files" "planning-with-files" $Id
     }
     "claude-mem" {
-      Invoke-Logged npx @("-y", "claude-mem", "install")
+      Invoke-NpxIsolated @("-y", "claude-mem", "install")
       Add-Manifest "manual-review" "claude-mem" "Run claude-mem docs uninstall steps if needed; data may live in ~/.claude-mem" $Id
     }
     "codegraph" {
