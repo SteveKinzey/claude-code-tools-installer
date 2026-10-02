@@ -294,6 +294,7 @@ h3 { margin: 0; font-size: 1rem; }
 .resolve-duplicate-changes-list li strong { color: #ffe4a6; }
 .resolve-duplicate-changes-list li span { color: #c6d6e8; font-size: .84rem; }
 .permanent-delete-warning { margin: 0; padding: 10px; border: 1px solid #a14a3d; border-radius: 8px; background: #2a1414; color: #ffd2c7; line-height: 1.5; }
+.typed-confirm-copy { white-space: pre-line; }
 .permanent-delete-confirm { display: grid; gap: 6px; color: #dce9ff; font-size: .9rem; }
 .permanent-delete-confirm input { padding: 10px; border: 1px solid #33445f; border-radius: 8px; background: #0b1424; color: #e9f1ff; font: inherit; letter-spacing: .08em; }
 .duplicate-backup-preview { display: grid; gap: 8px; padding: 14px; border: 1px solid #497a85; border-radius: 10px; background: #10282c; }

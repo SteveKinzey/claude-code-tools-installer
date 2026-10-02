@@ -22,6 +22,14 @@ if (/<script(?![^>]*\ssrc=)[^>]*>|<style[\s>]|\sstyle="|\son[a-z]+="|(?:src|href
   throw new Error('The renderer HTML must not use inline scripts, inline styles, inline event handlers, or external resources; the Content-Security-Policy blocks them.');
 }
 
+// Electron does not support window.prompt (it throws), so a typed confirmation must use the
+// in-app dialog. Nothing in the renderer may call it.
+for (const file of fs.readdirSync(path.join(root, 'desktop', 'src', 'renderer'))) {
+  if (/\.(?:js|html)$/.test(file) && /\bwindow\.prompt\s*\(|(?<![.\w])prompt\s*\(/.test(readText('desktop', 'src', 'renderer', file))) {
+    throw new Error(`desktop/src/renderer/${file} calls window.prompt, which Electron does not support. Use requestTypedConfirmation instead.`);
+  }
+}
+
 const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]));
 const selectorIds = new Set([...renderer.matchAll(/querySelector\(['"]#([^'"]+)['"]\)/g)].map((match) => match[1]));
 const missingIds = [...selectorIds].filter((id) => !ids.has(id));

@@ -191,7 +191,7 @@ async function run() {
       { id: 'duplicate-backup-preview-summary', role: 'status', live: 'polite', busy: null },
       { id: 'resolve-duplicate-dialog-status', role: 'status', live: 'polite', busy: null },
       { id: 'permanent-delete-dialog-status', role: 'status', live: 'polite', busy: null },
-      { id: 'start-fresh-dialog-status', role: 'status', live: 'polite', busy: null },
+      { id: 'typed-confirm-status', role: 'status', live: 'polite', busy: null },
       { id: 'runtime-path-health-cards', role: null, live: 'polite', busy: null },
       { id: 'runtime-path-health-summary', role: 'status', live: 'polite', busy: null },
     ];

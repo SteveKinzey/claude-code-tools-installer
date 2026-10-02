@@ -159,10 +159,6 @@ function injectedBridge() {
       window.__duplicateUiCalls.push({ method: 'confirm', message });
       return true;
     };
-    window.prompt = (message) => {
-      window.__duplicateUiCalls.push({ method: 'prompt', message });
-      return message.includes('PROJECT PACKAGE') ? 'REMOVE PROJECT PACKAGE' : message.includes('CCTI EXTRAS') ? 'REMOVE CCTI EXTRAS' : '';
-    };
     const record = (method, payload) => window.__duplicateUiCalls.push({ method, payload });
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -537,13 +533,25 @@ async function run() {
     assert.equal(await pageValue(window, "document.querySelector('#backup-selected-skill-button').hidden"), false, 'a discovered skill must offer a clear safe backup action');
     await pageValue(window, "document.querySelector('#cancel-deduplicate-preview-button').click()");
     await waitFor(window, () => document.querySelector('#duplicate-skill-dialog')?.open === false, 'single skill preview dismissal');
+    // The final check is the in-app typed confirmation dialog (window.prompt throws in Electron).
+    const typeAndConfirm = async (phrase) => {
+      await waitFor(window, () => document.querySelector('#typed-confirm-dialog')?.open === true, 'typed confirmation dialog');
+      await pageValue(window, `(() => {
+        const input = document.querySelector('#typed-confirm-input');
+        input.value = ${JSON.stringify(phrase)};
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('#apply-typed-confirm-button').click();
+      })()`);
+    };
     await pageValue(window, "document.querySelector('.manager-item-project-package button').click()");
+    await typeAndConfirm('REMOVE PROJECT PACKAGE');
     await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'applyProjectPackageRemoval'), 'reviewed project package removal control');
     assert.deepEqual((await pageValue(window, 'window.__duplicateUiCalls')).find((call) => call.method === 'applyProjectPackageRemoval')?.payload, {
       reviewId: 'project-package-removal-review',
       confirmation: 'REMOVE PROJECT PACKAGE',
     });
     await pageValue(window, "document.querySelector('#cleanup-review-managed-extras-button').click()");
+    await typeAndConfirm('REMOVE CCTI EXTRAS');
     await waitFor(window, () => window.__duplicateUiCalls.some((call) => call.method === 'applyManagedExtrasRemoval'), 'reviewed CCTI-managed extras removal control');
     assert.deepEqual((await pageValue(window, 'window.__duplicateUiCalls')).find((call) => call.method === 'applyManagedExtrasRemoval')?.payload, {
       reviewId: 'managed-extras-removal-review',

@@ -46,7 +46,6 @@ function injectedBridge() {
       emitUpdateStatus: (status) => updateStatusListener(status),
     };
     window.confirm = () => true;
-    window.prompt = () => { calls.push({ method: 'window.prompt' }); return ''; };
     const record = (method, payload) => calls.push({ method, payload });
     document.addEventListener('securitypolicyviolation', (event) => calls.push({ method: 'csp-violation', payload: { directive: event.effectiveDirective, blocked: event.blockedURI } }));
 
@@ -391,13 +390,13 @@ async function run() {
       'CCTI verified all 10 setup items. Everything is ready.',
     ], 'The Setup Check live region must announce each workflow transition in order.');
 
-    // Start fresh uses the in-app typed confirmation dialog, never window.prompt.
+    // Start fresh uses the shared in-app typed confirmation dialog (window.prompt throws in Electron and is not stubbed here).
     await evaluate(window, "document.querySelector('#start-fresh-button').click()");
-    await waitFor(window, () => document.querySelector('#start-fresh-dialog')?.open === true, 'Start fresh dialog');
+    await waitFor(window, () => document.querySelector('#typed-confirm-dialog')?.open === true, 'Start fresh dialog');
     const freshDialog = await evaluate(window, `(() => ({
-      items: [...document.querySelectorAll('#start-fresh-dialog-review-list li')].map((item) => item.textContent),
-      warning: document.querySelector('#start-fresh-dialog-warning').textContent,
-      applyDisabled: document.querySelector('#apply-start-fresh-button').disabled,
+      items: [...document.querySelectorAll('#typed-confirm-list li')].map((item) => item.textContent),
+      warning: document.querySelector('#typed-confirm-warning').textContent,
+      applyDisabled: document.querySelector('#apply-typed-confirm-button').disabled,
       reviewCall: window.__setupVerificationFixture.calls.find((call) => call.method === 'reviewFreshSetup'),
       runCalls: window.__setupVerificationFixture.calls.filter((call) => call.method === 'runCompleteSetup').length,
     }))()`);
@@ -409,23 +408,21 @@ async function run() {
       runCalls: 1,
     }, 'Start fresh must show the main-issued review and keep its action disabled until the phrase is typed.');
     const typePhrase = (value) => evaluate(window, `(() => {
-      const input = document.querySelector('#start-fresh-confirmation');
+      const input = document.querySelector('#typed-confirm-input');
       input.value = ${JSON.stringify(value)};
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      return document.querySelector('#apply-start-fresh-button').disabled;
+      return document.querySelector('#apply-typed-confirm-button').disabled;
     })()`);
     assert.equal(await typePhrase('delete claude data'), true, 'a near-miss phrase must not enable Start fresh');
     assert.equal(await typePhrase('DELETE CLAUDE DATA'), false, 'the exact phrase enables Start fresh');
-    await evaluate(window, "document.querySelector('#apply-start-fresh-button').click()");
-    await waitFor(window, () => document.querySelector('#start-fresh-dialog')?.open === false && window.__setupVerificationFixture.calls.filter((call) => call.method === 'runCompleteSetup').length === 2, 'Start fresh run');
+    await evaluate(window, "document.querySelector('#apply-typed-confirm-button').click()");
+    await waitFor(window, () => document.querySelector('#typed-confirm-dialog')?.open === false && window.__setupVerificationFixture.calls.filter((call) => call.method === 'runCompleteSetup').length === 2, 'Start fresh run');
     const freshRun = await evaluate(window, `(() => ({
       runCall: window.__setupVerificationFixture.calls.filter((call) => call.method === 'runCompleteSetup').at(-1),
-      prompts: window.__setupVerificationFixture.calls.filter((call) => call.method === 'window.prompt').length,
-      confirmationCleared: document.querySelector('#start-fresh-confirmation').value,
+      confirmationCleared: document.querySelector('#typed-confirm-input').value,
     }))()`);
     assert.deepEqual(freshRun, {
       runCall: { method: 'runCompleteSetup', payload: { fresh: true, skillScope: 'global', projectPath: '', reviewId: '11111111-2222-4333-8444-555555555555', confirmation: 'DELETE CLAUDE DATA' } },
-      prompts: 0,
       confirmationCleared: '',
     }, 'Start fresh must pass the main review and typed phrase to main, without window.prompt.');
     await evaluate(window, "window.__setupVerificationFixture.resolveCompleteSetup({ ok: false, error: 'fixture stop' })");
@@ -433,9 +430,9 @@ async function run() {
     // Cancel closes the dialog without running anything.
     await waitFor(window, () => document.querySelector('#start-fresh-button')?.disabled === false, 'Start fresh available again');
     await evaluate(window, "document.querySelector('#start-fresh-button').click()");
-    await waitFor(window, () => document.querySelector('#start-fresh-dialog')?.open === true, 'Start fresh dialog again');
-    await evaluate(window, "document.querySelector('#cancel-start-fresh-button').click()");
-    await waitFor(window, () => document.querySelector('#start-fresh-dialog')?.open === false, 'Start fresh cancel');
+    await waitFor(window, () => document.querySelector('#typed-confirm-dialog')?.open === true, 'Start fresh dialog again');
+    await evaluate(window, "document.querySelector('#cancel-typed-confirm-button').click()");
+    await waitFor(window, () => document.querySelector('#typed-confirm-dialog')?.open === false, 'Start fresh cancel');
     assert.equal(await evaluate(window, "window.__setupVerificationFixture.calls.filter((call) => call.method === 'runCompleteSetup').length"), 2, 'Cancel must not run Start fresh');
 
     // The renderer runs under its Content-Security-Policy: the whole flow above caused no

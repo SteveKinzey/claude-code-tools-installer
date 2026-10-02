@@ -122,14 +122,17 @@ const permanentDeleteDialogStatusElement = document.querySelector('#permanent-de
 const reviewPermanentDeleteButton = document.querySelector('#review-permanent-delete-button');
 const applyPermanentDeleteButton = document.querySelector('#apply-permanent-delete-button');
 const cancelPermanentDeleteButton = document.querySelector('#cancel-permanent-delete-button');
-const startFreshDialogElement = document.querySelector('#start-fresh-dialog');
-const startFreshDialogHeadingElement = document.querySelector('#start-fresh-dialog-heading');
-const startFreshDialogReviewListElement = document.querySelector('#start-fresh-dialog-review-list');
-const startFreshDialogWarningElement = document.querySelector('#start-fresh-dialog-warning');
-const startFreshConfirmationElement = document.querySelector('#start-fresh-confirmation');
-const startFreshDialogStatusElement = document.querySelector('#start-fresh-dialog-status');
-const applyStartFreshButton = document.querySelector('#apply-start-fresh-button');
-const cancelStartFreshButton = document.querySelector('#cancel-start-fresh-button');
+const typedConfirmDialogElement = document.querySelector('#typed-confirm-dialog');
+const typedConfirmHeadingElement = document.querySelector('#typed-confirm-heading');
+const typedConfirmCopyElement = document.querySelector('#typed-confirm-copy');
+const typedConfirmListHeadingElement = document.querySelector('#typed-confirm-list-heading');
+const typedConfirmListElement = document.querySelector('#typed-confirm-list');
+const typedConfirmWarningElement = document.querySelector('#typed-confirm-warning');
+const typedConfirmLabelElement = document.querySelector('#typed-confirm-label');
+const typedConfirmInputElement = document.querySelector('#typed-confirm-input');
+const typedConfirmStatusElement = document.querySelector('#typed-confirm-status');
+const applyTypedConfirmButton = document.querySelector('#apply-typed-confirm-button');
+const cancelTypedConfirmButton = document.querySelector('#cancel-typed-confirm-button');
 const duplicateReviewElement = document.querySelector('#duplicate-review');
 const duplicateReviewListElement = document.querySelector('#duplicate-review-list');
 const duplicateReviewSummaryElement = document.querySelector('#duplicate-review-summary');
@@ -1202,7 +1205,12 @@ async function removeClaudeCode() {
   const warning = review.attention.length ? `\n\nNeeds attention:\n${review.attention.map((item) => `• ${item}`).join('\n')}` : '';
   if (!window.confirm(`Review before removal. CCTI can remove only these known Claude Code CLI items:\n${removable}\n\nIt can also remove these Claude Code settings and history items if you choose:\n${settings}\n\nCCTI will NOT touch:\n${protectedItems}${warning}\n\nContinue to choose whether to remove the Claude Code settings and history?`)) return;
   const removeSettings = review.settings.length > 0 && window.confirm('Remove the shown Claude Code settings and history too?\n\nChoose OK to remove them. Choose Cancel to keep them while removing only the known Claude Code CLI items.');
-  const confirmation = window.prompt('Final check: type REMOVE CLAUDE CODE exactly to remove the reviewed items. Nothing will happen until you type it exactly.');
+  const confirmation = await requestTypedConfirmation({
+    title: 'Remove Claude Code',
+    message: 'Final check: type REMOVE CLAUDE CODE exactly to remove the reviewed items. Nothing will happen until you type it exactly.',
+    phrase: 'REMOVE CLAUDE CODE',
+    confirmLabel: 'Remove Claude Code',
+  });
   if (confirmation !== 'REMOVE CLAUDE CODE') return;
   clearOutput();
   appendOutput('[CCTI] Removing only the reviewed Claude Code CLI items…\n');
@@ -1221,13 +1229,55 @@ async function removeClaudeCode() {
   await refreshClaudeStatus();
 }
 
+// Destructive flows confirm with an in-app typed phrase (Electron does not support
+// window.prompt; it throws). requestTypedConfirmation resolves to the exact phrase once it is typed
+// and confirmed, or null when the person cancels or closes the dialog. Main still checks the phrase.
+let typedConfirmResolver = null;
+
+function requestTypedConfirmation({ title, message, phrase, confirmLabel, listHeading = '', items = [], warning = '' }) {
+  if (typeof typedConfirmDialogElement?.showModal !== 'function') return Promise.resolve(null);
+  if (typedConfirmResolver) finishTypedConfirmation(null);
+  if (document.activeElement instanceof HTMLElement && !typedConfirmDialogElement.contains(document.activeElement)) state.typedConfirmInvoker = document.activeElement;
+  state.typedConfirmPhrase = phrase;
+  typedConfirmHeadingElement.textContent = title;
+  typedConfirmCopyElement.textContent = message;
+  typedConfirmListHeadingElement.textContent = listHeading;
+  typedConfirmListHeadingElement.hidden = !listHeading || items.length === 0;
+  typedConfirmListElement.replaceChildren(...items.map((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    return item;
+  }));
+  typedConfirmListElement.hidden = items.length === 0;
+  typedConfirmWarningElement.textContent = warning;
+  typedConfirmWarningElement.hidden = !warning;
+  typedConfirmLabelElement.textContent = `Type ${phrase} to confirm`;
+  typedConfirmInputElement.value = '';
+  applyTypedConfirmButton.textContent = confirmLabel;
+  applyTypedConfirmButton.disabled = true;
+  typedConfirmStatusElement.textContent = `Type ${phrase}, then choose ${confirmLabel}.`;
+  const result = new Promise((resolve) => { typedConfirmResolver = resolve; });
+  if (!typedConfirmDialogElement.open) typedConfirmDialogElement.showModal();
+  focusDuplicateDialog(typedConfirmHeadingElement);
+  return result;
+}
+
+function finishTypedConfirmation(value) {
+  const resolve = typedConfirmResolver;
+  typedConfirmResolver = null;
+  state.typedConfirmPhrase = null;
+  typedConfirmInputElement.value = '';
+  applyTypedConfirmButton.disabled = true;
+  if (typedConfirmDialogElement.open) typedConfirmDialogElement.close();
+  resolve?.(value);
+}
+
 const START_FRESH_PHRASE = 'DELETE CLAUDE DATA';
 
-// Start fresh uses an in-app typed confirmation (Electron does not support window.prompt). Main
-// issues a single-use review and checks the typed phrase again before anything is deleted.
+// Main issues a single-use Start fresh review and checks the typed phrase again before anything
+// is deleted.
 async function openStartFreshDialog() {
-  if (typeof startFreshDialogElement?.showModal !== 'function' || state.running) return;
-  if (document.activeElement instanceof HTMLElement) state.startFreshInvoker = document.activeElement;
+  if (state.running) return;
   startFreshButton.disabled = true;
   let review;
   try {
@@ -1246,29 +1296,17 @@ async function openStartFreshDialog() {
     appendOutput(`${error}\n`, 'stderr');
     return;
   }
-  state.startFresh = { reviewId: review.reviewId };
-  startFreshDialogReviewListElement.replaceChildren(...(review.items || []).map((text) => {
-    const item = document.createElement('li');
-    item.textContent = text;
-    return item;
-  }));
-  startFreshDialogWarningElement.textContent = review.warning || 'This cannot be undone.';
-  startFreshConfirmationElement.value = '';
-  applyStartFreshButton.disabled = true;
-  startFreshDialogStatusElement.textContent = `Type ${START_FRESH_PHRASE}, then choose Delete and start fresh.`;
-  if (!startFreshDialogElement.open) startFreshDialogElement.showModal();
-  focusDuplicateDialog(startFreshDialogHeadingElement);
-}
-
-function applyStartFresh() {
-  const pending = state.startFresh;
-  const confirmation = startFreshConfirmationElement.value;
-  if (!pending?.reviewId || confirmation !== START_FRESH_PHRASE) return;
-  state.startFresh = null;
-  startFreshConfirmationElement.value = '';
-  applyStartFreshButton.disabled = true;
-  startFreshDialogElement.close();
-  runCompleteSetup(true, { reviewId: pending.reviewId, confirmation });
+  const confirmation = await requestTypedConfirmation({
+    title: 'Start fresh',
+    message: 'Start fresh permanently deletes local Claude Code data, then runs Complete setup again to rebuild a clean recommended setup.',
+    listHeading: 'CCTI will permanently delete',
+    items: review.items || [],
+    warning: review.warning || 'This cannot be undone.',
+    phrase: START_FRESH_PHRASE,
+    confirmLabel: 'Delete and start fresh',
+  });
+  if (confirmation !== START_FRESH_PHRASE) return;
+  runCompleteSetup(true, { reviewId: review.reviewId, confirmation });
 }
 
 async function runCompleteSetup(fresh = false, freshReview = null) {
@@ -1596,9 +1634,12 @@ async function uninstallApplication() {
       window.alert('The manifest could not be saved. You can still cancel now or continue with the reviewed uninstall.');
     }
   }
-  const confirmation = window.prompt(
-    'MANDATORY ACKNOWLEDGMENT:\n\nTo confirm complete removal of Claude Code Tools Installer, type:\nUNINSTALL CCTI\n\n(Claude Code and your tools will NOT be removed).'
-  );
+  const confirmation = await requestTypedConfirmation({
+    title: 'Uninstall CCTI',
+    message: 'MANDATORY ACKNOWLEDGMENT:\n\nTo confirm complete removal of Claude Code Tools Installer, type:\nUNINSTALL CCTI\n\n(Claude Code and your tools will NOT be removed).',
+    phrase: 'UNINSTALL CCTI',
+    confirmLabel: 'Uninstall CCTI',
+  });
 
   if (confirmation !== 'UNINSTALL CCTI') {
     uninstallStatusNoteElement.textContent = 'Uninstallation canceled. The required acknowledgment was not matched.';
@@ -2714,7 +2755,12 @@ async function reviewAndRemoveProjectPackage(finding) {
   }
   const accepted = window.confirm(`Review project package removal.\n\nPackage: ${review.name}\nProject folder: ${review.projectPath}\nPackage file: ${review.packageJsonPath}\n\nCCTI will run this exact command with package scripts disabled:\n${review.command}\n\nThis changes only the selected project’s package files and installed package folder. It does not remove global tools, skills, add-ons, or other projects. Continue?`);
   if (!accepted) return;
-  const confirmation = window.prompt(`Final check: type REMOVE PROJECT PACKAGE to remove ${review.name} from this selected project. Nothing happens until you type it exactly.`);
+  const confirmation = await requestTypedConfirmation({
+    title: 'Remove project package',
+    message: `Final check: type REMOVE PROJECT PACKAGE to remove ${review.name} from this selected project. Nothing happens until you type it exactly.`,
+    phrase: 'REMOVE PROJECT PACKAGE',
+    confirmLabel: 'Remove package',
+  });
   if (confirmation !== 'REMOVE PROJECT PACKAGE') return;
   cleanupActionsStatusElement.textContent = `Removing ${review.name} from the selected project with package scripts disabled…`;
   const result = await window.installer.applyProjectPackageRemoval({ reviewId: review.reviewId, confirmation });
@@ -2738,7 +2784,12 @@ async function reviewAndRemoveManagedExtras() {
     : '';
   const accepted = window.confirm(`Review CCTI-managed extras removal.\n\n${review.description}\n\nItems CCTI can remove:\n${actionList}${manualNote}\n\nContinue to the final confirmation?`);
   if (!accepted) return;
-  const confirmation = window.prompt('Final check: type REMOVE CCTI EXTRAS exactly. CCTI will remove only the items in the review you just read.');
+  const confirmation = await requestTypedConfirmation({
+    title: 'Remove CCTI extras',
+    message: 'Final check: type REMOVE CCTI EXTRAS exactly. CCTI will remove only the items in the review you just read.',
+    phrase: 'REMOVE CCTI EXTRAS',
+    confirmLabel: 'Remove extras',
+  });
   if (confirmation !== 'REMOVE CCTI EXTRAS') return;
   cleanupActionsStatusElement.textContent = 'Removing only the reviewed CCTI-managed extras…';
   const result = await window.installer.applyManagedExtrasRemoval({ reviewId: review.reviewId, confirmation });
@@ -2994,20 +3045,22 @@ completeSetupNewProjectButton.addEventListener('click', () => chooseCompleteSetu
 reportAnonymousSuccessButton.addEventListener('click', reportAnonymousSuccess);
 skipAnonymousSuccessButton.addEventListener('click', skipAnonymousSuccess);
 startFreshButton.addEventListener('click', openStartFreshDialog);
-applyStartFreshButton.addEventListener('click', applyStartFresh);
-cancelStartFreshButton.addEventListener('click', () => startFreshDialogElement.close());
-startFreshConfirmationElement.addEventListener('input', () => {
-  applyStartFreshButton.disabled = !state.startFresh?.reviewId || startFreshConfirmationElement.value !== START_FRESH_PHRASE;
+applyTypedConfirmButton.addEventListener('click', () => {
+  if (state.typedConfirmPhrase && typedConfirmInputElement.value === state.typedConfirmPhrase) finishTypedConfirmation(state.typedConfirmPhrase);
+});
+cancelTypedConfirmButton.addEventListener('click', () => finishTypedConfirmation(null));
+typedConfirmInputElement.addEventListener('input', () => {
+  applyTypedConfirmButton.disabled = !state.typedConfirmPhrase || typedConfirmInputElement.value !== state.typedConfirmPhrase;
 });
 // Enter in the confirmation field must never submit the dialog's form (which would close it).
-startFreshDialogElement.querySelector('form').addEventListener('submit', (event) => event.preventDefault());
-startFreshDialogElement.addEventListener('close', () => {
-  if (startFreshDialogElement.open) return;
-  state.startFresh = null;
-  startFreshConfirmationElement.value = '';
-  applyStartFreshButton.disabled = true;
-  const invoker = state.startFreshInvoker;
-  state.startFreshInvoker = null;
+typedConfirmDialogElement.querySelector('form').addEventListener('submit', (event) => event.preventDefault());
+typedConfirmDialogElement.addEventListener('close', () => {
+  // The close event is queued; if a new confirmation opened meanwhile, it owns the dialog now.
+  if (typedConfirmDialogElement.open) return;
+  // Escape closes the dialog: treat it as Cancel.
+  if (typedConfirmResolver) finishTypedConfirmation(null);
+  const invoker = state.typedConfirmInvoker;
+  state.typedConfirmInvoker = null;
   setTimeout(() => {
     if (invoker?.isConnected && !invoker.disabled) invoker.focus();
   }, 0);
