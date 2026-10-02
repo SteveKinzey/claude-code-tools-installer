@@ -120,6 +120,64 @@ async function evaluate(window, expression) {
   return window.webContents.executeJavaScript(expression, true);
 }
 
+async function stableCompactLayout(window) {
+  await waitFor(window, () => window.innerWidth <= 320, 'the compact 320px viewport');
+  await evaluate(window, 'document.fonts.ready.then(() => true)');
+  let previous;
+  let consecutive = 0;
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    await evaluate(window, 'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const layout = await evaluate(window, `(() => {
+      const cards = document.querySelector('#runtime-path-health-cards');
+      const rect = cards.getBoundingClientRect();
+      const browse = document.querySelector('#open-components-library').getBoundingClientRect();
+      return {
+        innerWidth: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        cardsWidth: cards.scrollWidth,
+        cardsClientWidth: cards.clientWidth,
+        cardsLeft: Math.round(rect.left * 10) / 10,
+        cardsRight: Math.round(rect.right * 10) / 10,
+        browseRight: Math.round(browse.right * 10) / 10,
+        columns: getComputedStyle(cards).gridTemplateColumns,
+      };
+    })()`);
+    const fingerprint = JSON.stringify(layout);
+    consecutive = fingerprint === previous ? consecutive + 1 : 1;
+    if (consecutive >= 4) return layout;
+    previous = fingerprint;
+    await new Promise((resolve) => setTimeout(resolve, 75));
+  }
+  throw new Error(`Compact runtime health layout did not settle: ${previous}`);
+}
+
+async function recordCompactLayoutFailure(window, layout) {
+  const overflowing = await evaluate(window, `(() => [...document.querySelectorAll('body *')]
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        element: element.tagName.toLowerCase(), id: element.id, className: String(element.className).slice(0, 120),
+        left: rect.left, right: rect.right, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth,
+        minWidth: style.minWidth, overflowWrap: style.overflowWrap, whiteSpace: style.whiteSpace,
+      };
+    })
+    .filter((element) => element.right > window.innerWidth + 1 || element.left < -1)
+    .slice(0, 20))()`);
+  const evidence = { layout, overflowing };
+  console.error('Compact runtime health layout evidence:', JSON.stringify(evidence));
+  if (!process.env.RUNNER_TEMP) return;
+  try {
+    const dir = path.join(process.env.RUNNER_TEMP, 'ccti-layout-evidence');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, 'compact-layout.json'), JSON.stringify(evidence, null, 2));
+    await fs.writeFile(path.join(dir, 'compact-layout.png'), (await window.webContents.capturePage()).toPNG());
+  } catch (error) {
+    console.error(`Could not save compact layout screenshot: ${error.message}`);
+  }
+}
+
 async function measureViewport(window, viewport) {
   window.setSize(viewport.width, viewport.height);
   // A cold Electron renderer can apply the external responsive stylesheet after
@@ -132,6 +190,7 @@ async function measureViewport(window, viewport) {
     const controls = document.querySelector('.setup-verification-buttons');
     const complete = document.querySelector('#complete-setup-button');
     const verify = document.querySelector('#verify-setup-button');
+    const browse = document.querySelector('#open-components-library');
     const horizontallyVisible = (element) => {
       const rect = element.getBoundingClientRect();
       return rect.left >= 0 && rect.right <= window.innerWidth;
@@ -142,6 +201,7 @@ async function measureViewport(window, viewport) {
       controlsFit: controls.scrollWidth <= controls.clientWidth,
       completeFits: complete.scrollWidth <= complete.clientWidth && horizontallyVisible(complete),
       verifyFits: verify.scrollWidth <= verify.clientWidth && horizontallyVisible(verify),
+      libraryEntryButtonFits: horizontallyVisible(browse),
       completeTargetHeight: complete.getBoundingClientRect().height,
       verifyTargetHeight: verify.getBoundingClientRect().height,
       actionOrder: [...controls.querySelectorAll('button')].map((button) => button.id),
@@ -154,6 +214,7 @@ async function measureViewport(window, viewport) {
   assert.equal(measurement.controlsFit, true, `${viewport.label}: setup action group must contain both controls.`);
   assert.equal(measurement.completeFits, true, `${viewport.label}: Complete setup must remain fully visible.`);
   assert.equal(measurement.verifyFits, true, `${viewport.label}: Verify setup must remain fully visible.`);
+  assert.equal(measurement.libraryEntryButtonFits, true, `${viewport.label}: Browse Convex Components must remain inside the viewport.`);
   assert.ok(measurement.completeTargetHeight >= 40, `${viewport.label}: Complete setup needs a comfortable target.`);
   assert.ok(measurement.verifyTargetHeight >= 40, `${viewport.label}: Verify setup needs a comfortable target.`);
   assert.deepEqual(measurement.actionOrder, ['complete-setup-button', 'verify-setup-button'], `${viewport.label}: Complete setup must remain before Verify setup.`);
@@ -472,21 +533,29 @@ async function run() {
     }, 'Diagnostics must show a local-only fallback, CCTI PATH, and sandbox-boundary summary without exposing full PATH entries.');
 
     window.setSize(320, 568);
-    // Measure only after the resize has reached the renderer and the layout has repainted: a fixed
-    // 80 ms wait could sample mid-reflow on slower CI hosts and report overflow that is not there.
-    await waitFor(window, () => window.innerWidth <= 320, 'the compact 320px viewport');
-    await evaluate(window, 'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    // Stable geometry, not elapsed time, determines when the resized renderer is ready.
+    // A persistent overflow is stable too: the strict assertions below still fail.
+    try {
+      await stableCompactLayout(window);
+    } catch (error) {
+      await recordCompactLayoutFailure(window, { unsettled: error.message });
+      throw error;
+    }
     const compactRuntimeHealth = await evaluate(window, `(() => {
       const cards = document.querySelector('#runtime-path-health-cards');
       return {
         rootFits: document.documentElement.scrollWidth <= window.innerWidth,
         cardsFit: cards.scrollWidth <= cards.clientWidth,
+        libraryEntryButtonFits: document.querySelector('#open-components-library').getBoundingClientRect().right <= window.innerWidth,
         columnCount: getComputedStyle(cards).gridTemplateColumns.split(' ').length,
       };
     })()`);
+    if (!compactRuntimeHealth.rootFits || !compactRuntimeHealth.cardsFit || !compactRuntimeHealth.libraryEntryButtonFits || compactRuntimeHealth.columnCount !== 1) {
+      await recordCompactLayoutFailure(window, compactRuntimeHealth);
+    }
     assert.equal(compactRuntimeHealth.rootFits, true, 'Compact runtime health must not cause horizontal page overflow.');
     assert.equal(compactRuntimeHealth.cardsFit, true, 'Compact runtime health cards must contain their content.');
+    assert.equal(compactRuntimeHealth.libraryEntryButtonFits, true, 'Browse Convex Components must remain inside the compact viewport.');
     assert.equal(compactRuntimeHealth.columnCount, 1, 'Compact runtime health cards must stack into one column.');
 
     console.log(JSON.stringify({

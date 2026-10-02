@@ -38,8 +38,22 @@ jobs:
         run: npm ci
       - name: Verify CCTI runtime PATH contract
         run: npm run runtime-path:check
+      - name: Repeat Linux compact layout regression
+        run: |
+          for attempt in {1..6}; do
+            echo "Compact layout attempt $attempt/6"
+            npm run setup-verification:check
+          done
       - name: Run complete desktop validation
         run: npm run check
+      - name: Upload failed compact layout evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: compact-layout-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ccti-layout-evidence/
+          if-no-files-found: ignore
+          retention-days: 14
 
   validate-windows:
     # Mirrors the Windows release job so Windows-only test failures surface on
