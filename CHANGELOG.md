@@ -2,6 +2,17 @@
 
 All notable changes are documented in this file. Version tags use the calendar-based format `vYYYY.MM.DD`.
 
+## v2026.10.02.04 — Update banner at the top of CCTI
+> **Release boundary:** This entry describes the tagged source. macOS, Windows, and Linux downloads exist only after the exact-tag artifacts pass their own staging gates and a separate GitHub Release publication is approved. Windows NSIS remains unsigned.
+
+### Update banner ([#72](https://github.com/SteveKinzey/claude-code-tools-installer/pull/72))
+- When a newer published release exists, a banner appears directly under the app header. CCTI already checked GitHub at launch and about every six hours, but the result only appeared in **Diagnostics and updates** near the bottom of the window.
+- **Update Now** runs the same checked download as the Diagnostics panel. The banner then shows **Restart to Update**, which waits while an installation or Complete setup is running.
+- Builds that cannot update themselves (Linux) show **Get CCTI _version_**, which opens the verified release page. A release with a missing artifact digest shows **Review Release** instead.
+- **Not Now** hides the banner until a newer version is published or CCTI restarts. The banner is hidden when CCTI is current or the check fails.
+- Screen readers hear update news once: the Diagnostics note stays quiet while the banner is visible.
+- Added `scripts/test-update-banner-electron.js` (`update-banner:check`), a real-Electron test of every banner state.
+
 ## v2026.10.02.03 — Setup keeps going when an upstream repository moves
 > **Release boundary:** This entry describes the tagged source. macOS, Windows, and Linux downloads exist only after the exact-tag artifacts pass their own staging gates and a separate GitHub Release publication is approved. Windows NSIS remains unsigned. This release also contains everything in v2026.10.02.02, whose draft was not published.
 
