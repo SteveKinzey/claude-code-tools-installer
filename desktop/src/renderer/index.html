@@ -18,6 +18,17 @@
         <div id="bootstrap-status" class="status-chip status-pending">Checking Claude Code…</div>
       </header>
 
+      <section id="update-banner" class="update-banner" aria-labelledby="update-banner-heading" hidden>
+        <div class="update-banner-copy">
+          <h2 id="update-banner-heading">A new version of CCTI is available</h2>
+          <p id="update-banner-message" role="status" aria-live="polite"></p>
+        </div>
+        <div class="update-banner-actions">
+          <button id="update-banner-action" class="button button-primary" type="button">Update Now</button>
+          <button id="update-banner-dismiss" class="button button-ghost" type="button">Not Now</button>
+        </div>
+      </section>
+
       <section class="notice" aria-label="Installation policy">
         <strong>No command-line steps are required in this app.</strong> Start by setting up Claude Code, choose only the tools you want, and review every change before it runs. Project-level Convex packages are kept separate so they never install in the wrong folder.
       </section>

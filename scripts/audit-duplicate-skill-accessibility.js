@@ -183,6 +183,7 @@ async function run() {
       { id: 'terminal-preference-note', role: 'status', live: 'polite', busy: 'false' },
       { id: 'run-status', role: 'status', live: 'polite', busy: 'false' },
       { id: 'output', role: null, live: 'polite', busy: null },
+      { id: 'update-banner-message', role: 'status', live: 'polite', busy: null },
       { id: 'update-status-note', role: 'status', live: 'polite', busy: 'false' },
       { id: 'release-integrity-alert', role: 'alert', live: null, busy: null },
       { id: 'manifest-verification-status', role: 'status', live: 'polite', busy: null },

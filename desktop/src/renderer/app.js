@@ -231,6 +231,11 @@ const checkUpdatesButton = document.querySelector('#check-updates-button');
 const installUpdateButton = document.querySelector('#install-update-button');
 const openReleaseButton = document.querySelector('#open-release-button');
 const updateStatusNoteElement = document.querySelector('#update-status-note');
+const updateBannerElement = document.querySelector('#update-banner');
+const updateBannerHeadingElement = document.querySelector('#update-banner-heading');
+const updateBannerMessageElement = document.querySelector('#update-banner-message');
+const updateBannerActionButton = document.querySelector('#update-banner-action');
+const updateBannerDismissButton = document.querySelector('#update-banner-dismiss');
 const updateStatusSpinnerElement = document.querySelector('#update-status-spinner');
 const releaseIntegrityAlertElement = document.querySelector('#release-integrity-alert');
 const releaseIntegrityAlertMessageElement = document.querySelector('#release-integrity-alert-message');
@@ -738,7 +743,94 @@ async function verifySetup() {
   }
 }
 
+// The top-of-app banner is how most people learn about an update: they install CCTI once and
+// rarely return to claudetool.app or scroll to Diagnostics and updates. It appears only while a
+// newer published release exists, and "Not Now" hides it until a newer version is published or the
+// app restarts. Its action reuses the same checked update path as the Diagnostics panel.
+const updateBanner = { action: '', version: '', dismissedVersion: '' };
+
+function renderUpdateBanner(status) {
+  const stateName = status?.state || 'idle';
+  const version = status?.latestVersion || updateBanner.version;
+  const releaseUrl = Boolean(status?.releaseUrl);
+  const integrityReview = Boolean(status?.digestAlert?.count) && releaseUrl;
+  // Keep the banner up through the checking/downloading steps it started itself.
+  const inProgress = (stateName === 'checking' || stateName === 'downloading') && Boolean(updateBanner.action);
+  const visible = Boolean(version) && (inProgress || (releaseUrl && ['available', 'downloading', 'downloaded'].includes(stateName)));
+  if (!visible || version === updateBanner.dismissedVersion) {
+    updateBannerElement.hidden = true;
+    if (!visible) updateBanner.action = '';
+    return;
+  }
+  updateBanner.version = version;
+  const current = status?.currentVersion ? ` You have ${status.currentVersion}.` : '';
+  let heading = `CCTI ${version} is available`;
+  let message = `Update to get the latest fixes and tools.${current}`;
+  let label = 'Update Now';
+  let action = 'download';
+  let tone = '';
+  if (integrityReview) {
+    message = `Review this release before updating: ${status.digestAlert.message}`;
+    label = 'Review Release';
+    action = 'release';
+    tone = 'is-attention';
+  } else if (stateName === 'downloaded' && status?.canInstall) {
+    heading = `CCTI ${version} is ready to install`;
+    message = 'The update is downloaded and checked. Restart CCTI to finish updating.';
+    label = 'Restart to Update';
+    action = 'install';
+    tone = 'is-ready';
+  } else if (stateName === 'checking' || stateName === 'downloading') {
+    message = status?.message || 'Downloading the update…';
+    label = stateName === 'checking' ? 'Checking…' : 'Downloading…';
+    action = 'busy';
+  } else if (stateName === 'available' && !status?.canDownload) {
+    message = `This copy of CCTI can't update itself. Download the new version from its release page.${current}`;
+    label = `Get CCTI ${version}`;
+    action = 'release';
+  } else if (/did not complete|rejected/.test(status?.message || '')) {
+    message = status.message;
+    label = 'Try Again';
+    tone = 'is-attention';
+  }
+  updateBanner.action = action;
+  updateBannerElement.className = `update-banner ${tone}`.trim();
+  updateBannerHeadingElement.textContent = heading;
+  updateBannerMessageElement.textContent = message;
+  updateBannerActionButton.textContent = label;
+  updateBannerActionButton.disabled = action === 'busy';
+  updateBannerDismissButton.hidden = action === 'busy';
+  updateBannerElement.hidden = false;
+}
+
+// Only one polite region should announce update progress. While the banner is visible it speaks
+// for the update, so the Diagnostics note below goes quiet; it announces again once the banner hides.
+function syncUpdateAnnouncements() {
+  updateStatusNoteElement.setAttribute('aria-live', updateBannerElement.hidden ? 'polite' : 'off');
+}
+
+async function runUpdateBannerAction() {
+  if (updateBanner.action === 'install' && (state.running || state.completeSetupRunning || state.componentRunning)) {
+    // Restarting now would stop the installation that is running.
+    updateBannerMessageElement.textContent = 'Wait for the current installation to finish, then restart CCTI to update.';
+    return undefined;
+  }
+  if (updateBanner.action === 'install') return installDownloadedUpdate();
+  if (updateBanner.action === 'release') return openPublishedRelease();
+  if (updateBanner.action === 'download') return manuallyCheckForUpdates();
+  return undefined;
+}
+
+function dismissUpdateBanner() {
+  updateBanner.dismissedVersion = updateBanner.version;
+  updateBanner.action = '';
+  updateBannerElement.hidden = true;
+  syncUpdateAnnouncements();
+}
+
 function displayUpdateStatus(status) {
+  renderUpdateBanner(status);
+  syncUpdateAnnouncements();
   const stateName = status?.state || 'idle';
   const checking = stateName === 'checking';
   const downloading = stateName === 'downloading';
@@ -958,6 +1050,7 @@ async function installDownloadedUpdate() {
   if (!result.ok) {
     updateStatusNoteElement.textContent = result.error || 'CCTI could not restart to install the downloaded update.';
     updateStatusNoteElement.className = 'update-status-note update-status-unavailable';
+    if (!updateBannerElement.hidden) updateBannerMessageElement.textContent = updateStatusNoteElement.textContent;
   }
 }
 
@@ -966,6 +1059,7 @@ async function openPublishedRelease() {
   if (!result.ok) {
     updateStatusNoteElement.textContent = result.error || 'CCTI could not open the verified release page.';
     updateStatusNoteElement.className = 'update-status-note update-status-unavailable';
+    if (!updateBannerElement.hidden) updateBannerMessageElement.textContent = updateStatusNoteElement.textContent;
   }
 }
 
@@ -3452,6 +3546,8 @@ exportDiagnosticsButton.addEventListener('click', exportDiagnosticResults);
 checkUpdatesButton.addEventListener('click', manuallyCheckForUpdates);
 installUpdateButton.addEventListener('click', installDownloadedUpdate);
 openReleaseButton.addEventListener('click', openPublishedRelease);
+updateBannerActionButton.addEventListener('click', runUpdateBannerAction);
+updateBannerDismissButton.addEventListener('click', dismissUpdateBanner);
 openCompassConnectButton.addEventListener('click', async () => {
   if (state.compass.online) {
     state.compass.online = false;
