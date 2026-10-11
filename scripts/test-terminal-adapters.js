@@ -201,7 +201,7 @@ async function run() {
       await Promise.all(Object.entries(macBundles).map(async ([name, bundle]) => {
         const bin = path.join(bundle, 'Contents', 'MacOS');
         await fsp.mkdir(bin, { recursive: true });
-        const executables = { 'Ghostty.app': 'ghostty', 'WezTerm.app': 'wezterm', 'Alacritty.app': 'alacritty', 'kitty.app': 'kitty', 'Tabby.app': 'tabby' };
+        const executables = { 'Ghostty.app': 'ghostty', 'WezTerm.app': 'wezterm', 'Alacritty.app': 'Alacritty', 'kitty.app': 'kitty', 'Tabby.app': 'Tabby' };
         if (executables[name]) await fsp.writeFile(path.join(bin, executables[name]), '#!/bin/sh\n', { mode: 0o755 });
       }));
     }

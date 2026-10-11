@@ -126,6 +126,10 @@ function main() {
     const bin = path.join(tempRoot, 'bin');
     createCommandStubs(bin);
     assertSourceContracts();
+    if (process.platform === 'win32') {
+      console.log('Adapter rollback source contracts passed on Windows. POSIX behavioral dry runs require a POSIX host and are not claimed here; Windows reparse/allowlist behavior remains source-reviewed, not native certified.');
+      return;
+    }
     for (const adapter of bashAdapters) {
       testDryRunDoesNotCreateState(adapter, bin);
       testDryRunManifestSafety(adapter, bin);
