@@ -31,7 +31,12 @@ async function writeExecutable(name, source) {
 
 async function createFixtureCommands() {
   const versionCommand = "#!/usr/bin/env bash\nprintf 'fixture 1.0.0\\n'\n";
-  await Promise.all(['node', 'npm', 'git'].map((name) => writeExecutable(name, versionCommand)));
+  await Promise.all(['node', 'npm'].map((name) => writeExecutable(name, versionCommand)));
+  await writeExecutable('git', `#!/usr/bin/env bash
+if [[ "\${1:-}" == 'init' ]]; then mkdir -p "$3/skills/planning-with-files"; printf '# fixture\\n' > "$3/skills/planning-with-files/SKILL.md"; fi
+if [[ "\${1:-}" == '-C' && "\${3:-}" == 'rev-parse' ]]; then printf '%s\\n' '${pinnedVersion('CCTI_PLANNING_WITH_FILES_COMMIT')}'; fi
+exit 0
+`);
   await writeExecutable('claude', "#!/usr/bin/env bash\nif [[ \"${1:-}\" == '--version' ]]; then printf 'claude fixture 1.0.0\\n'; exit 0; fi\nexit 0\n");
   // The fake npx records where it ran, its arguments, and what the --prefix folder held, then
   // simulates the skills CLI writing into the folder it runs in.
@@ -95,7 +100,10 @@ async function testBashAdapter(scriptName) {
   assert.equal(calls.length, 2, `${scriptName} must run exactly the two npx commands: ${JSON.stringify(calls)}`);
   const [skillCall, memCall] = calls;
   assertIsolated(skillCall, scriptName);
-  assert.equal(skillCall.args, `--prefix ${skillCall.prefix} -y skills@${skillsCliVersion} add https://github.com/OthmanAdi/planning-with-files --skill planning-with-files --agent claude-code --yes`);
+  const source = skillCall.args.match(/ add (.+) --copy --skill /)?.[1];
+  assert.ok(source && source.startsWith(path.join(home, '.setup-my-claude', 'skill-source.')), 'skills must consume a verified temporary CCTI checkout');
+  assert.equal(skillCall.args, `--prefix ${skillCall.prefix} -y skills@${skillsCliVersion} add ${source} --copy --skill planning-with-files --agent claude-code --yes`);
+  await assert.rejects(fs.access(source), 'the temporary source must be removed after copied installation');
   assertIsolated(memCall, scriptName);
   assert.equal(memCall.args, `--prefix ${memCall.prefix} -y claude-mem@${claudeMemVersion} install`);
   assert.equal((await fs.readFile(path.join(project, '.claude', 'skills', 'planning-with-files', 'SKILL.md'), 'utf8')).trim(), '# planning-with-files', `${scriptName} must still place a project skill in <project>/.claude/skills`);
