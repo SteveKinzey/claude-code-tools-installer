@@ -136,6 +136,13 @@ const windowsFs = {
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'electron') return electronStub;
   if (request === 'node:fs' && platform === 'win32') return windowsFs;
+  if (request === 'node:fs' && platform === 'darwin') return {
+    ...fs,
+    statSync(candidate, ...args) {
+      if (['/usr/bin/open', '/usr/bin/osascript'].includes(String(candidate))) return { isFile: () => true };
+      return fs.statSync(candidate, ...args);
+    },
+  };
   if (request === 'node:fs' && platform === 'linux') return {
     ...fs,
     statSync(candidate, ...args) {

@@ -7,6 +7,8 @@ const fsp = require('node:fs/promises');
 const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
+const { cmdQuote } = require('../desktop/src/windows-command');
+delete require.cache[require.resolve('../desktop/src/windows-command')];
 
 const root = path.resolve(__dirname, '..');
 const fixtureRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccti-desktop-hardening-')));
@@ -45,7 +47,7 @@ function childProcess() {
 function spawnStub(command, args = [], options = {}) {
   const child = childProcess();
   spawns.push({ command, args, options, child });
-  const isNpm = /npm(?:\.cmd)?$/i.test(path.basename(String(command)));
+  const isNpm = /npm(?:\.cmd)?$/i.test(path.basename(String(command))) || (options.shell === true && /^"[^"]+[\\/]npm\.cmd"\s/i.test(String(command)));
   if (!isNpm) {
     queueMicrotask(() => child.emit('close', 0));
     return child;
@@ -157,8 +159,18 @@ async function run() {
     const installed = await install(null, { projectPath: project, componentIds: [componentId], dryRun: false });
     assert.equal(installed.ok, true, installed.error);
     const npmSpawn = spawns.findLast((entry) => entry.child === lastNpmChild);
-    assert.ok(path.isAbsolute(npmSpawn.command), 'component npm resolves to an absolute executable');
-    assert.deepEqual(npmSpawn.args.slice(0, 9), ['--prefix', project, '--global=false', '--ignore-scripts', '--userconfig', path.join(home, '.setup-my-claude', 'component-npm', 'npmrc'), '--cache', path.join(home, '.setup-my-claude', 'component-npm', 'cache'), 'install']);
+    assert.ok(npmSpawn, 'the fixture recognizes both direct npm and the safe Windows shell wrapper');
+    const expectedArgs = ['--prefix', project, '--global=false', '--ignore-scripts', '--userconfig', path.join(home, '.setup-my-claude', 'component-npm', 'npmrc'), '--cache', path.join(home, '.setup-my-claude', 'component-npm', 'cache'), 'install'];
+    if (process.platform === 'win32') {
+      assert.equal(npmSpawn.options.shell, true);
+      const executable = npmSpawn.command.match(/^"([^"]+)" /)?.[1];
+      assert.ok(executable && path.isAbsolute(executable), 'Windows npm wrapper starts a vetted absolute npm.cmd');
+      assert.ok(npmSpawn.command.startsWith(`${cmdQuote(executable)} ${expectedArgs.map(cmdQuote).join(' ')}`));
+      assert.deepEqual(npmSpawn.args, []);
+    } else {
+      assert.ok(path.isAbsolute(npmSpawn.command), 'component npm resolves to an absolute executable');
+      assert.deepEqual(npmSpawn.args.slice(0, 9), expectedArgs);
+    }
     assert.equal(Object.keys(npmSpawn.options.env).some((key) => key.toLowerCase().startsWith('npm_config_')), false, 'inherited npm policy does not reach component npm');
     assert.equal(await fsp.readFile(path.join(home, '.setup-my-claude', 'component-npm', 'npmrc'), 'utf8'), '', 'the CCTI npm user config is empty for the run');
     assert.equal(fs.existsSync(path.join(project, 'SHOULD-NOT-RUN')), false, 'fixture lifecycle markers never run');
