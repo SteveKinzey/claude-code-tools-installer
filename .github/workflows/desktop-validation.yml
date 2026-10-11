@@ -78,6 +78,8 @@ jobs:
           package-manager-cache: false
       - name: Install locked desktop dependencies
         run: npm ci
+      - name: Verify immutable curated skill sources
+        run: npm run pinned-setup-code:check && npm run curated-skill-pins:check && npm run project-npm-isolation:check
       - name: Verify CCTI runtime PATH contract
         run: npm run runtime-path:check
       - name: Repeat Linux compact layout regression
@@ -121,5 +123,13 @@ jobs:
           package-manager-cache: false
       - name: Install locked desktop dependencies
         run: npm ci
+      - name: Verify immutable curated skill sources (native Windows)
+        run: |
+          npm run pinned-setup-code:check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run curated-skill-pins:check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run project-npm-isolation:check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run complete desktop validation
         run: npm run check
