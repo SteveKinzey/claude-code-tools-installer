@@ -41,6 +41,9 @@ The **Complete setup** scope selector applies to `taste-skill` and `Planning wit
 **gstack, supported plugins, MCP connections, and command-line tools stay in the Claude Code setup.** They are not copied into a selected project simply because the two skills use project scope. `verifySetupStatus` checks the scope selected for verification.
 
 ## Private Project Interview and PRD
+### Project package installation boundary
+
+Component installs use a vetted absolute npm executable, global installs disabled, lifecycle hooks disabled, and CCTI-owned npm user configuration/cache. A selected project containing `.npmrc` is refused before automatic preview/execution because npm still reads that project-level configuration. CCTI does not delete or edit it. Review the project and use your own package workflow for private registries or custom npm policy. Packages requiring install hooks need a separately reviewed manual step.
 
 The Project Interview is rendered by [`desktop/src/renderer/app.js`](../desktop/src/renderer/app.js) with questions and draft generation from [`desktop/src/project-interview.js`](../desktop/src/project-interview.js). It:
 

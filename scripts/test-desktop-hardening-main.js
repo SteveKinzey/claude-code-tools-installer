@@ -129,6 +129,15 @@ async function run() {
     assert.ok(preview && install && runtimePaths && discover && reviewCleanup && applyCleanup && reviewRestore && applyRestore && reviewReplacement && applyReplacement, 'all focused handlers are registered');
 
     const componentId = JSON.parse(await fsp.readFile(path.join(root, 'desktop', 'convex-components.json'), 'utf8')).components[0].id;
+    const hostilePreview = await preview(null, { projectPath: project, componentIds: [componentId] });
+    assert.equal(hostilePreview.ok, false);
+    assert.match(hostilePreview.error, /\.npmrc configuration file/);
+    const beforeBlocked = spawns.length;
+    const hostileInstall = await install(null, { projectPath: project, componentIds: [componentId], dryRun: false });
+    assert.equal(hostileInstall.ok, false);
+    assert.equal(spawns.length, beforeBlocked, 'project npmrc refusal occurs before any prerequisite or npm launch');
+    assert.equal(await fsp.readFile(path.join(project, '.npmrc'), 'utf8'), 'global=true\nprefix=/tmp/not-ccti\nignore-scripts=false\n');
+    await fsp.rm(path.join(project, '.npmrc'));
     const planned = await preview(null, { projectPath: project, componentIds: [componentId] });
     assert.equal(planned.ok, true, planned.error);
     assert.match(planned.command, /--prefix/);

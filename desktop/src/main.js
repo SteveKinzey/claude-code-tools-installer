@@ -2522,6 +2522,17 @@ function componentNpmArguments(projectPath, packages) {
   return ['--prefix', projectPath, '--global=false', '--ignore-scripts', '--userconfig', userconfig, '--cache', cache, 'install', ...packages];
 }
 
+async function assertNoProjectNpmConfig(projectPath) {
+  // npm still reads project .npmrc with an explicit userconfig. Do not parse or follow it.
+  try {
+    await fs.lstat(path.join(projectPath, '.npmrc'));
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
+    throw new Error('CCTI could not verify project npm configuration. Nothing was started.');
+  }
+  throw new Error('This project has an .npmrc configuration file. CCTI will not run an automatic component install because it may change registries, credentials or npm behavior. Review it and use your own project workflow; CCTI does not remove or edit the file.');
+}
+
 function quoteComponentPreviewPath(value) {
   const text = String(value);
   // Windows paths cannot contain a double quote. POSIX single-quote escaping keeps an unusual
@@ -4994,6 +5005,7 @@ app.whenReady().then(async () => {
         prepareProjectPackage(projectPath, { dryRun: true }),
         selectedComponents(componentIds),
       ]);
+      await assertNoProjectNpmConfig(projectPackage.projectPath);
       return {
         ok: true,
         projectPath: projectPackage.projectPath,
@@ -5023,6 +5035,7 @@ app.whenReady().then(async () => {
         inspectProjectPackage(projectPath),
         selectedComponents(componentIds),
       ]);
+      await assertNoProjectNpmConfig(projectInspection.projectPath);
       const packages = components.map((component) => component.packageName);
       if (dryRun) {
         return { ok: true, preview: true, command: componentNpmPreview(projectInspection.projectPath, packages), components, packageJsonPath: projectInspection.packageJsonPath, packageState: projectInspection.packageState };
@@ -5040,6 +5053,7 @@ app.whenReady().then(async () => {
       // resolved absolute executable and sanitized PATH prevent an untrusted project cwd from
       // supplying npm. Its reviewed arguments match the preview; the executable itself is resolved
       // from a trusted absolute PATH entry immediately before it runs.
+      await assertNoProjectNpmConfig(projectPackage.projectPath);
       const child = spawnSafely(executable, componentNpmArguments(projectPackage.projectPath, packages), { cwd: projectPackage.projectPath, windowsHide: true, env });
       emitBoundedComponentOutput(child);
       const result = await waitForComponentInstall(child);
