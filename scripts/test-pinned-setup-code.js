@@ -141,8 +141,8 @@ const appAllowlist = [
   },
   {
     file: 'desktop/src/main.js',
-    line: /spawnSafely\(npmCommand, \['install', \.\.\.packages\]/,
-    reason: 'Project-local Convex component install the user reviews per project; recorded in that project\'s own package-lock. Not a global or setup-time package.',
+    line: /return \['--prefix', projectPath, '--global=false', '--ignore-scripts', '--userconfig', userconfig, '--cache', cache, 'install', \.\.\.packages\];/,
+    reason: 'Project-local Convex component install uses the reviewed selected-project prefix, forbids global installs and lifecycle scripts, and records dependencies in that project\'s own package-lock. It is not a global or setup-time package.',
   },
   {
     file: 'desktop/convex-components.json',
@@ -156,6 +156,7 @@ for (const file of appFiles) {
       || /['"`]npx(\.cmd)?['"`]\s*[,)]|\bnpx -y\b|\bnpx --yes\b/.test(line)
       || /npm (install|i) -g\b|'install', '-g'|"install", "-g"/.test(line)
       || /\['install',/.test(line)
+      || /return \['--prefix', projectPath, '--global=false', '--ignore-scripts'/.test(line)
       || /"installCommand"/.test(line);
     if (!risky) return;
     const entry = appAllowlist.find((candidate) => candidate.file === file && candidate.line.test(line));

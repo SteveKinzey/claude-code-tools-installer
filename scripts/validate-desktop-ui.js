@@ -338,7 +338,7 @@ if (!main.includes('async function resolveAppUninstallPlan()') || !main.includes
 const inventoryContract = [
   [html.includes('id="tool-inventory"'), 'the Manage list section must exist inside the Setup Manager'],
   [html.indexOf('id="tool-inventory"') > html.indexOf('id="setup-manager"') && html.indexOf('id="tool-inventory"') < html.indexOf('id="cleanup-actions"'), 'the Manage list must sit above the cleanup actions'],
-  [/<script src="\.\.\/inventory\/manage-view\.js"><\/script>\s*<script src="app\.js">/.test(html), 'manage-view.js must load before app.js'],
+  [html.includes('<script src="../inventory/manage-view.js"></script>') && html.indexOf('src="../inventory/manage-view.js"') < html.indexOf('src="app.js"'), 'manage-view.js must load before app.js'],
   [/renderToolInventory\(report\?\.inventory\)/.test(renderer), 'renderSetupManager must draw the Manage list from report.inventory'],
   [/window\.CCTIManageView\.manageSections/.test(renderer), 'the renderer must use the tested view model'],
   [/action\.type !== 'reinstall'[\s\S]*?window\.confirm\([\s\S]*?window\.installer\.runInstall\(\{ selectedIds: \[tool\.id\]/.test(renderer), 'Reinstall must confirm, then use the existing install path for that one tool'],

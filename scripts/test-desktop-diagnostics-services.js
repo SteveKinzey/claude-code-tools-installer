@@ -117,6 +117,14 @@ async function run() {
     const saved = await exportDiagnostics(null, { diagnosticId: diagnostic.diagnosticId });
     assert.deepEqual(saved, { ok: true, canceled: false, filename: 'ccti-diagnostics.txt' });
     assert.equal(await fs.readFile(exportedFile, 'utf8'), `${diagnostic.report}\n`);
+    if (process.platform !== 'win32') {
+      assert.equal((await fs.stat(exportedFile)).mode & 0o077, 0, 'a newly created diagnostics export is owner-only');
+    }
+    const existing = await exportDiagnostics(null, { diagnosticId: diagnostic.diagnosticId });
+    assert.equal(existing.ok, false, 'CCTI does not replace an existing diagnostics export');
+    assert.match(existing.error, /Choose a new filename/i);
+    assert.equal(await fs.readFile(exportedFile, 'utf8'), `${diagnostic.report}\n`, 'the existing diagnostics file remains unchanged');
+    saveDialogResult = { canceled: true, filePath: '' };
 
     assert.equal(diagnosticCleanupCallbacks.length, 1, 'each report must schedule one expiry cleanup');
     diagnosticCleanupCallbacks[0]();

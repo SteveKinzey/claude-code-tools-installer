@@ -25,12 +25,13 @@ const state = {
   resolveDuplicateInvoker: null,
   resolveDuplicate: null,
   customAddOnReview: null,
-  compass: { online: false, history: [], opened: false },
+  compass: { online: false, history: [], opened: false, invoker: null },
   projectInterview: { active: false, step: 0, answers: {}, result: null, checked: new Set() },
   anonymousSuccess: { kind: '', reported: false, dismissed: false },
   diagnostics: { id: '', report: '', expiresAt: 0 },
   terminalReport: { id: '', report: '' },
   terminalDialogInvoker: null,
+  componentLibraryInvoker: null,
 };
 let diagnosticExpiryTimer = null;
 
@@ -386,6 +387,10 @@ function offerAnonymousSuccessCount(kind) {
 
 function getProjectInterviewApi() {
   return window.CCTIProjectInterview || { PROJECT_INTERVIEW_QUESTIONS: [], buildProjectInterviewDraft: () => ({ draft: '', recommendations: [] }), queueInterviewSuggestions: (_items, selected, componentPlan) => ({ selected, componentPlan, addedTools: 0, addedComponents: 0 }) };
+}
+
+function getWorkflowHelpApi() {
+  return window.CCTIWorkflowHelp || { answerQuestion: () => null };
 }
 
 function renderProjectInterview() {
@@ -2079,9 +2084,22 @@ function renderComponents() {
 }
 
 function openComponentLibrary() {
+  if (document.activeElement instanceof HTMLElement && !componentLibraryElement.contains(document.activeElement)) state.componentLibraryInvoker = document.activeElement;
   componentLibraryElement.classList.remove('is-hidden');
+  document.querySelector('#open-components-library').setAttribute('aria-expanded', 'true');
   renderComponents();
   componentLibraryElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  requestAnimationFrame(() => document.querySelector('#close-components-library').focus());
+}
+
+function closeComponentLibrary() {
+  componentLibraryElement.classList.add('is-hidden');
+  document.querySelector('#open-components-library').setAttribute('aria-expanded', 'false');
+  requestAnimationFrame(() => {
+    const fallback = document.querySelector('#open-components-library');
+    const target = state.componentLibraryInvoker?.isConnected ? state.componentLibraryInvoker : fallback;
+    target?.focus?.();
+  });
 }
 
 async function chooseProjectFolder() {
@@ -3228,6 +3246,9 @@ function catalogMatches(term) {
 }
 
 function privateCompassReply(question) {
+  const workflowAnswer = getWorkflowHelpApi().answerQuestion(question);
+  // Workflow and recovery help always takes precedence over catalog comparison and matching.
+  if (workflowAnswer) return workflowAnswer;
   const lower = question.toLowerCase();
   const tools = selectedItems();
   const components = selectedComponents();
@@ -3290,17 +3311,19 @@ function updateCompassConnectionUi() {
     openCompassConnectButton.textContent = 'Use private Compass instead';
     compassConnectFormElement.classList.add('is-hidden');
   } else {
-    compassStatusElement.textContent = 'Private Compass · uses this verified catalog';
+    compassStatusElement.textContent = 'Private Compass · verified workflow and catalog help';
     openCompassConnectButton.textContent = 'Need a deeper answer? Ask online Compass';
   }
 }
 
 function openCompass() {
+  if (document.activeElement instanceof HTMLElement && !compassPanelElement.contains(document.activeElement)) state.compass.invoker = document.activeElement;
   compassPanelElement.classList.remove('is-hidden');
   compassToggleElement.classList.add('is-hidden');
+  compassToggleElement.setAttribute('aria-expanded', 'true');
   if (!state.compass.opened) {
     state.compass.opened = true;
-    addCompassMessage('assistant', 'I’m Compass. I start privately with this verified catalog and can help you choose, compare, and understand the difference between a Claude Code tool and a Convex Component. What are you trying to build or improve?');
+    addCompassMessage('assistant', 'I’m Compass. I start privately with a verified workflow guide and catalog. I can help with setup recovery, scopes, backups, privacy, tools, and project components. What are you trying to build or improve?');
   }
   compassInputElement.focus();
 }
@@ -3308,6 +3331,11 @@ function openCompass() {
 function minimizeCompass() {
   compassPanelElement.classList.add('is-hidden');
   compassToggleElement.classList.remove('is-hidden');
+  compassToggleElement.setAttribute('aria-expanded', 'false');
+  requestAnimationFrame(() => {
+    const target = state.compass.invoker?.isConnected ? state.compass.invoker : compassToggleElement;
+    target?.focus?.();
+  });
 }
 
 completeSetupButton.addEventListener('click', () => runCompleteSetup(false));
@@ -3408,7 +3436,7 @@ projectInterviewBackButton.addEventListener('click', goBackInProjectInterview);
 exportProjectPrdButton.addEventListener('click', exportProjectPrd);
 queueInterviewSuggestionsButton.addEventListener('click', queueInterviewSuggestionsFromDraft);
 document.querySelector('#open-components-library').addEventListener('click', openComponentLibrary);
-document.querySelector('#close-components-library').addEventListener('click', () => componentLibraryElement.classList.add('is-hidden'));
+document.querySelector('#close-components-library').addEventListener('click', closeComponentLibrary);
 let componentSearchTimer = 0;
 componentSearchElement.addEventListener('input', () => {
   clearTimeout(componentSearchTimer);
@@ -3503,6 +3531,18 @@ document.querySelector('#review-custom-addon-button').addEventListener('click', 
 applyCustomAddOnButton.addEventListener('click', applyCustomAddOn);
 compassToggleElement.addEventListener('click', openCompass);
 document.querySelector('#compass-minimize').addEventListener('click', minimizeCompass);
+compassPanelElement.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    minimizeCompass();
+  }
+});
+componentLibraryElement.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeComponentLibrary();
+  }
+});
 document.querySelector('#compass-form').addEventListener('submit', (event) => {
   event.preventDefault();
   askCompass(compassInputElement.value);
