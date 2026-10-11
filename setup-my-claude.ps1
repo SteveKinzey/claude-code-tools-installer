@@ -41,6 +41,10 @@ $CCTI_FIRECRAWL_CLI_VERSION = "1.25.1"
 $CCTI_CLAUDE_CODE_ROUTER_VERSION = "3.1.1"
 $CCTI_GSTACK_REPO = "https://github.com/garrytan/gstack.git"
 $CCTI_GSTACK_COMMIT = "7fca42ad8b6c707b8a38f579f72bf3c4f7de6d85"
+$CCTI_PONYTAIL_COMMIT = "e3ba2aa6f1e6f0bc4d69eb09c9f0d0a93af56156"
+$CCTI_TASTE_SKILL_COMMIT = "ce26fc25c0e5e8cab638f883de62d9a86ee5e45b"
+$CCTI_PLANNING_WITH_FILES_COMMIT = "dab9d16fbd9314448b319d112e99f497d7638d89"
+$CCTI_GRAPHIFY_COMMIT = "ef4450d9c28acb2b8cdc22d369c1777b77148eef"
 # ---------------------------------------------------------------------------------
 $BaseDir = Join-Path $HOME ".setup-my-claude"
 $CloneDir = Join-Path $HOME ".claude\reference-repos"
@@ -566,7 +570,9 @@ function Install-Skill {
   param(
     [string]$Repo,
     [string]$Skill,
-    [string]$ItemId
+    [string]$ItemId,
+    [string]$Commit,
+    [string]$Subpath
   )
   $skillRoot = if ($SkillScope -eq "project") {
     Join-Path (Get-Location).Path ".claude\skills"
@@ -589,10 +595,37 @@ function Install-Skill {
     Write-Log "CCTI did not add '$Skill': a folder already uses this Claude Code skill name at $dest. Review it before adding a copy."
     return
   }
-  $skillArguments = @("-y", "skills@$CCTI_SKILLS_CLI_VERSION", "add", $Repo, "--skill", $Skill, "--agent", "claude-code", "--yes")
-  if ($SkillScope -eq "global") { $skillArguments += "--global" }
-  Invoke-NpxIsolated $skillArguments
-  Add-Manifest "skill" $dest "" $ItemId
+  if ($DryRun) {
+    Get-PinnedGitCommit $Repo $Commit "<temporary CCTI source>"
+    $skillArguments = @("-y", "skills@$CCTI_SKILLS_CLI_VERSION", "add", "$Repo/tree/$Commit/$Subpath", "--copy", "--skill", $Skill, "--agent", "claude-code", "--yes")
+    if ($SkillScope -eq "global") { $skillArguments += "--global" }
+    Invoke-NpxIsolated $skillArguments
+    return
+  }
+  $sourceRoot = Join-Path $BaseDir ("skill-source-" + [guid]::NewGuid().ToString("N"))
+  try {
+    $checkout = Join-Path $sourceRoot "repo"
+    Get-PinnedGitCommit $Repo $Commit $checkout
+    $source = Join-Path $checkout $Subpath
+    # Normalize Graphify's upstream lowercase filename in this staged copy only.
+    if ($Skill -eq "graphify" -and (Test-Path -LiteralPath (Join-Path $source "skill.md"))) {
+      Move-Item -LiteralPath (Join-Path $source "skill.md") -Destination (Join-Path $source ".ccti-skill-md") -ErrorAction Stop
+      Move-Item -LiteralPath (Join-Path $source ".ccti-skill-md") -Destination (Join-Path $source "SKILL.md") -ErrorAction Stop
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $source "SKILL.md"))) {
+      throw "CCTI stopped: pinned $Repo@$Commit has no skill at $Subpath. Nothing was installed."
+    }
+    $skillArguments = @("-y", "skills@$CCTI_SKILLS_CLI_VERSION", "add", $source, "--copy", "--skill", $Skill, "--agent", "claude-code", "--yes")
+    if ($SkillScope -eq "global") { $skillArguments += "--global" }
+    Invoke-NpxIsolated $skillArguments
+    if (-not (Test-Path -LiteralPath (Join-Path $dest "SKILL.md")) -or (Get-Item -LiteralPath $dest).LinkType) {
+      throw "CCTI stopped: '$Skill' did not produce a standalone skill copy at $dest. No success was recorded."
+    }
+    Add-Manifest "skill" $dest "source=$Repo@$Commit;cli=skills@$CCTI_SKILLS_CLI_VERSION;scope=$SkillScope" $ItemId
+  }
+  finally {
+    if (Test-Path -LiteralPath $sourceRoot) { Remove-Item -LiteralPath $sourceRoot -Recurse -Force -ErrorAction SilentlyContinue }
+  }
 }
 
 function Install-NpmGlobal {
@@ -776,7 +809,7 @@ function Install-Item {
       Write-Log "Queued Superpowers Claude Code plugin commands in $PluginCommands"
     }
     "ponytail" {
-      Install-Skill "https://github.com/DietrichGebert/ponytail" "ponytail" $Id
+      Install-Skill "https://github.com/DietrichGebert/ponytail" "ponytail" $Id $CCTI_PONYTAIL_COMMIT "skills/ponytail"
     }
     "gstack" {
       $dest = Join-Path $HOME ".claude\skills\gstack"
@@ -801,7 +834,7 @@ function Install-Item {
       Write-Log "Queued ECC plugin commands in $PluginCommands"
     }
     "taste-skill" {
-      Install-Skill "https://github.com/Leonxlnx/taste-skill" "design-taste-frontend" $Id
+      Install-Skill "https://github.com/Leonxlnx/taste-skill" "design-taste-frontend" $Id $CCTI_TASTE_SKILL_COMMIT "skills/taste-skill"
     }
     "anthropic-skills" {
       Add-PluginCommand "Anthropic Agent Skills" "/plugin marketplace add anthropics/skills`n/plugin`n# Browse anthropic-agent-skills, then install document-skills or example-skills as needed." "https://github.com/anthropics/skills"
@@ -841,7 +874,7 @@ function Install-Item {
       Clone-OrUpdate "https://github.com/ComposioHQ/awesome-claude-skills" (Join-Path $CloneDir "awesome-claude-skills") $Id
     }
     "planning-with-files" {
-      Install-Skill "https://github.com/OthmanAdi/planning-with-files" "planning-with-files" $Id
+      Install-Skill "https://github.com/OthmanAdi/planning-with-files" "planning-with-files" $Id $CCTI_PLANNING_WITH_FILES_COMMIT "skills/planning-with-files"
     }
     "claude-mem" {
       Invoke-NpxIsolated @("-y", "claude-mem@$CCTI_CLAUDE_MEM_VERSION", "install")
@@ -851,7 +884,7 @@ function Install-Item {
       Install-NpmGlobal "@colbymchenry/codegraph" $CCTI_CODEGRAPH_VERSION "codegraph" $Id
     }
     "graphify" {
-      Install-Skill "https://github.com/Graphify-Labs/graphify" "graphify" $Id
+      Install-Skill "https://github.com/Graphify-Labs/graphify" "graphify" $Id $CCTI_GRAPHIFY_COMMIT "graphify"
     }
     "repomix" {
       Install-NpmGlobal "repomix" $CCTI_REPOMIX_VERSION "repomix" $Id

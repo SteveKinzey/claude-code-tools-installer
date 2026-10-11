@@ -19,6 +19,10 @@ CCTI_FIRECRAWL_CLI_VERSION="1.25.1"
 CCTI_CLAUDE_CODE_ROUTER_VERSION="3.1.1"
 CCTI_GSTACK_REPO="https://github.com/garrytan/gstack.git"
 CCTI_GSTACK_COMMIT="7fca42ad8b6c707b8a38f579f72bf3c4f7de6d85"
+CCTI_PONYTAIL_COMMIT="e3ba2aa6f1e6f0bc4d69eb09c9f0d0a93af56156"
+CCTI_TASTE_SKILL_COMMIT="ce26fc25c0e5e8cab638f883de62d9a86ee5e45b"
+CCTI_PLANNING_WITH_FILES_COMMIT="dab9d16fbd9314448b319d112e99f497d7638d89"
+CCTI_GRAPHIFY_COMMIT="ef4450d9c28acb2b8cdc22d369c1777b77148eef"
 # ---------------------------------------------------------------------------------
 BASE_DIR="${HOME}/.setup-my-claude"
 CLONE_DIR="${HOME}/.claude/reference-repos"
@@ -617,7 +621,7 @@ fetch_pinned_git_commit() {
 }
 
 install_skill() {
-  local repo="$1" skill="$2" item="$3"
+  local repo="$1" skill="$2" item="$3" commit="$4" subpath="$5"
   local dest scope_args=(--yes)
   if [[ "$SKILL_SCOPE" == "project" ]]; then
     dest="${PWD}/.claude/skills/${skill}"
@@ -634,8 +638,35 @@ install_skill() {
     log "CCTI did not add '$skill': a folder already uses this Claude Code skill name at $dest. Review it before adding a copy."
     return 0
   fi
-  run_npx_isolated -y "skills@${CCTI_SKILLS_CLI_VERSION}" add "$repo" --skill "$skill" --agent claude-code "${scope_args[@]}"
-  record_manifest "skill" "$dest" "" "$item"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    fetch_pinned_git_commit "$repo" "$commit" "<temporary CCTI source>"
+    run_npx_isolated -y "skills@${CCTI_SKILLS_CLI_VERSION}" add "$repo/tree/$commit/$subpath" --copy --skill "$skill" --agent claude-code "${scope_args[@]}"
+    return 0
+  fi
+  # --copy prevents installed skills from pointing at a checkout removed after setup.
+  # Keep PWD unchanged: npm isolation still excludes a selected project's .npmrc.
+  (
+    local source_root source
+    source_root="$(mktemp -d "${BASE_DIR}/skill-source.XXXXXX")" || return $?
+    trap 'rm -rf -- "$source_root"' EXIT
+    fetch_pinned_git_commit "$repo" "$commit" "$source_root/repo" || return $?
+    source="$source_root/repo/$subpath"
+    # Upstream Graphify uses lowercase skill.md; normalize only the staged copy.
+    if [[ "$skill" == "graphify" && -f "$source/skill.md" ]]; then
+      mv "$source/skill.md" "$source/.ccti-skill-md" || return $?
+      mv "$source/.ccti-skill-md" "$source/SKILL.md" || return $?
+    fi
+    if [[ ! -f "$source/SKILL.md" ]]; then
+      echo "CCTI stopped: pinned $repo@$commit has no skill at $subpath. Nothing was installed." >&2
+      return 1
+    fi
+    run_npx_isolated -y "skills@${CCTI_SKILLS_CLI_VERSION}" add "$source" --copy --skill "$skill" --agent claude-code "${scope_args[@]}" || return $?
+    if [[ ! -f "$dest/SKILL.md" || -L "$dest" ]]; then
+      echo "CCTI stopped: '$skill' did not produce a standalone skill copy at $dest. No success was recorded." >&2
+      return 1
+    fi
+    record_manifest "skill" "$dest" "source=$repo@$commit;cli=skills@$CCTI_SKILLS_CLI_VERSION;scope=$SKILL_SCOPE" "$item"
+  )
 }
 
 install_npm_global() {
@@ -691,7 +722,7 @@ install_item() {
       log "Queued Superpowers Claude Code plugin commands in $PLUGIN_COMMANDS"
       ;;
     ponytail)
-      install_skill https://github.com/DietrichGebert/ponytail ponytail "$id"
+      install_skill https://github.com/DietrichGebert/ponytail ponytail "$id" "$CCTI_PONYTAIL_COMMIT" "skills/ponytail"
       ;;
     gstack)
       local dest="${HOME}/.claude/skills/gstack"
@@ -717,7 +748,7 @@ install_item() {
       log "Queued ECC plugin commands in $PLUGIN_COMMANDS"
       ;;
     taste-skill)
-      install_skill https://github.com/Leonxlnx/taste-skill design-taste-frontend "$id"
+      install_skill https://github.com/Leonxlnx/taste-skill design-taste-frontend "$id" "$CCTI_TASTE_SKILL_COMMIT" "skills/taste-skill"
       ;;
     anthropic-skills)
       append_plugin_command "Anthropic Agent Skills" "/plugin marketplace add anthropics/skills
@@ -770,7 +801,7 @@ install_item() {
       clone_or_update https://github.com/ComposioHQ/awesome-claude-skills "${CLONE_DIR}/awesome-claude-skills" "$id"
       ;;
     planning-with-files)
-      install_skill https://github.com/OthmanAdi/planning-with-files planning-with-files "$id"
+      install_skill https://github.com/OthmanAdi/planning-with-files planning-with-files "$id" "$CCTI_PLANNING_WITH_FILES_COMMIT" "skills/planning-with-files"
       ;;
     claude-mem)
       if [[ -d "${HOME}/.claude-mem" ]]; then
@@ -786,7 +817,7 @@ install_item() {
       fi
       ;;
     graphify)
-      install_skill https://github.com/Graphify-Labs/graphify graphify "$id"
+      install_skill https://github.com/Graphify-Labs/graphify graphify "$id" "$CCTI_GRAPHIFY_COMMIT" "graphify"
       ;;
     repomix)
       install_npm_global repomix "$CCTI_REPOMIX_VERSION" repomix "$id"

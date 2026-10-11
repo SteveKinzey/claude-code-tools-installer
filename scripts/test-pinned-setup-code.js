@@ -25,6 +25,7 @@ const expectedPins = [
   'CCTI_SKILLS_CLI_VERSION', 'CCTI_CLAUDE_MEM_VERSION', 'CCTI_PLAYWRIGHT_MCP_VERSION', 'CCTI_REPOMIX_VERSION',
   'CCTI_BUN_VERSION', 'CCTI_CODEGRAPH_VERSION', 'CCTI_FIRECRAWL_CLI_VERSION', 'CCTI_CLAUDE_CODE_ROUTER_VERSION',
   'CCTI_GSTACK_REPO', 'CCTI_GSTACK_COMMIT',
+  'CCTI_PONYTAIL_COMMIT', 'CCTI_TASTE_SKILL_COMMIT', 'CCTI_PLANNING_WITH_FILES_COMMIT', 'CCTI_GRAPHIFY_COMMIT',
 ];
 
 function pinsOf(name) {
@@ -47,7 +48,9 @@ for (const name of adapters) {
 for (const key of expectedPins.filter((key) => key.endsWith('_VERSION'))) {
   assert.match(pins[key], /^\d+\.\d+\.\d+$/, `${key} must be an exact version, not a range or tag.`);
 }
-assert.match(pins.CCTI_GSTACK_COMMIT, /^[0-9a-f]{40}$/, 'CCTI_GSTACK_COMMIT must be a full 40-character commit SHA.');
+for (const key of expectedPins.filter((key) => key.endsWith('_COMMIT'))) {
+  assert.match(pins[key], /^[0-9a-f]{40}$/, `${key} must be a full 40-character commit SHA.`);
+}
 assert.equal(pins.CCTI_GSTACK_REPO, 'https://github.com/garrytan/gstack.git');
 // Pins an adapter may define without using, with the reason.
 const unusedPins = { 'setup-my-claude.ps1': ['CCTI_BUN_VERSION'] }; // Windows never runs gstack's Unix-only setup, so it never installs Bun.
