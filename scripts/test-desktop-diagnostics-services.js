@@ -140,7 +140,7 @@ async function run() {
     const newestIsRetained = await exportDiagnostics(null, { diagnosticId: retainedReports.at(-1).diagnosticId });
     assert.equal(newestIsRetained.ok, true);
 
-    process.env.PATH = Array.from({ length: 5000 }, (_value, index) => `/diagnostics-test-path-${index}`).join(path.delimiter);
+    process.env.PATH = Array.from({ length: 5000 }, (_value, index) => process.platform === 'win32' ? `C:\\diagnostics-test-path-${index}` : `/diagnostics-test-path-${index}`).join(path.delimiter);
     const oversizedDiagnostic = await runDiagnostics();
     assert.ok(Buffer.byteLength(oversizedDiagnostic.report, 'utf8') <= 64 * 1024, 'each retained report must stay within the 64 KiB byte limit');
     assert.match(oversizedDiagnostic.report, /Report truncated at 64 KiB/i);
