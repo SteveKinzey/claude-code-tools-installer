@@ -166,6 +166,7 @@ async function run() {
   try {
     await Promise.all([fsp.mkdir(home, { recursive: true }), fsp.mkdir(project, { recursive: true }), fsp.mkdir(outside, { recursive: true })]);
     await checkPosixExecutablePermissions();
+    await require('./test-component-npm-bigint')(root);
     await fsp.writeFile(path.join(project, 'package.json'), JSON.stringify({ name: 'untrusted-project', scripts: { preinstall: 'touch SHOULD-NOT-RUN', postinstall: 'touch SHOULD-NOT-RUN' } }), 'utf8');
     await fsp.writeFile(path.join(project, '.npmrc'), 'global=true\nprefix=/tmp/not-ccti\nignore-scripts=false\n', 'utf8');
     process.env.PATH = `.${path.delimiter}${originalPath || ''}`;
