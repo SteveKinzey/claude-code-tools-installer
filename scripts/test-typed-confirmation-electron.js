@@ -260,6 +260,7 @@ async function run() {
       saveDisabled: document.querySelector('#save-tester-feedback-button').disabled,
       emailDisabled: document.querySelector('#email-tester-feedback-button').disabled,
       categoryRequired: document.querySelector('#tester-feedback-category').required,
+      followUpType: document.querySelector('#tester-feedback-email').type,
       descriptionCount: document.querySelector('#tester-feedback-actual-count').textContent,
       attachmentButton: document.querySelector('#attach-tester-screenshot-button').textContent.trim(),
     }))()`);
@@ -271,6 +272,7 @@ async function run() {
       saveDisabled: true,
       emailDisabled: true,
       categoryRequired: true,
+      followUpType: 'email',
       descriptionCount: '0 of 4,000 characters',
       attachmentButton: 'Attach a screenshot (optional)…',
     }, 'tester feedback starts with a named modal and no enabled send-like actions');
@@ -282,12 +284,18 @@ async function run() {
       };
       set('#tester-feedback-area', 'Tool details or References', 'change');
       set('#tester-feedback-category', 'Hard to understand', 'change');
+      set('#tester-feedback-email', 'tester@example.com');
       set('#tester-feedback-expected', 'A detail explanation should open without changing my choices.');
       set('#tester-feedback-actual', 'The sample issue did not show the detail explanation.');
       set('#tester-feedback-steps', '1. Open Details. 2. Read the explanation.');
     })()`);
     await waitFor(window, () => !document.querySelector('#save-tester-feedback-button')?.disabled && !document.querySelector('#email-tester-feedback-button')?.disabled, 'completed tester feedback controls');
     assert.match(await evaluate(window, "document.querySelector('#tester-feedback-actual-count').textContent"), /^[1-9][0-9]* of 4,000 characters$/, 'description counter reflects the typed feedback');
+    await waitFor(window, () => {
+      const raw = localStorage.getItem('ccti-tester-feedback-draft-v1');
+      return Boolean(raw && JSON.parse(raw).email === 'tester@example.com');
+    }, 'private local feedback recovery draft');
+    assert.equal(await evaluate(window, "Object.hasOwn(JSON.parse(localStorage.getItem('ccti-tester-feedback-draft-v1')), 'screenshotToken')"), false, 'private recovery drafts never retain screenshot tokens');
     await evaluate(window, "document.querySelector('#attach-tester-screenshot-button').click()");
     await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'chooseTesterFeedbackScreenshot'), 'screenshot selection call');
     await waitFor(window, () => document.querySelector('#tester-screenshot-status')?.textContent.includes('tester-screenshot.png'), 'selected screenshot status');
@@ -306,6 +314,8 @@ async function run() {
     }))()`);
     assert.equal(saveSuccess.success, true, 'saving a local draft gives a distinct success confirmation');
     assert.match(saveSuccess.text, /^Success: Your private feedback draft is saved as ccti-tester-feedback\.txt/i);
+    assert.equal(await evaluate(window, "document.querySelector('#new-tester-feedback-button').hidden"), false, 'a saved draft offers a quick next-issue action');
+    assert.equal(await evaluate(window, "localStorage.getItem('ccti-tester-feedback-draft-v1')"), null, 'successful explicit save clears the private recovery draft');
     await evaluate(window, "document.querySelector('#email-tester-feedback-button').click()");
     await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'openTesterFeedbackEmail'), 'explicit email draft call');
     const savedFeedback = await callsOf(window, 'saveTesterFeedback');
@@ -314,9 +324,20 @@ async function run() {
     assert.equal(emailedFeedback.length, 1, 'one explicit email-draft request is made');
     assert.deepEqual(emailedFeedback[0].payload, savedFeedback[0].payload, 'save and email choices use the same reviewed feedback text');
     assert.equal(savedFeedback[0].payload.category, 'Hard to understand', 'the selected issue category crosses the narrow bridge');
+    assert.equal(savedFeedback[0].payload.email, 'tester@example.com', 'the optional follow-up email crosses the narrow bridge only after explicit feedback actions');
     assert.equal(savedFeedback[0].payload.screenshotToken, 'tester-screenshot-token', 'only an opaque screenshot token crosses the renderer boundary');
     assert.match(savedFeedback[0].payload.actual, /sample issue/i);
     assert.equal(await evaluate(window, "document.querySelector('#tester-feedback-status').textContent.includes('Nothing was sent by CCTI.')"), true, 'email draft status is explicit that CCTI did not send anything');
+    await evaluate(window, "document.querySelector('#new-tester-feedback-button').click()");
+    const resetFeedback = await evaluate(window, `(() => ({
+      area: document.querySelector('#tester-feedback-area').value,
+      category: document.querySelector('#tester-feedback-category').value,
+      email: document.querySelector('#tester-feedback-email').value,
+      actual: document.querySelector('#tester-feedback-actual').value,
+      count: document.querySelector('#tester-feedback-actual-count').textContent,
+      nextHidden: document.querySelector('#new-tester-feedback-button').hidden,
+    }))()`);
+    assert.deepEqual(resetFeedback, { area: '', category: '', email: '', actual: '', count: '0 of 4,000 characters', nextHidden: true }, 'Report another issue clears only the current tester form and prepares a fresh draft');
     await evaluate(window, "document.querySelector('#close-tester-feedback-button').click()");
     await waitFor(window, () => document.querySelector('#tester-feedback-dialog')?.open === false, 'tester feedback close');
     await waitFor(window, () => document.activeElement?.id === 'open-tester-feedback-button', 'tester feedback focus restoration');

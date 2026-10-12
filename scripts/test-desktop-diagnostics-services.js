@@ -162,9 +162,13 @@ async function run() {
     const unsupportedTesterCategory = await saveTesterFeedback(null, { area: 'Something else', category: 'Unknown category', expected: 'Expected behavior', actual: 'Actual behavior' });
     assert.equal(unsupportedTesterCategory.ok, false, 'tester feedback rejects forged categories outside the reviewed list');
     assert.match(unsupportedTesterCategory.error, /listed issue categories/i);
+    const invalidFollowUpEmail = await saveTesterFeedback(null, { area: 'Something else', category: 'Something else', email: 'not-an-email', expected: 'Expected behavior', actual: 'Actual behavior' });
+    assert.equal(invalidFollowUpEmail.ok, false, 'tester feedback rejects malformed optional follow-up email values');
+    assert.match(invalidFollowUpEmail.error, /valid follow-up email/i);
     const testerFeedback = {
       area: 'Tool details or References',
       category: 'Hard to understand',
+      email: 'Tester@example.com',
       expected: 'The Details explanation should open without changing a tool choice.',
       actual: 'The sample issue did not show the explanation.',
       steps: 'Open Details, then read the explanation.',
@@ -179,6 +183,7 @@ async function run() {
     assert.match(savedFeedbackText, /CCTI TESTER FEEDBACK — local draft/);
     assert.match(savedFeedbackText, /This file is created only on this computer/);
     assert.match(savedFeedbackText, /Issue category: Hard to understand/);
+    assert.match(savedFeedbackText, /Follow-up email: tester@example\.com/);
     assert.match(savedFeedbackText, /The sample issue did not show the explanation/);
     assert.doesNotMatch(savedFeedbackText, /fixture-home/, 'the generated feedback template does not add local paths or secrets');
     openDialogResult = { canceled: true, filePaths: [] };

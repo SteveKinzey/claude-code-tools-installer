@@ -711,6 +711,10 @@
             <option value="Something else">Something else</option>
           </select>
         </label>
+        <label class="tester-feedback-field" for="tester-feedback-email">Email for a follow-up (optional)
+          <input id="tester-feedback-email" type="email" inputmode="email" autocomplete="email" maxlength="254" aria-describedby="tester-feedback-email-help">
+        </label>
+        <p id="tester-feedback-email-help" class="tester-feedback-help">Only include this if you want a follow-up. CCTI keeps it only in a private recovery or saved draft on this computer, or in an email draft you choose to open; it does not send anything itself.</p>
         <label class="tester-feedback-field" for="tester-feedback-expected">What did you expect to happen?
           <textarea id="tester-feedback-expected" rows="3" maxlength="4000" required></textarea>
         </label>
@@ -727,7 +731,9 @@
         </div>
         <p class="tester-boundary"><strong>Screenshots stay local:</strong> CCTI never uploads them and does not add them to an email draft. Check the image before saving; do not include passwords, keys, or private project information.</p>
         <p class="tester-boundary"><strong>Keep private information out:</strong> do not include passwords, API keys, private project content, personal contact details, or full computer paths.</p>
+        <p id="tester-feedback-recovery-status" class="tester-feedback-recovery-status">Typed feedback stays in a private recovery draft on this computer until you save, email, or clear it.</p>
         <p id="tester-feedback-status" role="status" aria-live="polite"></p>
+        <button id="new-tester-feedback-button" class="button button-secondary tester-feedback-new-issue" type="button" hidden>Report another issue</button>
         <div class="duplicate-skill-dialog-actions">
           <button id="save-tester-feedback-button" class="button button-secondary tester-feedback-action" type="button" disabled aria-busy="false"><span class="tester-feedback-action-label">Save private draft…</span><span class="tester-feedback-action-spinner" aria-hidden="true" hidden></span></button>
           <button id="email-tester-feedback-button" class="button button-primary tester-feedback-action" type="button" disabled aria-busy="false"><span class="tester-feedback-action-label">Open email draft</span><span class="tester-feedback-action-spinner" aria-hidden="true" hidden></span></button>

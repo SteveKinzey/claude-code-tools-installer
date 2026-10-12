@@ -1692,6 +1692,7 @@ async function copyTesterFeedbackScreenshot(token, feedbackPath) {
 function buildTesterFeedbackReport(payload = {}) {
   const area = normalizedTesterFeedbackText(payload.area, 80);
   const category = normalizedTesterFeedbackText(payload.category, 80);
+  const email = normalizedTesterFeedbackText(payload.email, 254).toLowerCase();
   const expected = normalizedTesterFeedbackText(payload.expected, 4000);
   const actual = normalizedTesterFeedbackText(payload.actual, 4000);
   const steps = normalizedTesterFeedbackText(payload.steps, 4000);
@@ -1700,6 +1701,7 @@ function buildTesterFeedbackReport(payload = {}) {
     return { ok: false, error: 'Choose an area and issue category, then describe what you expected and what happened.' };
   }
   if (!TESTER_FEEDBACK_CATEGORIES.has(category)) return { ok: false, error: 'Choose one of the listed issue categories.' };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Enter a valid follow-up email or leave the optional field blank.' };
   const report = [
     'CCTI TESTER FEEDBACK — local draft',
     'This file is created only on this computer. CCTI does not send it anywhere.',
@@ -1709,6 +1711,7 @@ function buildTesterFeedbackReport(payload = {}) {
     '',
     `Area: ${area}`,
     `Issue category: ${category}`,
+    `Follow-up email: ${email || 'Not provided.'}`,
     '',
     'Expected',
     expected,
@@ -1728,7 +1731,7 @@ function buildTesterFeedbackReport(payload = {}) {
   if (Buffer.byteLength(report, 'utf8') > TESTER_FEEDBACK_MAXIMUM_BYTES) {
     return { ok: false, error: 'This feedback draft is too long. Shorten the description and try again.' };
   }
-  return { ok: true, report, area, category, expected, actual, steps, screenshotToken };
+  return { ok: true, report, area, category, email, expected, actual, steps, screenshotToken };
 }
 
 async function saveTesterFeedbackLocally(payload = {}) {
