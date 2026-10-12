@@ -39,6 +39,13 @@ function childProcess() {
     if (npmBehavior === 'timeout-force-close' && signal === 'SIGKILL') {
       queueMicrotask(() => child.emit('close', -1));
     }
+    if (npmBehavior === 'timeout-kill-error' || npmBehavior === 'timeout-error-later-close') {
+      queueMicrotask(() => child.emit('error', new Error(`fixture ${signal} failed`)));
+      if (npmBehavior === 'timeout-error-later-close' && signal === 'SIGKILL') {
+        queueMicrotask(() => child.emit('close', -1));
+      }
+      return false;
+    }
     return true;
   };
   return child;
@@ -123,6 +130,7 @@ async function restoreLinkedFolder(folder, movedFolder) {
 async function run() {
   try {
     await Promise.all([fsp.mkdir(home, { recursive: true }), fsp.mkdir(project, { recursive: true }), fsp.mkdir(outside, { recursive: true })]);
+    await require('./test-component-npm-bigint')(root);
     await fsp.writeFile(path.join(project, 'package.json'), JSON.stringify({ name: 'untrusted-project', scripts: { preinstall: 'touch SHOULD-NOT-RUN', postinstall: 'touch SHOULD-NOT-RUN' } }), 'utf8');
     await fsp.writeFile(path.join(project, '.npmrc'), 'global=true\nprefix=/tmp/not-ccti\nignore-scripts=false\n', 'utf8');
     process.env.PATH = `.${path.delimiter}${originalPath || ''}`;
@@ -200,7 +208,85 @@ async function run() {
     assert.doesNotMatch(unicodeText, /\uFFFD/, 'split stream chunks and cap boundaries must preserve complete UTF-8 characters');
     assert.ok(Buffer.byteLength(unicodeText, 'utf8') <= 256 * 1024 + 200);
 
-    npmBehavior = 'timeout-stubborn';
+    // No write/chmod may follow a planted npmrc inode. Existing valid config is atomically reset.
+    npmBehavior = 'success';
+    const configRoot = path.join(home, '.setup-my-claude', 'component-npm');
+    const configFile = path.join(configRoot, 'npmrc');
+    const configCache = path.join(configRoot, 'cache');
+    const sentinel = path.join(outside, 'npmrc-sentinel');
+    await fsp.writeFile(sentinel, 'must not be truncated');
+    const sentinelMode = (await fsp.stat(sentinel)).mode;
+    const assertConfigRefused = async (label) => {
+      const previousChild = lastNpmChild;
+      const result = await install(null, { projectPath: project, componentIds: [componentId], dryRun: false });
+      assert.equal(result.ok, false, label);
+      assert.equal(lastNpmChild, previousChild, `${label}: npm must not start`);
+      assert.equal(await fsp.readFile(sentinel, 'utf8'), 'must not be truncated', `${label}: sentinel content preserved`);
+      assert.equal((await fsp.stat(sentinel)).mode, sentinelMode, `${label}: sentinel mode preserved`);
+    };
+    await fsp.unlink(configFile);
+    await fsp.link(sentinel, configFile);
+    await assertConfigRefused('hard-linked npmrc');
+    await fsp.unlink(configFile);
+    if (process.platform !== 'win32') {
+      await fsp.symlink(sentinel, configFile);
+      await assertConfigRefused('symlinked npmrc');
+      await fsp.unlink(configFile);
+    }
+    for (const folder of [configRoot, configCache, path.dirname(configRoot)]) {
+      const moved = path.join(outside, `linked-config-${path.basename(folder)}`);
+      await replaceWithLink(folder, moved);
+      await assertConfigRefused(`linked config ancestor/cache ${folder}`);
+      await restoreLinkedFolder(folder, moved);
+    }
+    await fsp.writeFile(configFile, 'unreviewed saved policy');
+    const oldConfig = await fsp.stat(configFile);
+    assert.equal((await install(null, { projectPath: project, componentIds: [componentId], dryRun: false })).ok, true);
+    assert.equal(await fsp.readFile(configFile, 'utf8'), '');
+    assert.notEqual((await fsp.stat(configFile)).ino, oldConfig.ino, 'config reset publishes a new inode rather than truncating the old file');
+    if (process.platform !== 'win32') assert.equal((await fsp.stat(configFile)).mode & 0o777, 0o600);
+
+    // Inject a destination hard link after exclusive temp creation but before publication.
+    const originalOpen = fsp.open;
+    let swappedConfig = false;
+    fsp.open = async (file, ...args) => {
+      const handle = await originalOpen(file, ...args);
+      if (path.dirname(file) === configRoot && path.basename(file).startsWith('.npmrc-')) {
+        swappedConfig = true;
+        await fsp.unlink(configFile);
+        await fsp.link(sentinel, configFile);
+      }
+      return handle;
+    };
+    try { await assertConfigRefused('npmrc swapped to hard link during preparation'); }
+    finally { fsp.open = originalOpen; }
+    assert.equal(swappedConfig, true, 'race fixture reached exclusive config creation');
+    await fsp.unlink(configFile);
+    assert.deepEqual((await fsp.readdir(configRoot)).filter(name => name.endsWith('.tmp')), [], 'failed config preparation cleans its own temporary file');
+
+    // Inject a parent junction/symlink after the temp handle closes; Windows locks a directory
+    // while that handle is open. Identity checks must still stop before config publication.
+    const movedRaceRoot = path.join(outside, 'config-root-race');
+    let swappedRoot = false;
+    fsp.open = async (file, ...args) => {
+      const handle = await originalOpen(file, ...args);
+      if (path.dirname(file) === configRoot && path.basename(file).startsWith('.npmrc-')) {
+        const close = handle.close.bind(handle);
+        handle.close = async () => {
+          await close();
+          await replaceWithLink(configRoot, movedRaceRoot);
+          swappedRoot = true;
+        };
+      }
+      return handle;
+    };
+    try { await assertConfigRefused('config root swapped during preparation'); }
+    finally { fsp.open = originalOpen; if (swappedRoot) await restoreLinkedFolder(configRoot, movedRaceRoot); }
+    assert.equal(swappedRoot, true);
+    // Changed-ancestor cleanup deliberately leaves the harmless empty temp rather than following it.
+    for (const name of await fsp.readdir(configRoot)) if (name.endsWith('.tmp')) await fsp.unlink(path.join(configRoot, name));
+
+    npmBehavior = 'timeout-kill-error';
     const originalSetTimeout = global.setTimeout;
     global.setTimeout = (callback, delay, ...args) => [10 * 60 * 1000, 5_000, 1_000].includes(delay)
       ? originalSetTimeout(callback, 5, ...args)
@@ -214,6 +300,7 @@ async function run() {
     assert.equal(timedOut.ok, false);
     assert.match(timedOut.error, /timed out after 10 minutes/i);
     assert.match(timedOut.error, /lock remains active/i, 'a non-exited npm child keeps the component lock');
+    assert.match(timedOut.error, /lock remains active/i, 'failed SIGTERM and SIGKILL errors never release the lock before close');
     assert.equal(lastNpmChild.killed, true, 'the timed-out component child receives termination');
     assert.deepEqual(lastNpmChild.killSignals, ['SIGTERM', 'SIGKILL'], 'the timeout gives npm a minimal graceful stop window before SIGKILL');
     const stillRunningNpmChild = lastNpmChild;
@@ -226,7 +313,7 @@ async function run() {
     const afterTimeout = await install(null, { projectPath: project, componentIds: [componentId], dryRun: false });
     assert.equal(afterTimeout.ok, true, 'the component lock is released only after the old npm child closes');
 
-    npmBehavior = 'timeout-force-close';
+    npmBehavior = 'timeout-error-later-close';
     global.setTimeout = (callback, delay, ...args) => [10 * 60 * 1000, 5_000, 1_000].includes(delay)
       ? originalSetTimeout(callback, 5, ...args) : originalSetTimeout(callback, delay, ...args);
     let closedTimeout;
@@ -240,6 +327,9 @@ async function run() {
     } else {
       assert.match(closedTimeout.error, /CCTI stopped npm/);
     }
+    assert.deepEqual(lastNpmChild.killSignals, ['SIGTERM', 'SIGKILL'], 'post-timeout error does not cancel escalation before later close');
+    npmBehavior = 'success';
+    assert.equal((await install(null, { projectPath: project, componentIds: [componentId], dryRun: false })).ok, true, 'later close unlocks a retry after failed termination signals');
 
     // Cleanup destination root: a CCTI backup folder swapped to a link after review is refused.
     await writeSkill(path.join(skillRoot, 'cleanup-skill'), 'cleanup');
