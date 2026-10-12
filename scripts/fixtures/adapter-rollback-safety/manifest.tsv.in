@@ -1,0 +1,17 @@
+2026-10-10T00:00:00Z	path	__HOME__/.claude/reference-repos/learn-claude-code		learn-claude-code
+2026-10-10T00:00:01Z	path	__HOME__/.claude/skills/gstack		gstack
+2026-10-10T00:00:02Z	skill	__PROJECT__/.claude/skills/design-taste-frontend		taste-skill
+2026-10-10T00:00:03Z	managed-runtime	__HOME__/.setup-my-claude/node-runtime		node-runtime
+2026-10-10T00:00:04Z	npm-global	repomix	repomix	repomix
+2026-10-10T00:00:05Z	mcp	repomix		repomix
+2026-10-10T00:00:06Z	manual-review	claude-mem	Run docs uninstall steps	claude-mem
+2026-10-10T00:00:07Z	path	__HOME__		learn-claude-code
+2026-10-10T00:00:08Z	path	/		learn-claude-code
+2026-10-10T00:00:09Z	path	relative/path		learn-claude-code
+2026-10-10T00:00:10Z	path	__HOME__/../sentinel		learn-claude-code
+2026-10-10T00:00:11Z	path	__HOME__/.claude/reference-repos/multica		multica
+2026-10-10T00:00:12Z	path	__HOME__/.claude/reference-repos/learn-claude-code		gstack
+2026-10-10T00:00:13Z	npm-global	unreviewed-package	codegraph	codegraph
+2026-10-10T00:00:14Z	mcp	unreviewed-mcp		playwright-mcp
+2026-10-10T00:00:15Z	manual-review	other-manual-target		claude-mem
+2026-10-10T00:00:16Z	unknown-kind	ignored		learn-claude-code

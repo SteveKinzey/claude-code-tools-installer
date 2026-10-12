@@ -202,7 +202,7 @@ async function run() {
     assert.match(unavailableStatus.message, /GitHub did not respond within 12 seconds/i);
     assert.match(unavailableStatus.message, /Check your internet connection/i);
     assert.match(unavailableStatus.message, /No GitHub sign-in is required/i);
-    // Windows builds are not code-signed: their update status must describe an integrity check
+    // Windows builds are not code-signed: describe feed corruption checks, not authenticity.
     // and never claim a signature. (macOS wording, asserted above, keeps "signed".)
     Object.defineProperty(process, 'platform', { ...originalPlatformDescriptor, value: 'win32' });
     global.fetch = async (url) => {
@@ -220,11 +220,13 @@ async function run() {
     const windowsEventsStart = sentEvents.length;
     const windowsStatus = await check();
     assert.equal(windowsStatus.state, 'available');
-    assert.match(windowsStatus.message, /checks its integrity before installing/i);
+    assert.match(windowsStatus.message, /feed checksum detects transfer corruption/i);
+    assert.match(windowsStatus.message, /does not verify publisher identity/i);
     assert.doesNotMatch(windowsStatus.message, /signed/i);
     const windowsDownloaded = await download();
     assert.equal(windowsDownloaded.state, 'downloaded');
-    assert.match(windowsDownloaded.message, /passed its integrity check/i);
+    assert.match(windowsDownloaded.message, /feed checksum corruption check/i);
+    assert.match(windowsDownloaded.message, /not publisher or public GitHub SHA-256 verification/i);
     const windowsMessages = sentEvents.slice(windowsEventsStart).filter((event) => event.channel === 'updates:status').map((event) => String(event.payload?.message || ''));
     assert.ok(windowsMessages.length >= 2, 'Windows update progress must be reported');
     for (const message of windowsMessages) assert.doesNotMatch(message, /signed/i, `Windows update status must not claim a signature: ${message}`);
