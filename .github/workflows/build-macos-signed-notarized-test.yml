@@ -82,7 +82,14 @@ jobs:
           echo "CSC_LINK=$certificate_path" >> "$GITHUB_ENV"
 
       - name: Install desktop dependencies
-        run: npm ci
+        shell: bash
+        run: |
+          if [[ -f package-lock.json ]]; then
+            npm ci
+          else
+            echo "No package-lock.json exists in the requested historical source; resolving dependencies for this test-only build."
+            npm install --no-audit --no-fund --package-lock=false
+          fi
 
       - name: Validate desktop contracts
         run: npm run check
