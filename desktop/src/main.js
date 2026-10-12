@@ -2563,7 +2563,7 @@ async function prepareComponentNpmConfig() {
   const unsafe = () => new Error('CCTI npm config/cache paths changed or contain a link or unsafe file. Nothing was started. Review the CCTI state folder before retrying.');
   const verifyDirectories = async () => {
     for (const entry of verified) {
-      const current = await fs.lstat(entry.folder);
+      const current = await fs.lstat(entry.folder, { bigint: true });
       if (current.isSymbolicLink() || !current.isDirectory() || current.dev !== entry.dev || current.ino !== entry.ino || await fs.realpath(entry.folder) !== entry.real) throw unsafe();
     }
   };
@@ -2571,7 +2571,7 @@ async function prepareComponentNpmConfig() {
     await verifyDirectories();
     // Create one level at a time; recursive mkdir could follow an unreviewed ancestor link.
     try { await fs.mkdir(folder, { mode: 0o700 }); } catch (error) { if (error.code !== 'EEXIST') throw error; }
-    const stat = await fs.lstat(folder);
+    const stat = await fs.lstat(folder, { bigint: true });
     const real = await fs.realpath(folder);
     const expected = path.join(home, path.relative(app.getPath('home'), folder));
     if (stat.isSymbolicLink() || !stat.isDirectory() || real !== expected) throw unsafe();
@@ -2579,8 +2579,8 @@ async function prepareComponentNpmConfig() {
   }
   const verifyConfig = async () => {
     try {
-      const stat = await fs.lstat(userconfig);
-      if (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1) throw unsafe();
+      const stat = await fs.lstat(userconfig, { bigint: true });
+      if (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1n) throw unsafe();
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   };
   await verifyDirectories();
@@ -2593,22 +2593,22 @@ async function prepareComponentNpmConfig() {
     // Exclusive creation never truncates an existing inode. NOFOLLOW is defense in depth on
     // POSIX; O_EXCL protects an existing link on Windows too. chmod operates on our open handle.
     handle = await fs.open(temporary, nodeFs.constants.O_WRONLY | nodeFs.constants.O_CREAT | nodeFs.constants.O_EXCL | (nodeFs.constants.O_NOFOLLOW || 0), 0o600);
-    created = await handle.stat();
+    created = await handle.stat({ bigint: true });
     await handle.chmod(0o600);
     await handle.sync();
     await handle.close();
     handle = null;
     await verifyDirectories();
     await verifyConfig();
-    const pending = await fs.lstat(temporary);
-    if (pending.isSymbolicLink() || !pending.isFile() || pending.nlink !== 1 || pending.dev !== created.dev || pending.ino !== created.ino) throw unsafe();
+    const pending = await fs.lstat(temporary, { bigint: true });
+    if (pending.isSymbolicLink() || !pending.isFile() || pending.nlink !== 1n || pending.dev !== created.dev || pending.ino !== created.ino) throw unsafe();
     // Rename replaces a directory entry, never follows/truncates an old npmrc link or hard link.
     await fs.rename(temporary, userconfig);
     published = true;
     await verifyDirectories();
     await verifyConfig();
-    const current = await fs.lstat(userconfig);
-    if (current.dev !== created.dev || current.ino !== created.ino || current.size !== 0) throw unsafe();
+    const current = await fs.lstat(userconfig, { bigint: true });
+    if (current.dev !== created.dev || current.ino !== created.ino || current.size !== 0n) throw unsafe();
   } finally {
     await handle?.close();
     if (!published) {
