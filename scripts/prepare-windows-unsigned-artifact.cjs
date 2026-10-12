@@ -25,9 +25,9 @@ function prepare({source, controller, artifacts, tag, expectedCommit, controller
   const entries = git('ls-tree','-r', '--name-only',tag).split('\n');
   const hashes = {};
   for (const file of entries) {
-    const tagged = cp.execFileSync('git',['-C',controller,'show',`${tag}:${file}`],{maxBuffer:64*1024*1024});
+    const tagged = cp.execFileSync('git',['-C',controller,'cat-file','blob',`${tag}:${file}`],{maxBuffer:64*1024*1024});
     const exported = fs.readFileSync(path.join(source,file));
-    assert.ok(tagged.equals(exported), `Exported tagged source mismatch: ${file}`);
+    assert.ok(tagged.equals(exported), `Exported tagged source mismatch: ${file}; blob=${tagged.length}/${digest(tagged)} archive=${exported.length}/${digest(exported)} firstBlob=${tagged.subarray(0,24).toString('hex')} firstArchive=${exported.subarray(0,24).toString('hex')}`);
     if (file.startsWith('desktop/src/') || ['desktop/package.json','desktop/package-lock.json','setup-my-claude.ps1','setup-my-claude.sh','setup-my-claude-linux.sh'].includes(file)) hashes[file]=digest(tagged);
   }
   const pkg = JSON.parse(fs.readFileSync(path.join(source,'desktop/package.json')));
