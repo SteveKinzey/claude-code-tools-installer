@@ -142,12 +142,20 @@ Module._load = function patchedLoad(request, parent, isMain) {
       if (['/usr/bin/open', '/usr/bin/osascript'].includes(String(candidate))) return { isFile: () => true };
       return fs.statSync(candidate, ...args);
     },
+    accessSync(candidate, mode) {
+      if (mode === fs.constants.X_OK && ['/usr/bin/open', '/usr/bin/osascript'].includes(String(candidate))) return;
+      return fs.accessSync(candidate, mode);
+    },
   };
   if (request === 'node:fs' && platform === 'linux') return {
     ...fs,
     statSync(candidate, ...args) {
       if (Object.values(commandLocations).includes(String(candidate)) && String(candidate).startsWith('/usr/bin/')) return { isFile: () => true };
       return fs.statSync(candidate, ...args);
+    },
+    accessSync(candidate, mode) {
+      if (mode === fs.constants.X_OK && Object.values(commandLocations).includes(String(candidate)) && String(candidate).startsWith('/usr/bin/')) return;
+      return fs.accessSync(candidate, mode);
     },
   };
   if (request === 'node:child_process') return { spawn: fakeSpawn };

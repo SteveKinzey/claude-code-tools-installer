@@ -7,6 +7,7 @@ const fsp = require('node:fs/promises');
 const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
+const vm = require('node:vm');
 const { cmdQuote } = require('../desktop/src/windows-command');
 delete require.cache[require.resolve('../desktop/src/windows-command')];
 
@@ -127,9 +128,44 @@ async function restoreLinkedFolder(folder, movedFolder) {
   await fsp.rename(movedFolder, folder);
 }
 
+async function checkPosixExecutablePermissions() {
+  if (process.platform === 'win32') return; // Windows PATHEXT/.cmd resolution has its own gate.
+  const source = await fsp.readFile(path.join(root, 'desktop', 'src', 'main.js'), 'utf8');
+  const begin = source.indexOf('function trustedExecutable(command, env)');
+  const end = source.indexOf('function catalogResource()', begin);
+  assert.ok(begin >= 0 && end > begin, 'exact resolver source boundary is present');
+  const context = { process, path, nodeFs: fs };
+  vm.createContext(context);
+  vm.runInContext(`${source.slice(begin, end)}\nglobalThis.resolve = trustedExecutable;`, context);
+  const first = path.join(outside, 'first-path');
+  const second = path.join(outside, 'second-path');
+  const shims = path.join(outside, 'shims');
+  await Promise.all([first, second, shims].map(folder => fsp.mkdir(folder)));
+  const denied = path.join(first, 'fixture-tool');
+  const valid = path.join(second, 'fixture-tool');
+  await fsp.writeFile(denied, '#!/bin/sh\n', { mode: 0o600 });
+  await fsp.writeFile(valid, '#!/bin/sh\n', { mode: 0o700 });
+  await fsp.symlink(valid, path.join(shims, 'valid-shim'));
+  await fsp.symlink(denied, path.join(shims, 'denied-shim'));
+  await fsp.symlink(path.join(outside, 'missing-target'), path.join(shims, 'broken-shim'));
+  assert.equal(context.resolve('fixture-tool', { PATH: `${first}:${second}` }), valid, 'non-executable PATH shadow must not hide the later executable');
+  assert.throws(() => context.resolve(denied, {}), /could not execute.*Nothing was started/i, 'explicit non-executable path has actionable refusal');
+  assert.equal(context.resolve(valid, {}), valid, 'explicit executable remains supported');
+  assert.equal(context.resolve('valid-shim', { PATH: shims }), path.join(shims, 'valid-shim'), 'executable symlink shim remains supported');
+  assert.throws(() => context.resolve('denied-shim', { PATH: shims }), /Nothing was started/, 'non-executable shim refused');
+  assert.throws(() => context.resolve('broken-shim', { PATH: shims }), /Nothing was started/, 'dangling shim refused');
+  assert.throws(() => context.resolve('./fixture-tool', { PATH: second }), /absolute trusted PATH/, 'relative command remains refused');
+  assert.equal(context.resolve('fixture-tool', { PATH: `.::${second}` }), valid, 'relative/empty PATH entries remain excluded');
+  assert.throws(() => context.resolve('absent-tool', { PATH: `${first}:${second}` }), /Nothing was started/, 'missing command refused');
+  assert.throws(() => context.resolve(first, {}), /could not execute.*Nothing was started/i, 'directory is not executable command');
+  assert.throws(() => context.resolve('fixture-tool', { PATH: first }), /Nothing was started/, 'all non-executable candidates refused rather than returned bare');
+  assert.throws(() => context.resolve(path.join(outside, 'missing-file'), {}), /could not execute.*Nothing was started/i, 'missing explicit command is actionable');
+}
+
 async function run() {
   try {
     await Promise.all([fsp.mkdir(home, { recursive: true }), fsp.mkdir(project, { recursive: true }), fsp.mkdir(outside, { recursive: true })]);
+    await checkPosixExecutablePermissions();
     await fsp.writeFile(path.join(project, 'package.json'), JSON.stringify({ name: 'untrusted-project', scripts: { preinstall: 'touch SHOULD-NOT-RUN', postinstall: 'touch SHOULD-NOT-RUN' } }), 'utf8');
     await fsp.writeFile(path.join(project, '.npmrc'), 'global=true\nprefix=/tmp/not-ccti\nignore-scripts=false\n', 'utf8');
     process.env.PATH = `.${path.delimiter}${originalPath || ''}`;
@@ -175,6 +211,11 @@ async function run() {
     const paths = await runtimePaths();
     assert.equal(paths.cctiCommandPath.split(path.delimiter).includes('.'), false, 'relative POSIX PATH entries are removed before process launch');
 
+    const shadowNpm = path.join(home, '.local', 'bin', 'npm');
+    if (process.platform !== 'win32') {
+      await fsp.mkdir(path.dirname(shadowNpm), { recursive: true });
+      await fsp.writeFile(shadowNpm, '#!/bin/sh\n', { mode: 0o600 });
+    }
     const installed = await install(null, { projectPath: project, componentIds: [componentId], dryRun: false });
     assert.equal(installed.ok, true, installed.error);
     const npmSpawn = spawns.findLast((entry) => entry.child === lastNpmChild);
@@ -188,6 +229,8 @@ async function run() {
       assert.deepEqual(npmSpawn.args, []);
     } else {
       assert.ok(path.isAbsolute(npmSpawn.command), 'component npm resolves to an absolute executable');
+      assert.notEqual(npmSpawn.command, shadowNpm, 'actual install handler skips the non-executable home-bin npm shadow');
+      fs.accessSync(npmSpawn.command, fs.constants.X_OK);
       assert.deepEqual(npmSpawn.args.slice(0, 9), expectedArgs);
     }
     assert.equal(Object.keys(npmSpawn.options.env).some((key) => key.toLowerCase().startsWith('npm_config_')), false, 'inherited npm policy does not reach component npm');
