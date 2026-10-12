@@ -96,7 +96,7 @@ jobs:
           if ($env:SOURCE_TAG -notmatch '^v\d{4}\.\d{2}\.\d{2}\.\d{2}$' -or $env:SOURCE_COMMIT -notmatch '^[0-9a-f]{40}$') { throw 'Require immutable daily tag and expected full SHA.' }
           $actual = git rev-parse "$($env:SOURCE_TAG)^{commit}"
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_COMMIT) { throw 'Tag commit differs from expected source.' }
-          git archive --format=tar --output="$env:RUNNER_TEMP\source.tar" $env:SOURCE_TAG
+          git -c core.autocrlf=false archive --format=tar --output="$env:RUNNER_TEMP\source.tar" $env:SOURCE_TAG
           if ($LASTEXITCODE -ne 0) { throw 'Could not export tagged source.' }
           New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\product" | Out-Null
           tar -xf "$env:RUNNER_TEMP\source.tar" -C "$env:GITHUB_WORKSPACE\product"
