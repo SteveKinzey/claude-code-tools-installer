@@ -32,6 +32,7 @@ const state = {
   terminalReport: { id: '', report: '' },
   terminalDialogInvoker: null,
   componentLibraryInvoker: null,
+  testerDialogInvoker: null,
 };
 let diagnosticExpiryTimer = null;
 
@@ -84,6 +85,19 @@ const terminalReportFilterSummaryElement = document.querySelector('#terminal-rep
 const terminalReportPreviewElement = document.querySelector('#terminal-report-preview');
 const terminalReportStatusElement = document.querySelector('#terminal-report-status');
 const saveTerminalReportButton = document.querySelector('#save-terminal-report-button');
+const openTestChangelogButton = document.querySelector('#open-test-changelog-button');
+const openTesterFeedbackButton = document.querySelector('#open-tester-feedback-button');
+const testChangelogDialogElement = document.querySelector('#test-changelog-dialog');
+const testChangelogHeadingElement = document.querySelector('#test-changelog-heading');
+const testerFeedbackDialogElement = document.querySelector('#tester-feedback-dialog');
+const testerFeedbackHeadingElement = document.querySelector('#tester-feedback-heading');
+const testerFeedbackAreaElement = document.querySelector('#tester-feedback-area');
+const testerFeedbackExpectedElement = document.querySelector('#tester-feedback-expected');
+const testerFeedbackActualElement = document.querySelector('#tester-feedback-actual');
+const testerFeedbackStepsElement = document.querySelector('#tester-feedback-steps');
+const testerFeedbackStatusElement = document.querySelector('#tester-feedback-status');
+const saveTesterFeedbackButton = document.querySelector('#save-tester-feedback-button');
+const emailTesterFeedbackButton = document.querySelector('#email-tester-feedback-button');
 const toggleReferencesButton = document.querySelector('#toggle-references-button');
 const referencesContentElement = document.querySelector('#references-content');
 const referenceSearchElement = document.querySelector('#reference-search');
@@ -1370,7 +1384,67 @@ function restoreTerminalDialogFocus() {
     if (invoker?.isConnected) invoker.focus();
   }, 0);
 }
-
+function openTesterDialog(dialog, heading) {
+  if (typeof dialog?.showModal !== 'function') return;
+  if (document.activeElement instanceof HTMLElement && !dialog.contains(document.activeElement)) state.testerDialogInvoker = document.activeElement;
+  if (!dialog.open) dialog.showModal();
+  focusDuplicateDialog(heading);
+}
+function restoreTesterDialogFocus() {
+  const invoker = state.testerDialogInvoker;
+  state.testerDialogInvoker = null;
+  setTimeout(() => {
+    if (invoker?.isConnected && !invoker.disabled) invoker.focus();
+  }, 0);
+}
+function testerFeedbackPayload() {
+  return {
+    area: testerFeedbackAreaElement.value,
+    expected: testerFeedbackExpectedElement.value,
+    actual: testerFeedbackActualElement.value,
+    steps: testerFeedbackStepsElement.value,
+  };
+}
+function updateTesterFeedbackControls() {
+  const { area, expected, actual } = testerFeedbackPayload();
+  const complete = Boolean(area && expected.trim() && actual.trim());
+  saveTesterFeedbackButton.disabled = !complete;
+  emailTesterFeedbackButton.disabled = !complete;
+}
+function showTesterFeedbackStatus(message, isError = false) {
+  testerFeedbackStatusElement.textContent = message;
+  testerFeedbackStatusElement.classList.toggle('is-error', isError);
+}
+async function saveTesterFeedback() {
+  if (saveTesterFeedbackButton.disabled || typeof window.installer.saveTesterFeedback !== 'function') return;
+  saveTesterFeedbackButton.disabled = true;
+  emailTesterFeedbackButton.disabled = true;
+  showTesterFeedbackStatus('Opening a save box for your private tester feedback draft…');
+  try {
+    const result = await window.installer.saveTesterFeedback(testerFeedbackPayload());
+    if (!result.ok) showTesterFeedbackStatus(result.error || 'CCTI could not save the tester feedback.', true);
+    else if (result.canceled) showTesterFeedbackStatus('No file was saved. Your text is still here in the form.');
+    else showTesterFeedbackStatus(`Saved ${result.filename} on this computer. CCTI did not send it anywhere.`);
+  } catch {
+    showTesterFeedbackStatus('CCTI could not save the tester feedback. Your text is still here in the form.', true);
+  } finally {
+    updateTesterFeedbackControls();
+  }
+}
+async function openTesterFeedbackEmail() {
+  if (emailTesterFeedbackButton.disabled || typeof window.installer.openTesterFeedbackEmail !== 'function') return;
+  saveTesterFeedbackButton.disabled = true;
+  emailTesterFeedbackButton.disabled = true;
+  showTesterFeedbackStatus('Opening an email draft for you to review…');
+  try {
+    const result = await window.installer.openTesterFeedbackEmail(testerFeedbackPayload());
+    showTesterFeedbackStatus(result.ok ? result.message : result.error || 'CCTI could not open an email draft.', !result.ok);
+  } catch {
+    showTesterFeedbackStatus('CCTI could not open an email draft. Save the private draft instead.', true);
+  } finally {
+    updateTesterFeedbackControls();
+  }
+}
 function openTerminalProfileGuide() {
   terminalProfileGuideStatusElement.textContent = '';
   openTerminalDialog(terminalProfileGuideDialogElement, terminalProfileGuideHeadingElement);
@@ -3407,6 +3481,20 @@ terminalReportDialogElement.addEventListener('close', () => {
   terminalReportFilterSummaryElement.textContent = '';
   restoreTerminalDialogFocus();
 });
+openTestChangelogButton.addEventListener('click', () => openTesterDialog(testChangelogDialogElement, testChangelogHeadingElement));
+openTesterFeedbackButton.addEventListener('click', () => {
+  showTesterFeedbackStatus('');
+  updateTesterFeedbackControls();
+  openTesterDialog(testerFeedbackDialogElement, testerFeedbackHeadingElement);
+});
+for (const input of [testerFeedbackAreaElement, testerFeedbackExpectedElement, testerFeedbackActualElement, testerFeedbackStepsElement]) {
+  input.addEventListener('input', updateTesterFeedbackControls);
+  input.addEventListener('change', updateTesterFeedbackControls);
+}
+saveTesterFeedbackButton.addEventListener('click', saveTesterFeedback);
+emailTesterFeedbackButton.addEventListener('click', openTesterFeedbackEmail);
+testChangelogDialogElement.addEventListener('close', restoreTesterDialogFocus);
+testerFeedbackDialogElement.addEventListener('close', restoreTesterDialogFocus);
 toggleReferencesButton.addEventListener('click', toggleReferences);
 referenceSearchElement.addEventListener('input', renderReferences);
 recheckClaudeButton.addEventListener('click', async () => {

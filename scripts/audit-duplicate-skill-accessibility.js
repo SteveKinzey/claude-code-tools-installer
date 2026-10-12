@@ -196,6 +196,7 @@ async function run() {
       { id: 'terminal-profile-guide-status', role: 'status', live: 'polite', busy: null },
       { id: 'terminal-report-filter-summary', role: 'status', live: 'polite', busy: null },
       { id: 'terminal-report-status', role: 'status', live: 'polite', busy: null },
+      { id: 'tester-feedback-status', role: 'status', live: 'polite', busy: null },
       { id: 'runtime-path-health-cards', role: null, live: 'polite', busy: null },
       { id: 'runtime-path-health-summary', role: 'status', live: 'polite', busy: null },
     ];

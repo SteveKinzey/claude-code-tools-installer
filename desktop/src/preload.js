@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('installer', {
     },
   }),
   exportDiagnosticReport: (payload) => ipcRenderer.invoke('diagnostics:export', payload),
+  saveTesterFeedback: (payload) => ipcRenderer.invoke('tester-feedback:save-local', payload),
+  openTesterFeedbackEmail: (payload) => ipcRenderer.invoke('tester-feedback:open-email', payload),
   getUpdateStatus: () => ipcRenderer.invoke('updates:get-status'),
   downloadAvailableUpdate: () => ipcRenderer.invoke('updates:download'),
   installDownloadedUpdate: () => ipcRenderer.invoke('updates:install'),

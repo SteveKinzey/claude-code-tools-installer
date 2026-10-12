@@ -1597,6 +1597,81 @@ function rememberDiagnosticReport(report) {
   return diagnosticId;
 }
 
+const TESTER_FEEDBACK_MAXIMUM_BYTES = 16 * 1024;
+const TESTER_FEEDBACK_SUPPORT_EMAIL = 'support@sk-america.com';
+
+function normalizedTesterFeedbackText(value, maximumLength) {
+  return String(value || '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .trim()
+    .slice(0, maximumLength);
+}
+
+function buildTesterFeedbackReport(payload = {}) {
+  const area = normalizedTesterFeedbackText(payload.area, 80);
+  const expected = normalizedTesterFeedbackText(payload.expected, 4000);
+  const actual = normalizedTesterFeedbackText(payload.actual, 4000);
+  const steps = normalizedTesterFeedbackText(payload.steps, 4000);
+  if (!area || !expected || !actual) {
+    return { ok: false, error: 'Choose an area and describe what you expected and what happened.' };
+  }
+  const report = [
+    'CCTI TESTER FEEDBACK — local draft',
+    'This file is created only on this computer. CCTI does not send it anywhere.',
+    `Created: ${new Date().toISOString()}`,
+    `CCTI version: ${currentAppVersion()}`,
+    `Platform: ${process.platform} ${process.arch}`,
+    '',
+    `Area: ${area}`,
+    '',
+    'Expected',
+    expected,
+    '',
+    'What happened',
+    actual,
+    '',
+    'Steps to repeat',
+    steps || 'Not provided.',
+    '',
+    'Privacy reminder',
+    'Do not include passwords, API keys, private project content, personal contact details, or full computer paths.',
+  ].join('\n');
+  if (Buffer.byteLength(report, 'utf8') > TESTER_FEEDBACK_MAXIMUM_BYTES) {
+    return { ok: false, error: 'This feedback draft is too long. Shorten the description and try again.' };
+  }
+  return { ok: true, report, area, expected, actual, steps };
+}
+
+async function saveTesterFeedbackLocally(payload = {}) {
+  const result = buildTesterFeedbackReport(payload);
+  if (!result.ok) return result;
+  try {
+    const destination = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save CCTI tester feedback',
+      defaultPath: `ccti-tester-feedback-${new Date().toISOString().slice(0, 10)}.txt`,
+      filters: [{ name: 'Text file', extensions: ['txt'] }],
+    });
+    if (destination.canceled || !destination.filePath) return { ok: true, canceled: true };
+    await fs.writeFile(destination.filePath, `${result.report}\n`, { encoding: 'utf8', mode: 0o600 });
+    return { ok: true, canceled: false, filename: path.basename(destination.filePath) };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not save the tester feedback: ${error.message}` };
+  }
+}
+
+async function openTesterFeedbackEmail(payload = {}) {
+  const result = buildTesterFeedbackReport(payload);
+  if (!result.ok) return result;
+  const subject = encodeURIComponent(`CCTI tester feedback — ${result.area}`);
+  const body = encodeURIComponent(`${result.report}\n\nPlease review this draft before sending.`);
+  try {
+    await shell.openExternal(`mailto:${TESTER_FEEDBACK_SUPPORT_EMAIL}?subject=${subject}&body=${body}`);
+    return { ok: true, message: 'Your email app opened with a draft. Nothing was sent by CCTI.' };
+  } catch {
+    return { ok: false, error: 'CCTI could not open your email app. Save the local draft instead.' };
+  }
+}
+
 async function exportDiagnosticReport({ diagnosticId } = {}) {
   purgeExpiredDiagnosticReports();
   const stored = diagnosticReports.get(String(diagnosticId || ''));
@@ -4861,6 +4936,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('diagnostics:run', runDiagnostics);
   ipcMain.handle('diagnostics:get-runtime-paths', async () => runtimePathSnapshot());
   ipcMain.handle('diagnostics:export', async (_event, payload) => exportDiagnosticReport(payload || {}));
+  ipcMain.handle('tester-feedback:save-local', async (_event, payload) => saveTesterFeedbackLocally(payload || {}));
+  ipcMain.handle('tester-feedback:open-email', async (_event, payload) => openTesterFeedbackEmail(payload || {}));
   ipcMain.handle('updates:get-status', async () => ({ ...updateStatus }));
   ipcMain.handle('updates:check', checkForUpdates);
   ipcMain.handle('updates:download', downloadAvailableUpdate);

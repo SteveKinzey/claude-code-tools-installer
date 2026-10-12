@@ -172,6 +172,15 @@ if (!main.includes('async function launchClaudeCode') || !main.includes('async f
 if (!html.includes('id="run-diagnostics-button"') || !html.includes('id="copy-diagnostics-button"') || !html.includes('id="export-diagnostics-button"') || !renderer.includes('async function runDiagnostics()') || !renderer.includes('async function copyDiagnosticResults()') || !renderer.includes('async function exportDiagnosticResults()')) {
   throw new Error('Desktop settings must provide local diagnostics with copy and text-export controls.');
 }
+if (!html.includes('id="open-test-changelog-button"') || !html.includes('id="open-tester-feedback-button"') || !html.includes('id="test-changelog-dialog"') || !html.includes('id="tester-feedback-dialog"') || !html.includes('id="save-tester-feedback-button"') || !html.includes('id="email-tester-feedback-button"') || !renderer.includes('function openTesterDialog(') || !renderer.includes('function updateTesterFeedbackControls()') || !renderer.includes('async function saveTesterFeedback()') || !renderer.includes('async function openTesterFeedbackEmail()') || !styles.includes('.tester-tools-panel') || !styles.includes('.tester-feedback-field')) {
+  throw new Error('CCTI test builds must show a clear changelog and a local-first, accessible tester feedback form.');
+}
+if (!preload.includes("saveTesterFeedback: (payload) => ipcRenderer.invoke('tester-feedback:save-local', payload)") || !preload.includes("openTesterFeedbackEmail: (payload) => ipcRenderer.invoke('tester-feedback:open-email', payload)") || !main.includes("ipcMain.handle('tester-feedback:save-local'") || !main.includes("ipcMain.handle('tester-feedback:open-email'") || !main.includes('async function saveTesterFeedbackLocally(') || !main.includes('async function openTesterFeedbackEmail(') || !html.includes('CCTI never sends this form by itself.')) {
+  throw new Error('Tester feedback must use narrow local-save or explicit email-draft IPC operations.');
+}
+if (/tester-feedback:[\s\S]{0,1000}(?:fetch\(|https?:\/\/|net\.request)/.test(main)) {
+  throw new Error('Tester feedback must never be sent over the network by CCTI.');
+}
 if (!html.includes('id="runtime-path-health"') || !html.includes('id="runtime-path-health-cards"') || !html.includes('id="runtime-path-health-summary"') || !renderer.includes('function renderRuntimePathHealth(snapshot, diagnostic)') || !renderer.includes('function clearRuntimePathHealth()') || !renderer.includes('window.installer.getRuntimePaths()') || !styles.includes('.runtime-path-health-cards') || !preload.includes("getRuntimePaths: async () =>") || !main.includes("ipcMain.handle('diagnostics:get-runtime-paths'")) {
   throw new Error('Desktop diagnostics must display a local-only runtime PATH health summary through the fixed renderer bridge.');
 }
