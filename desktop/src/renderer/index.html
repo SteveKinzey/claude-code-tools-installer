@@ -715,8 +715,9 @@
           <textarea id="tester-feedback-expected" rows="3" maxlength="4000" required></textarea>
         </label>
         <label class="tester-feedback-field" for="tester-feedback-actual">What happened instead?
-          <textarea id="tester-feedback-actual" rows="4" maxlength="4000" required></textarea>
+          <textarea id="tester-feedback-actual" rows="4" maxlength="4000" required aria-describedby="tester-feedback-actual-count"></textarea>
         </label>
+        <p id="tester-feedback-actual-count" class="tester-feedback-character-count">0 of 4,000 characters</p>
         <label class="tester-feedback-field" for="tester-feedback-steps">Steps that may help repeat it (optional)
           <textarea id="tester-feedback-steps" rows="3" maxlength="4000"></textarea>
         </label>

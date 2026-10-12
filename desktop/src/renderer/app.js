@@ -96,6 +96,7 @@ const testerFeedbackAreaElement = document.querySelector('#tester-feedback-area'
 const testerFeedbackCategoryElement = document.querySelector('#tester-feedback-category');
 const testerFeedbackExpectedElement = document.querySelector('#tester-feedback-expected');
 const testerFeedbackActualElement = document.querySelector('#tester-feedback-actual');
+const testerFeedbackActualCountElement = document.querySelector('#tester-feedback-actual-count');
 const testerFeedbackStepsElement = document.querySelector('#tester-feedback-steps');
 const testerFeedbackStatusElement = document.querySelector('#tester-feedback-status');
 const saveTesterFeedbackButton = document.querySelector('#save-tester-feedback-button');
@@ -1417,9 +1418,14 @@ function updateTesterFeedbackControls() {
   saveTesterFeedbackButton.disabled = !complete;
   emailTesterFeedbackButton.disabled = !complete;
 }
-function showTesterFeedbackStatus(message, isError = false) {
+function updateTesterFeedbackActualCount() {
+  const maximum = Number(testerFeedbackActualElement.maxLength) || 4000;
+  testerFeedbackActualCountElement.textContent = `${testerFeedbackActualElement.value.length.toLocaleString()} of ${maximum.toLocaleString()} characters`;
+}
+function showTesterFeedbackStatus(message, state = 'neutral') {
   testerFeedbackStatusElement.textContent = message;
-  testerFeedbackStatusElement.classList.toggle('is-error', isError);
+  testerFeedbackStatusElement.classList.toggle('is-error', state === 'error');
+  testerFeedbackStatusElement.classList.toggle('is-success', state === 'success');
 }
 function setTesterFeedbackActionLoading(button, loading, label) {
   button.disabled = loading;
@@ -1460,18 +1466,18 @@ async function saveTesterFeedback() {
   showTesterFeedbackStatus('Opening a save box for your private tester feedback draft…');
   try {
     const result = await window.installer.saveTesterFeedback(testerFeedbackPayload());
-    if (!result.ok) showTesterFeedbackStatus(result.error || 'CCTI could not save the tester feedback.', true);
+    if (!result.ok) showTesterFeedbackStatus(result.error || 'CCTI could not save the tester feedback.', 'error');
     else if (result.canceled) showTesterFeedbackStatus('No file was saved. Your text is still here in the form.');
     else {
       const attachment = result.attachment ? ` The selected screenshot was copied as ${result.attachment}.` : '';
-      showTesterFeedbackStatus(`Saved ${result.filename} on this computer. CCTI did not send it anywhere.${attachment}`);
+      showTesterFeedbackStatus(`Success: Your private feedback draft is saved as ${result.filename} on this computer. CCTI did not send it anywhere.${attachment}`, 'success');
       if (result.attachment) {
         state.testerFeedbackAttachment = { screenshotToken: '', filename: '' };
         syncTesterScreenshotStatus('Screenshot copied beside your saved private feedback draft. It was not uploaded or emailed.');
       }
     }
   } catch {
-    showTesterFeedbackStatus('CCTI could not save the tester feedback. Your text is still here in the form.', true);
+    showTesterFeedbackStatus('CCTI could not save the tester feedback. Your text is still here in the form.', 'error');
   } finally {
     setTesterFeedbackActionLoading(saveTesterFeedbackButton, false, 'Save private draft…');
     emailTesterFeedbackButton.setAttribute('aria-busy', 'false');
@@ -1487,9 +1493,9 @@ async function openTesterFeedbackEmail() {
   showTesterFeedbackStatus('Opening an email draft for you to review…');
   try {
     const result = await window.installer.openTesterFeedbackEmail(testerFeedbackPayload());
-    showTesterFeedbackStatus(result.ok ? result.message : result.error || 'CCTI could not open an email draft.', !result.ok);
+    showTesterFeedbackStatus(result.ok ? result.message : result.error || 'CCTI could not open an email draft.', result.ok ? 'neutral' : 'error');
   } catch {
-    showTesterFeedbackStatus('CCTI could not open an email draft. Save the private draft instead.', true);
+    showTesterFeedbackStatus('CCTI could not open an email draft. Save the private draft instead.', 'error');
   } finally {
     saveTesterFeedbackButton.setAttribute('aria-busy', 'false');
     setTesterFeedbackActionLoading(emailTesterFeedbackButton, false, 'Open email draft');
@@ -3543,6 +3549,8 @@ for (const input of [testerFeedbackAreaElement, testerFeedbackCategoryElement, t
   input.addEventListener('input', updateTesterFeedbackControls);
   input.addEventListener('change', updateTesterFeedbackControls);
 }
+testerFeedbackActualElement.addEventListener('input', updateTesterFeedbackActualCount);
+updateTesterFeedbackActualCount();
 attachTesterScreenshotButton.addEventListener('click', chooseTesterFeedbackScreenshot);
 saveTesterFeedbackButton.addEventListener('click', saveTesterFeedback);
 emailTesterFeedbackButton.addEventListener('click', openTesterFeedbackEmail);
