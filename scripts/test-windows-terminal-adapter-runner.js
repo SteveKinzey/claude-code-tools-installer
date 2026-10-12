@@ -65,6 +65,12 @@ function restoreEnv(name, value) {
   else process.env[name] = value;
 }
 
+function assertRequiredTerminalChoices(availableIds) {
+  assert.equal(new Set(availableIds).size, availableIds.length, 'detected terminal choices must be unique');
+  const required = availableIds.filter((id) => id === 'default' || id === 'windows-terminal');
+  assert.deepEqual(required, ['default', 'windows-terminal'], 'fresh Windows runner must expose PowerShell and Windows Terminal choices in order');
+}
+
 function executableProbe(command) {
   const inheritedPath = process.env.PATH || process.env.Path || '';
   const resolvedPath = [path.join(appData, 'npm'), inheritedPath].filter(Boolean).join(path.delimiter);
@@ -201,7 +207,7 @@ async function run() {
 
     const initial = await getPreference();
     const availableIds = initial.options.filter((option) => option.available).map((option) => option.id);
-    if (availableIds.length !== 2) {
+    if (!availableIds.includes('default') || !availableIds.includes('windows-terminal')) {
       console.error(JSON.stringify({
         diagnostic: 'windows-terminal-discovery',
         availableIds,
@@ -209,7 +215,7 @@ async function run() {
         probes: ['powershell.exe', 'wt.exe', 'claude'].map(executableProbe),
       }));
     }
-    assert.deepEqual(availableIds, ['default', 'windows-terminal'], 'fresh Windows runner must expose PowerShell and Windows Terminal choices.');
+    assertRequiredTerminalChoices(availableIds);
 
     const evidence = {
       ok: true,
