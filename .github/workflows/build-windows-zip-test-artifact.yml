@@ -2,12 +2,24 @@ name: Build Windows CCTI ZIP test artifact
 
 on:
   workflow_dispatch:
+    inputs:
+      source_tag:
+        description: 'Existing immutable daily revision tag for an unsigned NSIS build only'
+        required: false
+        default: ''
+        type: string
+      source_commit:
+        description: 'Expected full tagged commit SHA; required with source_tag'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   build:
+    if: inputs.source_tag == '' && inputs.source_commit == ''
     name: Build Windows ZIP artifact
     runs-on: windows-2022
     timeout-minutes: 25
@@ -51,3 +63,93 @@ jobs:
           path: releases/test-builds/*.zip
           if-no-files-found: error
           retention-days: 7
+
+  unsigned:
+    if: inputs.source_tag != '' || inputs.source_commit != ''
+    name: Build exact-tag unsigned Windows NSIS artifact
+    runs-on: windows-2022
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      SOURCE_TAG: ${{ inputs.source_tag }}
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Check out reviewed build controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.12.0'
+          package-manager-cache: false
+      - name: Export and validate immutable source
+        run: |
+          if ($env:SOURCE_TAG -notmatch '^v\d{4}\.\d{2}\.\d{2}\.\d{2}$' -or $env:SOURCE_COMMIT -notmatch '^[0-9a-f]{40}$') { throw 'Require immutable daily tag and expected full SHA.' }
+          $actual = git rev-parse "$($env:SOURCE_TAG)^{commit}"
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_COMMIT) { throw 'Tag commit differs from expected source.' }
+          git archive --format=tar --output="$env:RUNNER_TEMP\source.tar" $env:SOURCE_TAG
+          if ($LASTEXITCODE -ne 0) { throw 'Could not export tagged source.' }
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\product" | Out-Null
+          tar -xf "$env:RUNNER_TEMP\source.tar" -C "$env:GITHUB_WORKSPACE\product"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract tagged source.' }
+          node product/scripts/release-identity.js --tag $env:SOURCE_TAG --package-json product/desktop/package.json --require-daily-revision
+          if ($LASTEXITCODE -ne 0) { throw 'Tagged package identity failed.' }
+      - name: Install and validate exact-tag desktop source
+        working-directory: product/desktop
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'Locked install failed.' }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { throw 'Full exact-tag desktop validation failed.' }
+      - name: Build unsigned exact-tag x64 installer
+        working-directory: product/desktop
+        run: |
+          npm run dist:win:unsigned:x64
+          if ($LASTEXITCODE -ne 0) { throw 'Unsigned NSIS packaging failed.' }
+      - name: Verify unsigned state, source parity, checksums and updater metadata
+        run: |
+          $installers = @(Get-ChildItem product/releases/test-builds -File -Filter '*-win-x64.exe' | Where-Object { $_.Name -notmatch 'uninstaller' })
+          if ($installers.Count -ne 1) { throw 'Require exactly one x64 NSIS installer.' }
+          if ((Get-AuthenticodeSignature -FilePath $installers[0].FullName).Status -ne 'NotSigned') { throw 'Expected intentionally unsigned installer.' }
+          node scripts/prepare-windows-unsigned-artifact.cjs "$env:GITHUB_WORKSPACE\product" $env:GITHUB_WORKSPACE "$env:GITHUB_WORKSPACE\product\releases\test-builds" $env:SOURCE_TAG $env:SOURCE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'Source/hash/feed verification failed.' }
+      - name: Attest installer build-controller provenance
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: product/releases/test-builds/*-win-x64.exe
+      - name: Attest exact tagged product source binding
+        id: source
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: product/releases/test-builds/*-win-x64.exe
+          predicate-type: https://claudetool.app/attestations/windows-unsigned-source/v1
+          predicate-path: product/releases/test-builds/windows-unsigned-source-predicate.json
+      - name: Preserve attestation bundles
+        env:
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SOURCE_BUNDLE: ${{ steps.source.outputs.bundle-path }}
+        run: |
+          Copy-Item -LiteralPath $env:PROVENANCE_BUNDLE -Destination product/releases/test-builds/windows-build-provenance.sigstore.json
+          Copy-Item -LiteralPath $env:SOURCE_BUNDLE -Destination product/releases/test-builds/windows-source-binding.sigstore.json
+      - name: Upload verified unsigned installer preparation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ccti-windows-unsigned-${{ inputs.source_tag }}-${{ github.sha }}
+          path: |
+            product/releases/test-builds/*-win-x64.exe
+            product/releases/test-builds/*-win-x64.exe.sha256
+            product/releases/test-builds/latest.yml
+            product/releases/test-builds/windows-unsigned-source*.json
+            product/releases/test-builds/windows-*.sigstore.json
+          if-no-files-found: error
+          retention-days: 30
