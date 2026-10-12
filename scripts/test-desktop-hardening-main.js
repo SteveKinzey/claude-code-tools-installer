@@ -263,14 +263,19 @@ async function run() {
     await fsp.unlink(configFile);
     assert.deepEqual((await fsp.readdir(configRoot)).filter(name => name.endsWith('.tmp')), [], 'failed config preparation cleans its own temporary file');
 
-    // Inject a parent junction/symlink after creation; identity checks must stop before rename.
+    // Inject a parent junction/symlink after the temp handle closes; Windows locks a directory
+    // while that handle is open. Identity checks must still stop before config publication.
     const movedRaceRoot = path.join(outside, 'config-root-race');
     let swappedRoot = false;
     fsp.open = async (file, ...args) => {
       const handle = await originalOpen(file, ...args);
       if (path.dirname(file) === configRoot && path.basename(file).startsWith('.npmrc-')) {
-        swappedRoot = true;
-        await replaceWithLink(configRoot, movedRaceRoot);
+        const close = handle.close.bind(handle);
+        handle.close = async () => {
+          await close();
+          await replaceWithLink(configRoot, movedRaceRoot);
+          swappedRoot = true;
+        };
       }
       return handle;
     };
