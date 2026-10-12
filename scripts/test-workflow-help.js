@@ -23,6 +23,10 @@ assert.match(help.answerQuestion('Should gstack use global or project scope?'), 
 assert.match(help.answerQuestion('Can I restore a backup over an active skill?'), /does not overwrite an active folder/);
 assert.match(help.answerQuestion('What happens if my duplicate review expired?'), /check again and make a fresh review/);
 assert.match(help.answerQuestion('Does Start fresh make a backup?'), /no automatic backup/);
+const freshDeletion = help.answerQuestion('Does Start fresh permanently delete Claude data?');
+assert.equal(freshDeletion, help.answers.cleanup, 'Start fresh must win over turned-off-copy deletion guidance');
+assert.match(freshDeletion, /no automatic backup/);
+assert.match(freshDeletion, /DELETE CLAUDE DATA/);
 assert.match(help.answerQuestion('How do I permanently delete turned-off copies?'), /exact word DELETE/);
 assert.match(help.answerQuestion('How do I permanently delete turned-off copies?'), /irreversible/);
 
@@ -71,10 +75,20 @@ assert.match(help.answerQuestion('Can online Compass install this remotely?'), /
 
 const app = fs.readFileSync(rendererPath, 'utf8');
 const html = fs.readFileSync(htmlPath, 'utf8');
-assert.ok(app.indexOf('const workflowAnswer = getWorkflowHelpApi().answerQuestion(question);') < app.indexOf('if (/compare|overlap|versus'), 'Desktop workflow answers must run before comparisons.');
+function assertRequiredOrder(source, first, second, message) {
+  const firstIndex = source.indexOf(first);
+  const secondIndex = source.indexOf(second);
+  assert.ok(firstIndex >= 0, `${message} Missing first required string: ${first}`);
+  assert.ok(secondIndex >= 0, `${message} Missing second required string: ${second}`);
+  assert.ok(firstIndex < secondIndex, message);
+}
+assert.throws(() => assertRequiredOrder('second', 'first', 'second', 'fixture'), /Missing first/);
+assert.throws(() => assertRequiredOrder('first', 'first', 'second', 'fixture'), /Missing second/);
+assert.throws(() => assertRequiredOrder('second first', 'first', 'second', 'fixture'));
+assertRequiredOrder(app, 'const workflowAnswer = getWorkflowHelpApi().answerQuestion(question);', 'if (/compare|overlap|versus', 'Desktop workflow answers must run before comparisons.');
 assert.match(app, /function minimizeCompass\(\)[\s\S]*state\.compass\.invoker[\s\S]*focus/);
 assert.match(app, /function closeComponentLibrary\(\)[\s\S]*componentLibraryInvoker[\s\S]*focus/);
-assert.ok(html.indexOf('src="workflow-help.js"') < html.indexOf('src="app.js"'), 'The helper must load before app.js.');
+assertRequiredOrder(html, 'src="workflow-help.js"', 'src="app.js"', 'The helper must load before app.js.');
 assert.match(html, /Consent does not authorize remote installation, commands, configuration changes, or access to credentials/);
 assert.match(html, /aria-controls="compass-panel" aria-expanded="false"/);
 assert.match(html, /aria-controls="component-library" aria-expanded="false"/);

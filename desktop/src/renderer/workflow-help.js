@@ -28,8 +28,8 @@
     if (/\b(manifest|checksummed file|compare.*(?:manifest|checksum)|drop.*(?:manifest|file))\b/.test(normalized)) return answers.manifest;
     if (/\b(uninstall(?:\s+(?:this\s+)?(?:app|ccti)|\s+claude\s+code)|(?:app|ccti|claude\s+code)\s+uninstall|remove\s+claude(?:\s+code)?|claude\s+code\s+removal)\b/.test(normalized)) return answers.uninstall;
     if (/\b(project package|package removal|managed extras?|remove.*(?:package|managed extra)|remove project)\b/.test(normalized)) return answers.removal;
-    if (/\b(turned[- ]off|permanent(?:ly)? delete|delete permanently|type delete|delete.*(?:copy|backup|add-on))\b/.test(normalized)) return answers['permanent-delete'];
     if (/\b(start fresh|fresh start|delete claude data|remove.*everything)\b/.test(normalized)) return answers.cleanup;
+    if (/\b(turned[- ]off|permanent(?:ly)? delete|delete permanently|type delete|delete.*(?:copy|backup|add-on))\b/.test(normalized)) return answers['permanent-delete'];
     if (/\b(custom (?:skill|add-on|addon)|own (?:skill|add-on|addon)|marketplace\.json|review.*(?:source|add-on|addon)|trusted (?:source|marketplace))\b/.test(normalized)) return answers['custom-add-on'];
     if (/\b(recover|recovery|repair|verify setup|complete setup|setup (?:failed|failure|broken|attention)|gstack.*(?:not|fail|missing)|repomix.*(?:not|fail|missing)|playwright.*(?:not|fail|missing))\b/.test(normalized)) return answers.recovery;
     if (/\b(claude(?: code)?.*(?:not found|not installed|missing)|(?:not found|not installed|missing).*claude|claude check.*(?:slow|timed out)|check again.*claude)\b/.test(normalized)) return answers['claude-not-found'];
