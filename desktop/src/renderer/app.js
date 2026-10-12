@@ -33,6 +33,7 @@ const state = {
   terminalDialogInvoker: null,
   componentLibraryInvoker: null,
   testerDialogInvoker: null,
+  testerFeedbackAttachment: { screenshotToken: '', filename: '' },
 };
 let diagnosticExpiryTimer = null;
 
@@ -98,6 +99,8 @@ const testerFeedbackStepsElement = document.querySelector('#tester-feedback-step
 const testerFeedbackStatusElement = document.querySelector('#tester-feedback-status');
 const saveTesterFeedbackButton = document.querySelector('#save-tester-feedback-button');
 const emailTesterFeedbackButton = document.querySelector('#email-tester-feedback-button');
+const attachTesterScreenshotButton = document.querySelector('#attach-tester-screenshot-button');
+const testerScreenshotStatusElement = document.querySelector('#tester-screenshot-status');
 const toggleReferencesButton = document.querySelector('#toggle-references-button');
 const referencesContentElement = document.querySelector('#references-content');
 const referenceSearchElement = document.querySelector('#reference-search');
@@ -1403,6 +1406,7 @@ function testerFeedbackPayload() {
     expected: testerFeedbackExpectedElement.value,
     actual: testerFeedbackActualElement.value,
     steps: testerFeedbackStepsElement.value,
+    screenshotToken: state.testerFeedbackAttachment.screenshotToken,
   };
 }
 function updateTesterFeedbackControls() {
@@ -1415,19 +1419,53 @@ function showTesterFeedbackStatus(message, isError = false) {
   testerFeedbackStatusElement.textContent = message;
   testerFeedbackStatusElement.classList.toggle('is-error', isError);
 }
+function syncTesterScreenshotStatus(message) {
+  testerScreenshotStatusElement.textContent = message;
+}
+async function chooseTesterFeedbackScreenshot() {
+  if (attachTesterScreenshotButton.disabled || typeof window.installer.chooseTesterFeedbackScreenshot !== 'function') return;
+  attachTesterScreenshotButton.disabled = true;
+  syncTesterScreenshotStatus('Choose a PNG or JPEG screenshot that does not show private information.');
+  try {
+    const result = await window.installer.chooseTesterFeedbackScreenshot();
+    if (!result.ok) {
+      syncTesterScreenshotStatus(result.error || 'CCTI could not use that screenshot.');
+      return;
+    }
+    if (result.canceled) {
+      syncTesterScreenshotStatus('No screenshot attached. Your feedback text stays in this form.');
+      return;
+    }
+    state.testerFeedbackAttachment = { screenshotToken: result.screenshotToken, filename: result.filename };
+    syncTesterScreenshotStatus(`${result.filename} is ready to copy beside a private saved draft. It will not be uploaded or added to an email draft.`);
+  } catch {
+    syncTesterScreenshotStatus('CCTI could not use that screenshot. Your feedback text stays in this form.');
+  } finally {
+    attachTesterScreenshotButton.disabled = false;
+  }
+}
 async function saveTesterFeedback() {
   if (saveTesterFeedbackButton.disabled || typeof window.installer.saveTesterFeedback !== 'function') return;
   saveTesterFeedbackButton.disabled = true;
   emailTesterFeedbackButton.disabled = true;
+  attachTesterScreenshotButton.disabled = true;
   showTesterFeedbackStatus('Opening a save box for your private tester feedback draft…');
   try {
     const result = await window.installer.saveTesterFeedback(testerFeedbackPayload());
     if (!result.ok) showTesterFeedbackStatus(result.error || 'CCTI could not save the tester feedback.', true);
     else if (result.canceled) showTesterFeedbackStatus('No file was saved. Your text is still here in the form.');
-    else showTesterFeedbackStatus(`Saved ${result.filename} on this computer. CCTI did not send it anywhere.`);
+    else {
+      const attachment = result.attachment ? ` The selected screenshot was copied as ${result.attachment}.` : '';
+      showTesterFeedbackStatus(`Saved ${result.filename} on this computer. CCTI did not send it anywhere.${attachment}`);
+      if (result.attachment) {
+        state.testerFeedbackAttachment = { screenshotToken: '', filename: '' };
+        syncTesterScreenshotStatus('Screenshot copied beside your saved private feedback draft. It was not uploaded or emailed.');
+      }
+    }
   } catch {
     showTesterFeedbackStatus('CCTI could not save the tester feedback. Your text is still here in the form.', true);
   } finally {
+    attachTesterScreenshotButton.disabled = false;
     updateTesterFeedbackControls();
   }
 }
@@ -1435,6 +1473,7 @@ async function openTesterFeedbackEmail() {
   if (emailTesterFeedbackButton.disabled || typeof window.installer.openTesterFeedbackEmail !== 'function') return;
   saveTesterFeedbackButton.disabled = true;
   emailTesterFeedbackButton.disabled = true;
+  attachTesterScreenshotButton.disabled = true;
   showTesterFeedbackStatus('Opening an email draft for you to review…');
   try {
     const result = await window.installer.openTesterFeedbackEmail(testerFeedbackPayload());
@@ -1442,6 +1481,7 @@ async function openTesterFeedbackEmail() {
   } catch {
     showTesterFeedbackStatus('CCTI could not open an email draft. Save the private draft instead.', true);
   } finally {
+    attachTesterScreenshotButton.disabled = false;
     updateTesterFeedbackControls();
   }
 }
@@ -3491,6 +3531,7 @@ for (const input of [testerFeedbackAreaElement, testerFeedbackExpectedElement, t
   input.addEventListener('input', updateTesterFeedbackControls);
   input.addEventListener('change', updateTesterFeedbackControls);
 }
+attachTesterScreenshotButton.addEventListener('click', chooseTesterFeedbackScreenshot);
 saveTesterFeedbackButton.addEventListener('click', saveTesterFeedback);
 emailTesterFeedbackButton.addEventListener('click', openTesterFeedbackEmail);
 testChangelogDialogElement.addEventListener('close', restoreTesterDialogFocus);

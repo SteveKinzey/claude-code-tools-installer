@@ -33,7 +33,7 @@
         <div>
           <p class="eyebrow">TEST BUILD HELP</p>
           <h2 id="tester-tools-heading">Test CCTI with a clear record of what you see</h2>
-          <p>Open the short list of features in this test build, then save a private issue draft or open an email draft if something does not work as expected.</p>
+          <p>Open the short list of features in this test build, then save a private issue draft with an optional screenshot or open an email draft if something does not work as expected.</p>
         </div>
         <div class="tester-tools-actions">
           <button id="open-test-changelog-button" class="button button-secondary" type="button">What changed in this test</button>
@@ -675,6 +675,8 @@
           <li><strong>Direct Claude Code choices:</strong> CCTI can run Claude Code from the selected folder and prepares supported project needs, including a missing package.json file.</li>
           <li><strong>Careful Claude Code removal:</strong> The removal preview requires the exact typed confirmation and protects Claude Desktop, browser data, extensions, and unrelated Anthropic apps.</li>
           <li><strong>Private project interview:</strong> A guided set of questions can draft a project plan and suggested tools without selecting or installing anything.</li>
+          <li><strong>Clear accessibility feedback:</strong> CCTI uses visible keyboard focus, plain live status messages, and dialogs that return you to the button you used after closing.</li>
+          <li><strong>Keyboard-friendly testing:</strong> Buttons work with Enter or Space, and the standard Escape key closes an open test dialog without changing your setup.</li>
         </ul>
         <p class="tester-boundary">This list is for testing. The app should not install anything merely because you open this window.</p>
         <div class="duplicate-skill-dialog-actions">
@@ -707,6 +709,11 @@
         <label class="tester-feedback-field" for="tester-feedback-steps">Steps that may help repeat it (optional)
           <textarea id="tester-feedback-steps" rows="3" maxlength="4000"></textarea>
         </label>
+        <div class="tester-screenshot-field">
+          <button id="attach-tester-screenshot-button" class="button button-ghost" type="button">Attach a screenshot (optional)…</button>
+          <p id="tester-screenshot-status" role="status" aria-live="polite">No screenshot attached. If you save a private draft, CCTI copies the screenshot beside it on this computer.</p>
+        </div>
+        <p class="tester-boundary"><strong>Screenshots stay local:</strong> CCTI never uploads them and does not add them to an email draft. Check the image before saving; do not include passwords, keys, or private project information.</p>
         <p class="tester-boundary"><strong>Keep private information out:</strong> do not include passwords, API keys, private project content, personal contact details, or full computer paths.</p>
         <p id="tester-feedback-status" role="status" aria-live="polite"></p>
         <div class="duplicate-skill-dialog-actions">

@@ -75,6 +75,7 @@ function injectedBridge() {
       },
       applyManagedExtrasRemoval: async (payload) => { record('applyManagedExtrasRemoval', payload); return { ok: false, error: 'Fixture stopped before managed extras removal.' }; },
       reportAnonymousSetupSuccess: async () => ({ ok: true }),
+      chooseTesterFeedbackScreenshot: async () => { record('chooseTesterFeedbackScreenshot'); return { ok: true, canceled: false, screenshotToken: 'tester-screenshot-token', filename: 'tester-screenshot.png', size: 1234 }; },
       saveTesterFeedback: async (payload) => { record('saveTesterFeedback', payload); return { ok: true, canceled: false, filename: 'ccti-tester-feedback.txt' }; },
       openTesterFeedbackEmail: async (payload) => { record('openTesterFeedbackEmail', payload); return { ok: true, message: 'Your email app opened with a draft. Nothing was sent by CCTI.' }; },
       onOutput: () => {},
@@ -242,7 +243,8 @@ async function run() {
     assert.equal(changelog.labelledBy, 'test-changelog-heading');
     assert.equal(changelog.modal, 'true');
     assert.equal(changelog.focusInDialog, true, 'changelog dialog moves focus inside');
-    assert.equal(changelog.listItems, 5, 'changelog explains each approved test scope');
+    assert.equal(changelog.listItems, 7, 'changelog explains each approved test scope, including accessibility and keyboard behavior');
+    assert.equal(await evaluate(window, "document.querySelector('.tester-changelog-list').textContent.includes('Clear accessibility feedback')"), true, 'changelog names the accessibility changes');
     assert.equal(changelog.selected, selectedBeforeTesterWindows, 'opening the changelog cannot select tools');
     await evaluate(window, "document.querySelector('#close-test-changelog-button').click()");
     await waitFor(window, () => document.querySelector('#test-changelog-dialog')?.open === false, 'test changelog close');
@@ -257,6 +259,7 @@ async function run() {
       focusInDialog: document.querySelector('#tester-feedback-dialog').contains(document.activeElement),
       saveDisabled: document.querySelector('#save-tester-feedback-button').disabled,
       emailDisabled: document.querySelector('#email-tester-feedback-button').disabled,
+      attachmentButton: document.querySelector('#attach-tester-screenshot-button').textContent.trim(),
     }))()`);
     assert.deepEqual(initialFeedback, {
       labelledBy: 'tester-feedback-heading',
@@ -265,6 +268,7 @@ async function run() {
       focusInDialog: true,
       saveDisabled: true,
       emailDisabled: true,
+      attachmentButton: 'Attach a screenshot (optional)…',
     }, 'tester feedback starts with a named modal and no enabled send-like actions');
     await evaluate(window, `(() => {
       const set = (selector, value, eventName = 'input') => {
@@ -278,6 +282,9 @@ async function run() {
       set('#tester-feedback-steps', '1. Open Details. 2. Read the explanation.');
     })()`);
     await waitFor(window, () => !document.querySelector('#save-tester-feedback-button')?.disabled && !document.querySelector('#email-tester-feedback-button')?.disabled, 'completed tester feedback controls');
+    await evaluate(window, "document.querySelector('#attach-tester-screenshot-button').click()");
+    await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'chooseTesterFeedbackScreenshot'), 'screenshot selection call');
+    await waitFor(window, () => document.querySelector('#tester-screenshot-status')?.textContent.includes('tester-screenshot.png'), 'selected screenshot status');
     await evaluate(window, "document.querySelector('#save-tester-feedback-button').click()");
     await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'saveTesterFeedback'), 'local feedback save call');
     await evaluate(window, "document.querySelector('#email-tester-feedback-button').click()");
@@ -287,6 +294,7 @@ async function run() {
     assert.equal(savedFeedback.length, 1, 'one local feedback save request is made');
     assert.equal(emailedFeedback.length, 1, 'one explicit email-draft request is made');
     assert.deepEqual(emailedFeedback[0].payload, savedFeedback[0].payload, 'save and email choices use the same reviewed feedback text');
+    assert.equal(savedFeedback[0].payload.screenshotToken, 'tester-screenshot-token', 'only an opaque screenshot token crosses the renderer boundary');
     assert.match(savedFeedback[0].payload.actual, /sample issue/i);
     assert.equal(await evaluate(window, "document.querySelector('#tester-feedback-status').textContent.includes('Nothing was sent by CCTI.')"), true, 'email draft status is explicit that CCTI did not send anything');
     await evaluate(window, "document.querySelector('#close-tester-feedback-button').click()");

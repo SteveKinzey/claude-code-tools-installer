@@ -1599,6 +1599,9 @@ function rememberDiagnosticReport(report) {
 
 const TESTER_FEEDBACK_MAXIMUM_BYTES = 16 * 1024;
 const TESTER_FEEDBACK_SUPPORT_EMAIL = 'support@sk-america.com';
+const TESTER_FEEDBACK_SCREENSHOT_MAXIMUM_BYTES = 10 * 1024 * 1024;
+const TESTER_FEEDBACK_SCREENSHOT_LIFETIME_MS = 10 * 60 * 1000;
+const testerFeedbackScreenshots = new Map();
 
 function normalizedTesterFeedbackText(value, maximumLength) {
   return String(value || '')
@@ -1607,11 +1610,83 @@ function normalizedTesterFeedbackText(value, maximumLength) {
     .slice(0, maximumLength);
 }
 
+function forgetTesterFeedbackScreenshot(token) {
+  const record = testerFeedbackScreenshots.get(String(token || ''));
+  if (!record) return;
+  testerFeedbackScreenshots.delete(String(token));
+  if (record.timer) clearTimeout(record.timer);
+}
+
+function purgeExpiredTesterFeedbackScreenshots() {
+  const now = Date.now();
+  for (const [token, record] of testerFeedbackScreenshots) {
+    if (record.expiresAt <= now) forgetTesterFeedbackScreenshot(token);
+  }
+}
+
+async function chooseTesterFeedbackScreenshot() {
+  try {
+    const choice = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a screenshot for local tester feedback',
+      properties: ['openFile'],
+      filters: [{ name: 'Screenshot image', extensions: ['png', 'jpg', 'jpeg'] }],
+    });
+    if (choice.canceled || !choice.filePaths?.[0]) return { ok: true, canceled: true };
+    const selectedPath = path.resolve(choice.filePaths[0]);
+    const details = await fs.lstat(selectedPath);
+    if (!details.isFile() || details.isSymbolicLink()) return { ok: false, error: 'Choose a regular PNG or JPEG screenshot file.' };
+    if (details.size <= 0 || details.size > TESTER_FEEDBACK_SCREENSHOT_MAXIMUM_BYTES) {
+      return { ok: false, error: 'Choose a PNG or JPEG screenshot that is 10 MB or smaller.' };
+    }
+    const extension = path.extname(selectedPath).toLowerCase();
+    if (!['.png', '.jpg', '.jpeg'].includes(extension)) return { ok: false, error: 'Choose a PNG or JPEG screenshot file.' };
+    purgeExpiredTesterFeedbackScreenshots();
+    const token = randomUUID();
+    const expiresAt = Date.now() + TESTER_FEEDBACK_SCREENSHOT_LIFETIME_MS;
+    const timer = setTimeout(() => forgetTesterFeedbackScreenshot(token), TESTER_FEEDBACK_SCREENSHOT_LIFETIME_MS);
+    timer.unref?.();
+    testerFeedbackScreenshots.set(token, { selectedPath, extension, size: details.size, expiresAt, timer });
+    return { ok: true, canceled: false, screenshotToken: token, filename: path.basename(selectedPath), size: details.size };
+  } catch (error) {
+    return { ok: false, error: `CCTI could not use that screenshot: ${error.message}` };
+  }
+}
+
+async function copyTesterFeedbackScreenshot(token, feedbackPath) {
+  purgeExpiredTesterFeedbackScreenshots();
+  const record = testerFeedbackScreenshots.get(String(token || ''));
+  if (!record) return { ok: true, attachment: null };
+  try {
+    const details = await fs.lstat(record.selectedPath);
+    if (!details.isFile() || details.isSymbolicLink() || details.size !== record.size || details.size > TESTER_FEEDBACK_SCREENSHOT_MAXIMUM_BYTES) {
+      return { ok: false, error: 'The selected screenshot changed or is unavailable. Choose it again before saving.' };
+    }
+    const directory = path.dirname(feedbackPath);
+    const baseName = path.basename(feedbackPath, path.extname(feedbackPath));
+    for (let index = 0; index < 100; index += 1) {
+      const suffix = index ? `-${index + 1}` : '';
+      const attachmentPath = path.join(directory, `${baseName}-screenshot${suffix}${record.extension}`);
+      try {
+        await fs.copyFile(record.selectedPath, attachmentPath, nodeFs.constants.COPYFILE_EXCL);
+        await fs.chmod(attachmentPath, 0o600);
+        forgetTesterFeedbackScreenshot(token);
+        return { ok: true, attachment: path.basename(attachmentPath) };
+      } catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+      }
+    }
+    return { ok: false, error: 'CCTI could not create a unique name for the screenshot next to your feedback draft.' };
+  } catch (error) {
+    return { ok: false, error: `CCTI saved the feedback text but could not copy the screenshot: ${error.message}` };
+  }
+}
+
 function buildTesterFeedbackReport(payload = {}) {
   const area = normalizedTesterFeedbackText(payload.area, 80);
   const expected = normalizedTesterFeedbackText(payload.expected, 4000);
   const actual = normalizedTesterFeedbackText(payload.actual, 4000);
   const steps = normalizedTesterFeedbackText(payload.steps, 4000);
+  const screenshotToken = normalizedTesterFeedbackText(payload.screenshotToken, 80);
   if (!area || !expected || !actual) {
     return { ok: false, error: 'Choose an area and describe what you expected and what happened.' };
   }
@@ -1635,11 +1710,14 @@ function buildTesterFeedbackReport(payload = {}) {
     '',
     'Privacy reminder',
     'Do not include passwords, API keys, private project content, personal contact details, or full computer paths.',
+    screenshotToken
+      ? 'If still available, your selected screenshot is copied only beside this locally saved text file. It is never uploaded or added to an email draft automatically.'
+      : 'No screenshot was selected for this feedback draft.',
   ].join('\n');
   if (Buffer.byteLength(report, 'utf8') > TESTER_FEEDBACK_MAXIMUM_BYTES) {
     return { ok: false, error: 'This feedback draft is too long. Shorten the description and try again.' };
   }
-  return { ok: true, report, area, expected, actual, steps };
+  return { ok: true, report, area, expected, actual, steps, screenshotToken };
 }
 
 async function saveTesterFeedbackLocally(payload = {}) {
@@ -1653,7 +1731,11 @@ async function saveTesterFeedbackLocally(payload = {}) {
     });
     if (destination.canceled || !destination.filePath) return { ok: true, canceled: true };
     await fs.writeFile(destination.filePath, `${result.report}\n`, { encoding: 'utf8', mode: 0o600 });
-    return { ok: true, canceled: false, filename: path.basename(destination.filePath) };
+    const screenshot = await copyTesterFeedbackScreenshot(result.screenshotToken, destination.filePath);
+    if (!screenshot.ok) return { ok: false, error: screenshot.error, filename: path.basename(destination.filePath) };
+    return screenshot.attachment
+      ? { ok: true, canceled: false, filename: path.basename(destination.filePath), attachment: screenshot.attachment }
+      : { ok: true, canceled: false, filename: path.basename(destination.filePath) };
   } catch (error) {
     return { ok: false, error: `CCTI could not save the tester feedback: ${error.message}` };
   }
@@ -4936,6 +5018,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('diagnostics:run', runDiagnostics);
   ipcMain.handle('diagnostics:get-runtime-paths', async () => runtimePathSnapshot());
   ipcMain.handle('diagnostics:export', async (_event, payload) => exportDiagnosticReport(payload || {}));
+  ipcMain.handle('tester-feedback:choose-screenshot', async () => chooseTesterFeedbackScreenshot());
   ipcMain.handle('tester-feedback:save-local', async (_event, payload) => saveTesterFeedbackLocally(payload || {}));
   ipcMain.handle('tester-feedback:open-email', async (_event, payload) => openTesterFeedbackEmail(payload || {}));
   ipcMain.handle('updates:get-status', async () => ({ ...updateStatus }));

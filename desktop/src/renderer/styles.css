@@ -471,6 +471,9 @@ h3 { margin: 0; font-size: 1rem; }
 .tester-feedback-field { display: grid; gap: 6px; color: #d9edff; font-size: .86rem; font-weight: 750; }
 .tester-feedback-field select, .tester-feedback-field textarea { width: 100%; border: 1px solid #4b7190; border-radius: 8px; background: #091523; color: #e9f3ff; padding: 10px 11px; font: inherit; font-weight: 400; }
 .tester-feedback-field textarea { min-height: 78px; resize: vertical; }
+.tester-screenshot-field { display: grid; justify-items: start; gap: 7px; padding: 11px 12px; border: 1px dashed #5b7891; border-radius: 8px; background: #0b1b2b; }
+.tester-screenshot-field .button { min-height: 36px; }
+#tester-screenshot-status { min-height: 1.4em; margin: 0; color: #b8d6e7; font-size: .8rem; line-height: 1.45; }
 #tester-feedback-status { min-height: 1.4em; margin: 0; color: #bde9e1; font-size: .82rem; line-height: 1.45; }
 #tester-feedback-status.is-error { color: #ffc2d0; }
 @media (max-width: 720px) {

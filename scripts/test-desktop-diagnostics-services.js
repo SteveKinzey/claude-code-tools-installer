@@ -10,6 +10,7 @@ const tempRoot = path.join(os.tmpdir(), `ccti-diagnostics-test-${process.pid}`);
 const handlers = new Map();
 let readyCallback;
 let saveDialogResult = { canceled: true, filePath: '' };
+let openDialogResult = { canceled: true, filePaths: [] };
 let preloadApi;
 const shellOpenCalls = [];
 
@@ -28,7 +29,7 @@ const electronStub = {
     isDestroyed() { return false; }
   },
   dialog: {
-    showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+    showOpenDialog: async () => openDialogResult,
     showSaveDialog: async () => saveDialogResult,
   },
   Notification: class { static isSupported() { return false; } },
@@ -79,11 +80,12 @@ async function run() {
     const runDiagnostics = handlers.get('diagnostics:run');
     const getRuntimePaths = handlers.get('diagnostics:get-runtime-paths');
     const exportDiagnostics = handlers.get('diagnostics:export');
+    const chooseTesterFeedbackScreenshot = handlers.get('tester-feedback:choose-screenshot');
     const saveTesterFeedback = handlers.get('tester-feedback:save-local');
     const openTesterFeedbackEmail = handlers.get('tester-feedback:open-email');
-    assert.ok(runDiagnostics && getRuntimePaths && exportDiagnostics && saveTesterFeedback && openTesterFeedbackEmail, 'diagnostic and tester feedback handlers must be registered');
+    assert.ok(runDiagnostics && getRuntimePaths && exportDiagnostics && chooseTesterFeedbackScreenshot && saveTesterFeedback && openTesterFeedbackEmail, 'diagnostic and tester feedback handlers must be registered');
     assert.ok(preloadApi?.getRuntimePaths, 'the preload bridge must expose only the fixed runtime path diagnostic method');
-    assert.ok(preloadApi?.saveTesterFeedback && preloadApi?.openTesterFeedbackEmail, 'the preload bridge must expose narrow tester feedback choices');
+    assert.ok(preloadApi?.chooseTesterFeedbackScreenshot && preloadApi?.saveTesterFeedback && preloadApi?.openTesterFeedbackEmail, 'the preload bridge must expose narrow tester feedback choices');
 
     const mainPaths = await getRuntimePaths();
     assert.equal(mainPaths.ok, true);
@@ -174,6 +176,21 @@ async function run() {
     assert.match(savedFeedbackText, /This file is created only on this computer/);
     assert.match(savedFeedbackText, /The sample issue did not show the explanation/);
     assert.doesNotMatch(savedFeedbackText, /fixture-home/, 'the generated feedback template does not add local paths or secrets');
+    openDialogResult = { canceled: true, filePaths: [] };
+    assert.deepEqual(await chooseTesterFeedbackScreenshot(), { ok: true, canceled: true }, 'canceling screenshot selection keeps all feedback local');
+    const screenshotFile = path.join(tempRoot, 'tester-screenshot.png');
+    await fs.writeFile(screenshotFile, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]));
+    openDialogResult = { canceled: false, filePaths: [screenshotFile] };
+    const chosenScreenshot = await chooseTesterFeedbackScreenshot();
+    assert.equal(chosenScreenshot.ok, true);
+    assert.equal(chosenScreenshot.filename, 'tester-screenshot.png');
+    const screenshotFeedbackFile = path.join(tempRoot, 'ccti-tester-feedback-with-screenshot.txt');
+    saveDialogResult = { canceled: false, filePath: screenshotFeedbackFile };
+    const savedWithScreenshot = await saveTesterFeedback(null, { ...testerFeedback, screenshotToken: chosenScreenshot.screenshotToken });
+    assert.deepEqual(savedWithScreenshot, { ok: true, canceled: false, filename: 'ccti-tester-feedback-with-screenshot.txt', attachment: 'ccti-tester-feedback-with-screenshot-screenshot.png' });
+    const copiedScreenshot = await fs.readFile(path.join(tempRoot, savedWithScreenshot.attachment));
+    assert.deepEqual(copiedScreenshot, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]), 'CCTI copies only the selected screenshot beside the local draft');
+    assert.match(await fs.readFile(screenshotFeedbackFile, 'utf8'), /never uploaded or added to an email draft automatically/i);
     const emailDraft = await openTesterFeedbackEmail(null, testerFeedback);
     assert.equal(emailDraft.ok, true, 'opening a tester email draft succeeds through the native shell only');
     assert.match(emailDraft.message, /Nothing was sent by CCTI/i);
