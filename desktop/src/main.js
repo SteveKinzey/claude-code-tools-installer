@@ -489,13 +489,23 @@ function trustedExecutable(command, env) {
     throw new Error('CCTI only starts commands found in an absolute trusted PATH folder.');
   }
   if (path.isAbsolute(name)) {
-    if (nodeFs.statSync(name).isFile()) return name;
-    throw new Error(`CCTI could not find ${name}.`);
+    try {
+      if (nodeFs.statSync(name).isFile()) {
+        nodeFs.accessSync(name, nodeFs.constants.X_OK);
+        return name;
+      }
+    } catch {}
+    throw new Error(`CCTI could not execute ${name}. Check that it exists and has execute permission. Nothing was started.`);
   }
   for (const directory of String(source.PATH || source.Path || '').split(':').filter((entry) => path.isAbsolute(entry))) {
     const candidate = path.join(directory, name);
     try {
-      if (nodeFs.statSync(candidate).isFile()) return candidate;
+      if (nodeFs.statSync(candidate).isFile()) {
+        // Preserve executable symlink shims, but skip a non-executable shadow so a later
+        // absolute PATH candidate can be used. Spawn still handles subsequent path changes.
+        nodeFs.accessSync(candidate, nodeFs.constants.X_OK);
+        return candidate;
+      }
     } catch {}
   }
   throw new Error(`CCTI could not find ${name} in a trusted folder on this computer's PATH. Nothing was started.`);

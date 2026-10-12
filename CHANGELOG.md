@@ -1,6 +1,28 @@
 # Changelog
 
-All notable changes are documented in this file. Version tags use the calendar-based format `vYYYY.MM.DD`.
+All notable changes are documented in this file. New version tags use `vYYYY.MM.DD.RR`; historical `vYYYY.MM.DD` tags remain unchanged.
+
+## v2026.10.12.00 — Component install safety and POSIX command lookup
+
+> **Release status:** Source-only version tag, package identity `2026.10.1200`. No macOS, Windows, or Linux installer artifacts are published by this tag. Downloads and native updater availability remain tied to the prior verified binary release until exact-tag platform staging and separate publication complete.
+
+### Component install safety ([#82](https://github.com/SteveKinzey/claude-code-tools-installer/pull/82))
+
+- Publish the CCTI-owned npmrc through an exclusive fresh file and atomic replacement instead of truncating an existing linked inode. Retain ancestor, symlink, hardlink, identity, and failure-cleanup checks.
+- Compare filesystem device/inode identities using BigInt stats, with correctly typed link-count and zero-size checks. This prevents distinct large identities from comparing equal after Number precision loss.
+- Retain npm install escalation and conservative locking after timeout-related child errors; do not permit overlapping installs before actual child close.
+- Add mandatory precision, hostile-path, sentinel-preservation, and error-before-close regressions. Earlier platform fixtures remain required.
+
+### POSIX executable lookup
+
+- Require regular-file status and X_OK execute permission for explicit POSIX commands and absolute PATH candidates. Skip non-executable shadows so later executable candidates remain reachable.
+- Preserve executable symlink shims, reject inaccessible explicit commands with actionable error text, and keep relative/cwd lookup excluded. Windows PATHEXT and command-wrapper handling remain separate and unchanged.
+- Add mandatory permission/shim/path cases and an actual component-install-handler npm shadow regression. Synthetic terminal access stubs remain restricted to known fixture executable paths.
+
+### Version and validation boundaries
+
+- The desktop package and lockfile root identities move to `2026.10.1200`; dependencies and validation thresholds remain unchanged.
+- Native platform CI, source regressions, and dependency audits are evidence for their exact commits. They do not establish signed installer, updater, or packaged-platform availability.
 
 ## v2026.10.02.04 — Update banner at the top of CCTI
 > **Release boundary:** This entry describes the tagged source. macOS, Windows, and Linux downloads exist only after the exact-tag artifacts pass their own staging gates and a separate GitHub Release publication is approved. Windows NSIS remains unsigned.
