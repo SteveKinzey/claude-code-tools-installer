@@ -1599,6 +1599,14 @@ function rememberDiagnosticReport(report) {
 
 const TESTER_FEEDBACK_MAXIMUM_BYTES = 16 * 1024;
 const TESTER_FEEDBACK_SUPPORT_EMAIL = 'support@sk-america.com';
+const TESTER_FEEDBACK_CATEGORIES = new Set([
+  'Something did not work',
+  'Hard to understand',
+  'Accessibility or keyboard use',
+  'Safety or privacy concern',
+  'Incorrect information',
+  'Something else',
+]);
 const TESTER_FEEDBACK_SCREENSHOT_MAXIMUM_BYTES = 10 * 1024 * 1024;
 const TESTER_FEEDBACK_SCREENSHOT_LIFETIME_MS = 10 * 60 * 1000;
 const testerFeedbackScreenshots = new Map();
@@ -1683,13 +1691,15 @@ async function copyTesterFeedbackScreenshot(token, feedbackPath) {
 
 function buildTesterFeedbackReport(payload = {}) {
   const area = normalizedTesterFeedbackText(payload.area, 80);
+  const category = normalizedTesterFeedbackText(payload.category, 80);
   const expected = normalizedTesterFeedbackText(payload.expected, 4000);
   const actual = normalizedTesterFeedbackText(payload.actual, 4000);
   const steps = normalizedTesterFeedbackText(payload.steps, 4000);
   const screenshotToken = normalizedTesterFeedbackText(payload.screenshotToken, 80);
-  if (!area || !expected || !actual) {
-    return { ok: false, error: 'Choose an area and describe what you expected and what happened.' };
+  if (!area || !category || !expected || !actual) {
+    return { ok: false, error: 'Choose an area and issue category, then describe what you expected and what happened.' };
   }
+  if (!TESTER_FEEDBACK_CATEGORIES.has(category)) return { ok: false, error: 'Choose one of the listed issue categories.' };
   const report = [
     'CCTI TESTER FEEDBACK — local draft',
     'This file is created only on this computer. CCTI does not send it anywhere.',
@@ -1698,6 +1708,7 @@ function buildTesterFeedbackReport(payload = {}) {
     `Platform: ${process.platform} ${process.arch}`,
     '',
     `Area: ${area}`,
+    `Issue category: ${category}`,
     '',
     'Expected',
     expected,
@@ -1717,7 +1728,7 @@ function buildTesterFeedbackReport(payload = {}) {
   if (Buffer.byteLength(report, 'utf8') > TESTER_FEEDBACK_MAXIMUM_BYTES) {
     return { ok: false, error: 'This feedback draft is too long. Shorten the description and try again.' };
   }
-  return { ok: true, report, area, expected, actual, steps, screenshotToken };
+  return { ok: true, report, area, category, expected, actual, steps, screenshotToken };
 }
 
 async function saveTesterFeedbackLocally(payload = {}) {
@@ -1744,7 +1755,7 @@ async function saveTesterFeedbackLocally(payload = {}) {
 async function openTesterFeedbackEmail(payload = {}) {
   const result = buildTesterFeedbackReport(payload);
   if (!result.ok) return result;
-  const subject = encodeURIComponent(`CCTI tester feedback — ${result.area}`);
+  const subject = encodeURIComponent(`CCTI tester feedback — ${result.category}: ${result.area}`);
   const body = encodeURIComponent(`${result.report}\n\nPlease review this draft before sending.`);
   try {
     await shell.openExternal(`mailto:${TESTER_FEEDBACK_SUPPORT_EMAIL}?subject=${subject}&body=${body}`);

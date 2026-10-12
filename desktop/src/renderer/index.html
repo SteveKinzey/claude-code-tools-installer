@@ -700,6 +700,17 @@
             <option value="Something else">Something else</option>
           </select>
         </label>
+        <label class="tester-feedback-field" for="tester-feedback-category">What kind of issue is this?
+          <select id="tester-feedback-category" required>
+            <option value="">Choose a category</option>
+            <option value="Something did not work">Something did not work</option>
+            <option value="Hard to understand">Hard to understand</option>
+            <option value="Accessibility or keyboard use">Accessibility or keyboard use</option>
+            <option value="Safety or privacy concern">Safety or privacy concern</option>
+            <option value="Incorrect information">Incorrect information</option>
+            <option value="Something else">Something else</option>
+          </select>
+        </label>
         <label class="tester-feedback-field" for="tester-feedback-expected">What did you expect to happen?
           <textarea id="tester-feedback-expected" rows="3" maxlength="4000" required></textarea>
         </label>
@@ -717,8 +728,8 @@
         <p class="tester-boundary"><strong>Keep private information out:</strong> do not include passwords, API keys, private project content, personal contact details, or full computer paths.</p>
         <p id="tester-feedback-status" role="status" aria-live="polite"></p>
         <div class="duplicate-skill-dialog-actions">
-          <button id="save-tester-feedback-button" class="button button-secondary" type="button" disabled>Save private draft…</button>
-          <button id="email-tester-feedback-button" class="button button-primary" type="button" disabled>Open email draft</button>
+          <button id="save-tester-feedback-button" class="button button-secondary tester-feedback-action" type="button" disabled aria-busy="false"><span class="tester-feedback-action-label">Save private draft…</span><span class="tester-feedback-action-spinner" aria-hidden="true" hidden></span></button>
+          <button id="email-tester-feedback-button" class="button button-primary tester-feedback-action" type="button" disabled aria-busy="false"><span class="tester-feedback-action-label">Open email draft</span><span class="tester-feedback-action-spinner" aria-hidden="true" hidden></span></button>
           <button id="close-tester-feedback-button" class="button button-ghost" type="submit">Cancel</button>
         </div>
       </form>

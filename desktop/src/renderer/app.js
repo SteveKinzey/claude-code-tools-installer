@@ -93,6 +93,7 @@ const testChangelogHeadingElement = document.querySelector('#test-changelog-head
 const testerFeedbackDialogElement = document.querySelector('#tester-feedback-dialog');
 const testerFeedbackHeadingElement = document.querySelector('#tester-feedback-heading');
 const testerFeedbackAreaElement = document.querySelector('#tester-feedback-area');
+const testerFeedbackCategoryElement = document.querySelector('#tester-feedback-category');
 const testerFeedbackExpectedElement = document.querySelector('#tester-feedback-expected');
 const testerFeedbackActualElement = document.querySelector('#tester-feedback-actual');
 const testerFeedbackStepsElement = document.querySelector('#tester-feedback-steps');
@@ -1403,6 +1404,7 @@ function restoreTesterDialogFocus() {
 function testerFeedbackPayload() {
   return {
     area: testerFeedbackAreaElement.value,
+    category: testerFeedbackCategoryElement.value,
     expected: testerFeedbackExpectedElement.value,
     actual: testerFeedbackActualElement.value,
     steps: testerFeedbackStepsElement.value,
@@ -1410,14 +1412,20 @@ function testerFeedbackPayload() {
   };
 }
 function updateTesterFeedbackControls() {
-  const { area, expected, actual } = testerFeedbackPayload();
-  const complete = Boolean(area && expected.trim() && actual.trim());
+  const { area, category, expected, actual } = testerFeedbackPayload();
+  const complete = Boolean(area && category && expected.trim() && actual.trim());
   saveTesterFeedbackButton.disabled = !complete;
   emailTesterFeedbackButton.disabled = !complete;
 }
 function showTesterFeedbackStatus(message, isError = false) {
   testerFeedbackStatusElement.textContent = message;
   testerFeedbackStatusElement.classList.toggle('is-error', isError);
+}
+function setTesterFeedbackActionLoading(button, loading, label) {
+  button.disabled = loading;
+  button.setAttribute('aria-busy', String(loading));
+  button.querySelector('.tester-feedback-action-label').textContent = label;
+  button.querySelector('.tester-feedback-action-spinner').hidden = !loading;
 }
 function syncTesterScreenshotStatus(message) {
   testerScreenshotStatusElement.textContent = message;
@@ -1446,7 +1454,7 @@ async function chooseTesterFeedbackScreenshot() {
 }
 async function saveTesterFeedback() {
   if (saveTesterFeedbackButton.disabled || typeof window.installer.saveTesterFeedback !== 'function') return;
-  saveTesterFeedbackButton.disabled = true;
+  setTesterFeedbackActionLoading(saveTesterFeedbackButton, true, 'Saving private draft…');
   emailTesterFeedbackButton.disabled = true;
   attachTesterScreenshotButton.disabled = true;
   showTesterFeedbackStatus('Opening a save box for your private tester feedback draft…');
@@ -1465,6 +1473,8 @@ async function saveTesterFeedback() {
   } catch {
     showTesterFeedbackStatus('CCTI could not save the tester feedback. Your text is still here in the form.', true);
   } finally {
+    setTesterFeedbackActionLoading(saveTesterFeedbackButton, false, 'Save private draft…');
+    emailTesterFeedbackButton.setAttribute('aria-busy', 'false');
     attachTesterScreenshotButton.disabled = false;
     updateTesterFeedbackControls();
   }
@@ -1472,7 +1482,7 @@ async function saveTesterFeedback() {
 async function openTesterFeedbackEmail() {
   if (emailTesterFeedbackButton.disabled || typeof window.installer.openTesterFeedbackEmail !== 'function') return;
   saveTesterFeedbackButton.disabled = true;
-  emailTesterFeedbackButton.disabled = true;
+  setTesterFeedbackActionLoading(emailTesterFeedbackButton, true, 'Opening email draft…');
   attachTesterScreenshotButton.disabled = true;
   showTesterFeedbackStatus('Opening an email draft for you to review…');
   try {
@@ -1481,6 +1491,8 @@ async function openTesterFeedbackEmail() {
   } catch {
     showTesterFeedbackStatus('CCTI could not open an email draft. Save the private draft instead.', true);
   } finally {
+    saveTesterFeedbackButton.setAttribute('aria-busy', 'false');
+    setTesterFeedbackActionLoading(emailTesterFeedbackButton, false, 'Open email draft');
     attachTesterScreenshotButton.disabled = false;
     updateTesterFeedbackControls();
   }
@@ -3527,7 +3539,7 @@ openTesterFeedbackButton.addEventListener('click', () => {
   updateTesterFeedbackControls();
   openTesterDialog(testerFeedbackDialogElement, testerFeedbackHeadingElement);
 });
-for (const input of [testerFeedbackAreaElement, testerFeedbackExpectedElement, testerFeedbackActualElement, testerFeedbackStepsElement]) {
+for (const input of [testerFeedbackAreaElement, testerFeedbackCategoryElement, testerFeedbackExpectedElement, testerFeedbackActualElement, testerFeedbackStepsElement]) {
   input.addEventListener('input', updateTesterFeedbackControls);
   input.addEventListener('change', updateTesterFeedbackControls);
 }

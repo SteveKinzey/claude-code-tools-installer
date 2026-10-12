@@ -76,7 +76,7 @@ function injectedBridge() {
       applyManagedExtrasRemoval: async (payload) => { record('applyManagedExtrasRemoval', payload); return { ok: false, error: 'Fixture stopped before managed extras removal.' }; },
       reportAnonymousSetupSuccess: async () => ({ ok: true }),
       chooseTesterFeedbackScreenshot: async () => { record('chooseTesterFeedbackScreenshot'); return { ok: true, canceled: false, screenshotToken: 'tester-screenshot-token', filename: 'tester-screenshot.png', size: 1234 }; },
-      saveTesterFeedback: async (payload) => { record('saveTesterFeedback', payload); return { ok: true, canceled: false, filename: 'ccti-tester-feedback.txt' }; },
+      saveTesterFeedback: async (payload) => { record('saveTesterFeedback', payload); await new Promise((resolve) => setTimeout(resolve, 30)); return { ok: true, canceled: false, filename: 'ccti-tester-feedback.txt' }; },
       openTesterFeedbackEmail: async (payload) => { record('openTesterFeedbackEmail', payload); return { ok: true, message: 'Your email app opened with a draft. Nothing was sent by CCTI.' }; },
       onOutput: () => {},
       onState: () => {},
@@ -259,6 +259,7 @@ async function run() {
       focusInDialog: document.querySelector('#tester-feedback-dialog').contains(document.activeElement),
       saveDisabled: document.querySelector('#save-tester-feedback-button').disabled,
       emailDisabled: document.querySelector('#email-tester-feedback-button').disabled,
+      categoryRequired: document.querySelector('#tester-feedback-category').required,
       attachmentButton: document.querySelector('#attach-tester-screenshot-button').textContent.trim(),
     }))()`);
     assert.deepEqual(initialFeedback, {
@@ -268,6 +269,7 @@ async function run() {
       focusInDialog: true,
       saveDisabled: true,
       emailDisabled: true,
+      categoryRequired: true,
       attachmentButton: 'Attach a screenshot (optional)…',
     }, 'tester feedback starts with a named modal and no enabled send-like actions');
     await evaluate(window, `(() => {
@@ -277,6 +279,7 @@ async function run() {
         element.dispatchEvent(new Event(eventName, { bubbles: true }));
       };
       set('#tester-feedback-area', 'Tool details or References', 'change');
+      set('#tester-feedback-category', 'Hard to understand', 'change');
       set('#tester-feedback-expected', 'A detail explanation should open without changing my choices.');
       set('#tester-feedback-actual', 'The sample issue did not show the detail explanation.');
       set('#tester-feedback-steps', '1. Open Details. 2. Read the explanation.');
@@ -286,7 +289,14 @@ async function run() {
     await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'chooseTesterFeedbackScreenshot'), 'screenshot selection call');
     await waitFor(window, () => document.querySelector('#tester-screenshot-status')?.textContent.includes('tester-screenshot.png'), 'selected screenshot status');
     await evaluate(window, "document.querySelector('#save-tester-feedback-button').click()");
+    const saveProgress = await evaluate(window, `(() => ({
+      busy: document.querySelector('#save-tester-feedback-button').getAttribute('aria-busy'),
+      label: document.querySelector('#save-tester-feedback-button .tester-feedback-action-label').textContent,
+      spinnerHidden: document.querySelector('#save-tester-feedback-button .tester-feedback-action-spinner').hidden,
+    }))()`);
+    assert.deepEqual(saveProgress, { busy: 'true', label: 'Saving private draft…', spinnerHidden: false }, 'saving feedback gives an accessible visible loading state');
     await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'saveTesterFeedback'), 'local feedback save call');
+    await waitFor(window, () => document.querySelector('#save-tester-feedback-button')?.getAttribute('aria-busy') === 'false', 'save feedback loading state clears');
     await evaluate(window, "document.querySelector('#email-tester-feedback-button').click()");
     await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'openTesterFeedbackEmail'), 'explicit email draft call');
     const savedFeedback = await callsOf(window, 'saveTesterFeedback');
@@ -294,6 +304,7 @@ async function run() {
     assert.equal(savedFeedback.length, 1, 'one local feedback save request is made');
     assert.equal(emailedFeedback.length, 1, 'one explicit email-draft request is made');
     assert.deepEqual(emailedFeedback[0].payload, savedFeedback[0].payload, 'save and email choices use the same reviewed feedback text');
+    assert.equal(savedFeedback[0].payload.category, 'Hard to understand', 'the selected issue category crosses the narrow bridge');
     assert.equal(savedFeedback[0].payload.screenshotToken, 'tester-screenshot-token', 'only an opaque screenshot token crosses the renderer boundary');
     assert.match(savedFeedback[0].payload.actual, /sample issue/i);
     assert.equal(await evaluate(window, "document.querySelector('#tester-feedback-status').textContent.includes('Nothing was sent by CCTI.')"), true, 'email draft status is explicit that CCTI did not send anything');
