@@ -2510,6 +2510,7 @@ async function selectedComponents(componentIds) {
 function componentNpmPaths() {
   const stateRoot = path.join(setupManagerDir(), 'component-npm');
   return {
+    root: stateRoot,
     cache: path.join(stateRoot, 'cache'),
     userconfig: path.join(stateRoot, 'npmrc'),
   };
@@ -2555,12 +2556,66 @@ function componentNpmPreview(projectPath, packages) {
 }
 
 async function prepareComponentNpmConfig() {
-  const { cache, userconfig } = componentNpmPaths();
-  await fs.mkdir(cache, { recursive: true, mode: 0o700 });
-  // The file is CCTI-owned and reset for every run. This prevents a previously saved npm policy
-  // from silently supplementing this review while retaining a CCTI-owned cache location.
-  await fs.writeFile(userconfig, '', { encoding: 'utf8', mode: 0o600 });
-  await fs.chmod(userconfig, 0o600);
+  const { root, cache, userconfig } = componentNpmPaths();
+  const home = await fs.realpath(app.getPath('home'));
+  const directories = [setupManagerDir(), root, cache];
+  const verified = [];
+  const unsafe = () => new Error('CCTI npm config/cache paths changed or contain a link or unsafe file. Nothing was started. Review the CCTI state folder before retrying.');
+  const verifyDirectories = async () => {
+    for (const entry of verified) {
+      const current = await fs.lstat(entry.folder);
+      if (current.isSymbolicLink() || !current.isDirectory() || current.dev !== entry.dev || current.ino !== entry.ino || await fs.realpath(entry.folder) !== entry.real) throw unsafe();
+    }
+  };
+  for (const folder of directories) {
+    await verifyDirectories();
+    // Create one level at a time; recursive mkdir could follow an unreviewed ancestor link.
+    try { await fs.mkdir(folder, { mode: 0o700 }); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+    const stat = await fs.lstat(folder);
+    const real = await fs.realpath(folder);
+    const expected = path.join(home, path.relative(app.getPath('home'), folder));
+    if (stat.isSymbolicLink() || !stat.isDirectory() || real !== expected) throw unsafe();
+    verified.push({ folder, real, dev: stat.dev, ino: stat.ino });
+  }
+  const verifyConfig = async () => {
+    try {
+      const stat = await fs.lstat(userconfig);
+      if (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1) throw unsafe();
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  };
+  await verifyDirectories();
+  await verifyConfig();
+  const temporary = path.join(root, `.npmrc-${randomUUID()}.tmp`);
+  let handle;
+  let published = false;
+  let created;
+  try {
+    // Exclusive creation never truncates an existing inode. NOFOLLOW is defense in depth on
+    // POSIX; O_EXCL protects an existing link on Windows too. chmod operates on our open handle.
+    handle = await fs.open(temporary, nodeFs.constants.O_WRONLY | nodeFs.constants.O_CREAT | nodeFs.constants.O_EXCL | (nodeFs.constants.O_NOFOLLOW || 0), 0o600);
+    created = await handle.stat();
+    await handle.chmod(0o600);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await verifyDirectories();
+    await verifyConfig();
+    const pending = await fs.lstat(temporary);
+    if (pending.isSymbolicLink() || !pending.isFile() || pending.nlink !== 1 || pending.dev !== created.dev || pending.ino !== created.ino) throw unsafe();
+    // Rename replaces a directory entry, never follows/truncates an old npmrc link or hard link.
+    await fs.rename(temporary, userconfig);
+    published = true;
+    await verifyDirectories();
+    await verifyConfig();
+    const current = await fs.lstat(userconfig);
+    if (current.dev !== created.dev || current.ino !== created.ino || current.size !== 0) throw unsafe();
+  } finally {
+    await handle?.close();
+    if (!published) {
+      // Do not unlink through a changed ancestor during failure cleanup.
+      try { await verifyDirectories(); await fs.unlink(temporary); } catch {}
+    }
+  }
   return { cache, userconfig };
 }
 
@@ -2637,7 +2692,8 @@ function waitForComponentInstall(child) {
     child.on('error', (error) => {
       if (settled) return;
       if (timedOut) {
-        finish({ code: -1, timedOut: true });
+        // A failed kill can emit error without close. Keep both termination timers and the
+        // conservative lock outcome active; error alone is never proof that npm stopped.
         return;
       }
       settled = true;
