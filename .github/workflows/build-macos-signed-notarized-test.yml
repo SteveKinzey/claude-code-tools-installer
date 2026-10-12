@@ -3,8 +3,8 @@ name: Build signed notarized macOS CCTI test artifact
 on:
   workflow_dispatch:
     inputs:
-      source_tag:
-        description: "Optional existing source tag to build without retargeting the workflow"
+      source_ref:
+        description: "Optional immutable commit, tag, or branch ref to package without retargeting the workflow"
         required: false
         default: ""
         type: string
@@ -30,24 +30,27 @@ jobs:
           fetch-depth: 0
 
       - name: Prepare immutable runtime source
-        if: inputs.source_tag != ''
+        id: source
+        if: inputs.source_ref != ''
         shell: bash
         env:
-          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
         run: |
-          git -C "$GITHUB_WORKSPACE" rev-parse --verify --quiet "${SOURCE_TAG}^{commit}" >/dev/null || {
-            echo "source_tag was not found: $SOURCE_TAG" >&2
+          source_commit="$(git -C "$GITHUB_WORKSPACE" rev-parse --verify --quiet "${SOURCE_REF}^{commit}")" || {
+            echo "source_ref was not found: $SOURCE_REF" >&2
             exit 2
           }
-          package_json="$RUNNER_TEMP/ccti-release-package.json"
-          git -C "$GITHUB_WORKSPACE" show "$SOURCE_TAG:desktop/package.json" > "$package_json"
-          node "$GITHUB_WORKSPACE/scripts/release-identity.js" --tag "$SOURCE_TAG" --package-json "$package_json" --require-daily-revision
-          git -C "$GITHUB_WORKSPACE" checkout "$SOURCE_TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1
-          git -C "$GITHUB_WORKSPACE" diff --quiet "$SOURCE_TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1 || {
-            echo "Runtime source does not exactly match $SOURCE_TAG." >&2
+          git -C "$GITHUB_WORKSPACE" checkout --detach --force "$source_commit"
+          git -C "$GITHUB_WORKSPACE" diff --quiet "$source_commit" || {
+            echo "Checked-out workspace does not exactly match $source_commit." >&2
             exit 2
           }
-          printf 'Packaging runtime source: %s\n' "$(git -C "$GITHUB_WORKSPACE" rev-parse "${SOURCE_TAG}^{commit}")"
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain)" || {
+            echo "Checked-out workspace is not clean at $source_commit." >&2
+            exit 2
+          }
+          printf 'Packaging runtime source: %s\n' "$source_commit"
+          echo "commit=$source_commit" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -106,7 +109,7 @@ jobs:
       - name: Upload signed test artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ccti-macos-signed-notarized-test-${{ github.sha }}
+          name: ccti-macos-signed-notarized-test-${{ steps.source.outputs.commit || github.sha }}
           path: |
             releases/test-builds/*.dmg
             releases/test-builds/*.zip
