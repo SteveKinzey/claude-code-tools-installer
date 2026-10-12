@@ -108,6 +108,7 @@ const testerFeedbackRecoveryStatusElement = document.querySelector('#tester-feed
 const saveTesterFeedbackButton = document.querySelector('#save-tester-feedback-button');
 const emailTesterFeedbackButton = document.querySelector('#email-tester-feedback-button');
 const newTesterFeedbackButton = document.querySelector('#new-tester-feedback-button');
+const clearTesterFeedbackButton = document.querySelector('#clear-tester-feedback-button');
 const attachTesterScreenshotButton = document.querySelector('#attach-tester-screenshot-button');
 const testerScreenshotStatusElement = document.querySelector('#tester-screenshot-status');
 const toggleReferencesButton = document.querySelector('#toggle-references-button');
@@ -1479,6 +1480,10 @@ function resetTesterFeedbackForm() {
   clearTesterFeedbackRecovery();
   testerFeedbackAreaElement.focus();
 }
+function setTesterFeedbackEditActionsDisabled(disabled) {
+  clearTesterFeedbackButton.disabled = disabled;
+  newTesterFeedbackButton.disabled = disabled;
+}
 function testerFeedbackPayload() {
   return {
     area: testerFeedbackAreaElement.value,
@@ -1549,6 +1554,7 @@ async function saveTesterFeedback() {
   setTesterFeedbackActionLoading(saveTesterFeedbackButton, true, 'Saving private draft…');
   emailTesterFeedbackButton.disabled = true;
   attachTesterScreenshotButton.disabled = true;
+  setTesterFeedbackEditActionsDisabled(true);
   showTesterFeedbackStatus('Opening a save box for your private tester feedback draft…');
   try {
     const result = await window.installer.saveTesterFeedback(testerFeedbackPayload());
@@ -1569,6 +1575,7 @@ async function saveTesterFeedback() {
     setTesterFeedbackActionLoading(saveTesterFeedbackButton, false, 'Save private draft…');
     emailTesterFeedbackButton.setAttribute('aria-busy', 'false');
     attachTesterScreenshotButton.disabled = false;
+    setTesterFeedbackEditActionsDisabled(false);
     updateTesterFeedbackControls();
   }
 }
@@ -1577,6 +1584,7 @@ async function openTesterFeedbackEmail() {
   saveTesterFeedbackButton.disabled = true;
   setTesterFeedbackActionLoading(emailTesterFeedbackButton, true, 'Opening email draft…');
   attachTesterScreenshotButton.disabled = true;
+  setTesterFeedbackEditActionsDisabled(true);
   showTesterFeedbackStatus('Opening an email draft for you to review…');
   try {
     const result = await window.installer.openTesterFeedbackEmail(testerFeedbackPayload());
@@ -1587,6 +1595,7 @@ async function openTesterFeedbackEmail() {
     saveTesterFeedbackButton.setAttribute('aria-busy', 'false');
     setTesterFeedbackActionLoading(emailTesterFeedbackButton, false, 'Open email draft');
     attachTesterScreenshotButton.disabled = false;
+    setTesterFeedbackEditActionsDisabled(false);
     updateTesterFeedbackControls();
   }
 }
@@ -3647,6 +3656,7 @@ attachTesterScreenshotButton.addEventListener('click', chooseTesterFeedbackScree
 saveTesterFeedbackButton.addEventListener('click', saveTesterFeedback);
 emailTesterFeedbackButton.addEventListener('click', openTesterFeedbackEmail);
 newTesterFeedbackButton.addEventListener('click', resetTesterFeedbackForm);
+clearTesterFeedbackButton.addEventListener('click', resetTesterFeedbackForm);
 testChangelogDialogElement.addEventListener('close', restoreTesterDialogFocus);
 testerFeedbackDialogElement.addEventListener('close', restoreTesterDialogFocus);
 toggleReferencesButton.addEventListener('click', toggleReferences);

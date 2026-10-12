@@ -483,7 +483,10 @@ h3 { margin: 0; font-size: 1rem; }
 #tester-feedback-status.is-error { color: #ffc2d0; }
 #tester-feedback-status.is-success { padding: 10px 12px; border: 1px solid #4f947c; border-radius: 8px; background: #102b28; color: #cbf7e5; }
 #tester-feedback-status.is-success.is-fading { animation: ccti-feedback-success-fade 420ms ease-out forwards; }
-.tester-feedback-new-issue { justify-self: start; }
+.tester-feedback-new-issue { justify-self: start; border-color: #6da99c; background: #153832; color: #d8fff3; transition: transform 160ms cubic-bezier(.23, 1, .32, 1), border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease; }
+.tester-feedback-new-issue:active { transform: scale(.97); }
+@media (hover: hover) and (pointer: fine) { .tester-feedback-new-issue:hover { transform: translateY(-1px); border-color: #a2e1d2; background: #1a4940; box-shadow: 0 7px 15px rgba(3, 19, 18, .28); } }
+.tester-feedback-new-issue:focus-visible { outline: 2px solid #baf7e6; outline-offset: 3px; }
 @keyframes ccti-feedback-success-fade { to { opacity: .18; } }
 @media (prefers-reduced-motion: reduce) { .tester-feedback-action-spinner { animation: none; } }
 @media (prefers-reduced-motion: reduce) { #tester-feedback-status.is-success.is-fading { animation: none; opacity: .65; } }

@@ -259,6 +259,8 @@ async function run() {
       focusInDialog: document.querySelector('#tester-feedback-dialog').contains(document.activeElement),
       saveDisabled: document.querySelector('#save-tester-feedback-button').disabled,
       emailDisabled: document.querySelector('#email-tester-feedback-button').disabled,
+      clearLabel: document.querySelector('#clear-tester-feedback-button').textContent.trim(),
+      clearDisabled: document.querySelector('#clear-tester-feedback-button').disabled,
       categoryRequired: document.querySelector('#tester-feedback-category').required,
       followUpType: document.querySelector('#tester-feedback-email').type,
       descriptionCount: document.querySelector('#tester-feedback-actual-count').textContent,
@@ -271,6 +273,8 @@ async function run() {
       focusInDialog: true,
       saveDisabled: true,
       emailDisabled: true,
+      clearLabel: 'Clear form',
+      clearDisabled: false,
       categoryRequired: true,
       followUpType: 'email',
       descriptionCount: '0 of 4,000 characters',
@@ -315,6 +319,7 @@ async function run() {
     assert.equal(saveSuccess.success, true, 'saving a local draft gives a distinct success confirmation');
     assert.match(saveSuccess.text, /^Success: Your private feedback draft is saved as ccti-tester-feedback\.txt/i);
     assert.equal(await evaluate(window, "document.querySelector('#new-tester-feedback-button').hidden"), false, 'a saved draft offers a quick next-issue action');
+    assert.equal(await evaluate(window, "getComputedStyle(document.querySelector('#new-tester-feedback-button')).transitionProperty.includes('transform')"), true, 'Report another issue has a transform-only interactive transition');
     assert.equal(await evaluate(window, "localStorage.getItem('ccti-tester-feedback-draft-v1')"), null, 'successful explicit save clears the private recovery draft');
     await evaluate(window, "document.querySelector('#email-tester-feedback-button').click()");
     await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'openTesterFeedbackEmail'), 'explicit email draft call');
@@ -338,6 +343,17 @@ async function run() {
       nextHidden: document.querySelector('#new-tester-feedback-button').hidden,
     }))()`);
     assert.deepEqual(resetFeedback, { area: '', category: '', email: '', actual: '', count: '0 of 4,000 characters', nextHidden: true }, 'Report another issue clears only the current tester form and prepares a fresh draft');
+    await evaluate(window, `(() => {
+      const field = document.querySelector('#tester-feedback-actual');
+      field.value = 'A private note to clear.';
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#clear-tester-feedback-button').click();
+    })()`);
+    assert.deepEqual(await evaluate(window, `(() => ({
+      actual: document.querySelector('#tester-feedback-actual').value,
+      count: document.querySelector('#tester-feedback-actual-count').textContent,
+      recovery: localStorage.getItem('ccti-tester-feedback-draft-v1'),
+    }))()`), { actual: '', count: '0 of 4,000 characters', recovery: null }, 'Clear form discards current text and its on-device recovery draft');
     await evaluate(window, "document.querySelector('#close-tester-feedback-button').click()");
     await waitFor(window, () => document.querySelector('#tester-feedback-dialog')?.open === false, 'tester feedback close');
     await waitFor(window, () => document.activeElement?.id === 'open-tester-feedback-button', 'tester feedback focus restoration');
