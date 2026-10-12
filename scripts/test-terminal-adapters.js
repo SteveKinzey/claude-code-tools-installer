@@ -11,6 +11,7 @@ const platform = process.argv[2];
 if (!['darwin', 'win32', 'linux'].includes(platform)) throw new Error('Usage: node scripts/test-terminal-adapters.js <darwin|win32|linux>');
 
 const root = path.resolve(__dirname, '..');
+require('./test-windows-terminal-availability')(root);
 const windowsCommandModule = path.join(root, 'desktop', 'src', 'windows-command.js');
 const { quoteCommand } = require(windowsCommandModule);
 // Drop the cached copy so main.js loads it again after child_process is replaced below.
