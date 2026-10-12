@@ -973,8 +973,10 @@ function Get-RollbackExpectedPath {
   }
   $globalSkill = Join-Path $HOME ".claude\skills\$skill"
   $projectSkill = Join-Path (Get-Location).Path ".claude\skills\$skill"
-  if ($Target -ieq $globalSkill) { return $globalSkill }
-  if ($Target -ieq $projectSkill) { return $projectSkill }
+  try { $normalizedTarget = [IO.Path]::GetFullPath($Target) }
+  catch { return $null }
+  if ($normalizedTarget -ieq [IO.Path]::GetFullPath($globalSkill)) { return $globalSkill }
+  if ($normalizedTarget -ieq [IO.Path]::GetFullPath($projectSkill)) { return $projectSkill }
   return $null
 }
 
@@ -1017,7 +1019,7 @@ function Test-RollbackPathIsSafe {
   catch {
     return $false
   }
-  if ($fullTarget -cne $Target -or $fullTarget -ine $fullExpected) { return $false }
+  if ($fullTarget -ine $fullExpected) { return $false }
   if ($fullTarget -ieq $root -or $fullTarget -ieq $homePath) { return $false }
   return -not (Test-RollbackPathHasReparsePoint $fullTarget)
 }

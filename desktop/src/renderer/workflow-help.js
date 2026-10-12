@@ -26,7 +26,7 @@
     if (!normalized) return null;
     if (/\b(slide|presentation|deck|speaker note)\b/.test(normalized)) return null;
     if (/\b(manifest|checksummed file|compare.*(?:manifest|checksum)|drop.*(?:manifest|file))\b/.test(normalized)) return answers.manifest;
-    if (/\b(uninstall(?:\s+(?:this\s+)?(?:app|ccti))?|remove\s+claude(?:\s+code)?|claude\s+code\s+removal)\b/.test(normalized)) return answers.uninstall;
+    if (/\b(uninstall(?:\s+(?:this\s+)?(?:app|ccti)|\s+claude\s+code)|(?:app|ccti|claude\s+code)\s+uninstall|remove\s+claude(?:\s+code)?|claude\s+code\s+removal)\b/.test(normalized)) return answers.uninstall;
     if (/\b(project package|package removal|managed extras?|remove.*(?:package|managed extra)|remove project)\b/.test(normalized)) return answers.removal;
     if (/\b(turned[- ]off|permanent(?:ly)? delete|delete permanently|type delete|delete.*(?:copy|backup|add-on))\b/.test(normalized)) return answers['permanent-delete'];
     if (/\b(start fresh|fresh start|delete claude data|remove.*everything)\b/.test(normalized)) return answers.cleanup;

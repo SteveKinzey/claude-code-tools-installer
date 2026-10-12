@@ -45,6 +45,13 @@ assert.match(packageRemoval, /Check this computer with the project selected/);
 assert.match(packageRemoval, /REMOVE PROJECT PACKAGE exactly/);
 assert.match(packageRemoval, /package scripts stay disabled/);
 assert.match(packageRemoval, /separately managed items remain for manual review/);
+for (const question of ['How do I uninstall a project package?', 'Can I uninstall managed extras?']) {
+  assert.equal(help.answerQuestion(question), help.answers.removal, `${question} must not route to app uninstall`);
+}
+for (const question of ['How do I uninstall CCTI?', 'How do I uninstall Claude Code?', 'CCTI uninstall steps']) {
+  assert.equal(help.answerQuestion(question), help.answers.uninstall);
+}
+assert.equal(help.answerQuestion('How do I uninstall Python?'), null, 'an unrelated uninstall must not imply app-removal guidance');
 
 const customAddOn = help.answerQuestion('How do I review a custom add-on source?');
 assert.match(customAddOn, /direct local folder containing SKILL.md/);

@@ -5,6 +5,7 @@ const { createHash, randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const nodeFs = require('node:fs');
 const os = require('node:os');
+const { StringDecoder } = require('node:string_decoder');
 const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
 const { comparePackageVersions, parsePackageVersion, parseReleaseIdentity } = require('./release-identity');
 const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
@@ -2576,16 +2577,18 @@ function componentNpmEnvironment() {
 function emitBoundedComponentOutput(child) {
   let emittedBytes = 0;
   let truncated = false;
-  const forward = (stream) => (chunk) => {
+  const forward = (stream, text) => {
+    if (!text) return;
     if (truncated) return;
-    const bytes = Buffer.from(String(chunk));
+    const bytes = Buffer.from(text, 'utf8');
     const remaining = maximumComponentOutputBytes - emittedBytes;
     if (remaining <= 0) {
       truncated = true;
       emit('component:output', { stream: 'stderr', text: `[CCTI] Component output was truncated at ${Math.round(maximumComponentOutputBytes / 1024)} KiB to keep this activity bounded.\n` });
       return;
     }
-    const visible = bytes.subarray(0, remaining).toString('utf8');
+    // Do not complete a partial capped code point with a replacement character.
+    const visible = new StringDecoder('utf8').write(bytes.subarray(0, remaining));
     emittedBytes += Buffer.byteLength(visible, 'utf8');
     if (visible) emit('component:output', { stream, text: visible });
     if (bytes.length > remaining) {
@@ -2593,8 +2596,11 @@ function emitBoundedComponentOutput(child) {
       emit('component:output', { stream: 'stderr', text: `[CCTI] Component output was truncated at ${Math.round(maximumComponentOutputBytes / 1024)} KiB to keep this activity bounded.\n` });
     }
   };
-  child.stdout.on('data', forward('stdout'));
-  child.stderr.on('data', forward('stderr'));
+  for (const stream of ['stdout', 'stderr']) {
+    const decoder = new StringDecoder('utf8');
+    child[stream].on('data', (chunk) => forward(stream, decoder.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))));
+    child[stream].on('end', () => forward(stream, decoder.end()));
+  }
 }
 
 function waitForComponentInstall(child) {
@@ -5067,7 +5073,9 @@ app.whenReady().then(async () => {
           });
           return { ok: false, code: result.code, components, packageJsonPath: projectPackage.packageJsonPath, packageState: projectPackage.packageState, error: 'Component installation timed out after 10 minutes. CCTI sent a graceful stop and SIGKILL, but npm has not exited, so the install lock remains active. Check the project and wait for npm to exit before retrying.' };
         }
-        return { ok: false, code: result.code, components, packageJsonPath: projectPackage.packageJsonPath, packageState: projectPackage.packageState, error: 'Component installation timed out after 10 minutes. CCTI stopped npm before releasing the install lock; check the project before retrying.' };
+        return { ok: false, code: result.code, components, packageJsonPath: projectPackage.packageJsonPath, packageState: projectPackage.packageState, error: process.platform === 'win32'
+          ? 'Component installation timed out after 10 minutes. CCTI stopped the Windows command wrapper before releasing the install lock, but npm may still be running. Check the project before retrying.'
+          : 'Component installation timed out after 10 minutes. CCTI stopped npm before releasing the install lock; check the project before retrying.' };
       }
       return { ok: result.code === 0, code: result.code, components, packageJsonPath: projectPackage.packageJsonPath, packageState: projectPackage.packageState };
     } catch (error) {

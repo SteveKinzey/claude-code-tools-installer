@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Exercises only --uninstall --dry-run with disposable homes and command stubs. It never runs a
-// real installer or remover; the Windows adapter is checked structurally because this macOS runner
-// has no PowerShell host.
+// Exercises only uninstall dry runs with disposable homes and command stubs. Windows CI executes
+// the real PowerShell helper and adapter against disposable junctions; no user tool is removed.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -127,7 +126,9 @@ function main() {
     createCommandStubs(bin);
     assertSourceContracts();
     if (process.platform === 'win32') {
-      console.log('Adapter rollback source contracts passed on Windows. POSIX behavioral dry runs require a POSIX host and are not claimed here; Windows reparse/allowlist behavior remains source-reviewed, not native certified.');
+      const result = spawnSync('pwsh', ['-NoProfile', '-File', path.join(root, 'scripts', 'test-adapter-rollback-windows.ps1'), '-Root', tempRoot, '-Adapter', path.join(root, windowsAdapter)], { encoding: 'utf8', timeout: 60_000 });
+      assert.equal(result.status, 0, `Native Windows rollback fixtures failed:\n${result.stdout}\n${result.stderr}`);
+      console.log(result.stdout.trim());
       return;
     }
     for (const adapter of bashAdapters) {

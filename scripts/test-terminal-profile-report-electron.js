@@ -106,7 +106,7 @@ async function waitFor(window, predicate, label) {
 }
 
 async function callsOf(window, method) {
-  return evaluate(window, `window.__terminalFixture.calls.filter((call) => call.method === ${JSON.stringify(method)})`);
+  return (await evaluate(window, 'window.__terminalFixture.calls')).filter((call) => call.method === method);
 }
 
 async function run() {

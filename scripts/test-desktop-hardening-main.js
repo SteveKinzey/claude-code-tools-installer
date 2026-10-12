@@ -58,6 +58,18 @@ function spawnStub(command, args = [], options = {}) {
       child.stdout.emit('data', Buffer.alloc(300 * 1024, 'x'));
       child.emit('close', 0);
     });
+  } else if (npmBehavior === 'unicode-output') {
+    queueMicrotask(() => {
+      const character = Buffer.from('€');
+      child.stdout.emit('data', character.subarray(0, 1));
+      child.stderr.emit('data', Buffer.from('ñ'));
+      child.stdout.emit('data', character.subarray(1));
+      child.stdout.emit('data', Buffer.alloc(256 * 1024 - 6, 'x'));
+      child.stdout.emit('data', character);
+      child.stdout.emit('end');
+      child.stderr.emit('end');
+      child.emit('close', 0);
+    });
   } else if (npmBehavior === 'success') {
     queueMicrotask(() => child.emit('close', 0));
   }
@@ -178,6 +190,16 @@ async function run() {
     assert.ok(Buffer.byteLength(componentOutput, 'utf8') <= 256 * 1024 + 200, 'component output is bounded with a short truncation notice');
     assert.match(componentOutput, /output was truncated/i);
 
+    const beforeUnicode = emitted.length;
+    npmBehavior = 'unicode-output';
+    assert.equal((await install(null, { projectPath: project, componentIds: [componentId], dryRun: false })).ok, true);
+    const unicodeEvents = emitted.slice(beforeUnicode).filter((entry) => entry.channel === 'component:output');
+    const unicodeText = unicodeEvents.map((entry) => entry.payload.text).join('');
+    assert.match(unicodeText, /€/);
+    assert.match(unicodeText, /ñ/);
+    assert.doesNotMatch(unicodeText, /\uFFFD/, 'split stream chunks and cap boundaries must preserve complete UTF-8 characters');
+    assert.ok(Buffer.byteLength(unicodeText, 'utf8') <= 256 * 1024 + 200);
+
     npmBehavior = 'timeout-stubborn';
     const originalSetTimeout = global.setTimeout;
     global.setTimeout = (callback, delay, ...args) => [10 * 60 * 1000, 5_000, 1_000].includes(delay)
@@ -203,6 +225,21 @@ async function run() {
     npmBehavior = 'success';
     const afterTimeout = await install(null, { projectPath: project, componentIds: [componentId], dryRun: false });
     assert.equal(afterTimeout.ok, true, 'the component lock is released only after the old npm child closes');
+
+    npmBehavior = 'timeout-force-close';
+    global.setTimeout = (callback, delay, ...args) => [10 * 60 * 1000, 5_000, 1_000].includes(delay)
+      ? originalSetTimeout(callback, 5, ...args) : originalSetTimeout(callback, delay, ...args);
+    let closedTimeout;
+    try { closedTimeout = await install(null, { projectPath: project, componentIds: [componentId], dryRun: false }); }
+    finally { global.setTimeout = originalSetTimeout; }
+    assert.equal(closedTimeout.ok, false);
+    if (process.platform === 'win32') {
+      assert.match(closedTimeout.error, /Windows command wrapper/);
+      assert.match(closedTimeout.error, /npm may still be running/);
+      assert.doesNotMatch(closedTimeout.error, /CCTI stopped npm/);
+    } else {
+      assert.match(closedTimeout.error, /CCTI stopped npm/);
+    }
 
     // Cleanup destination root: a CCTI backup folder swapped to a link after review is refused.
     await writeSkill(path.join(skillRoot, 'cleanup-skill'), 'cleanup');
