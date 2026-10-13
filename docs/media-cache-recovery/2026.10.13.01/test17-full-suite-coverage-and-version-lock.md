@@ -138,4 +138,4 @@ Original reports and source receipts remain preserved. The full local coverage J
 - `bundled-media-cache-recovery-2026.10.13.01.skill`: frozen reusable skill.
 - `verification-portal-source-b976550d.zip`: exact portal source snapshot; not a live publication.
 
-PR/main/tag and final installed validation outcomes are appended only after successful operations. This report does not claim a merge, tag or deployment from a local commit alone.
+Record PR/main/tag and final installed validation outcomes in a separate follow-up receipt outside this frozen version directory, only after successful operations. Do not append them to or otherwise modify this report after the snapshot is accepted and tagged. This report does not claim a merge, tag or deployment from a local commit alone.
