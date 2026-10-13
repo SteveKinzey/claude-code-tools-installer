@@ -10,7 +10,9 @@ const tempRoot = path.join(os.tmpdir(), `ccti-diagnostics-test-${process.pid}`);
 const handlers = new Map();
 let readyCallback;
 let saveDialogResult = { canceled: true, filePath: '' };
+let openDialogResult = { canceled: true, filePaths: [] };
 let preloadApi;
+const shellOpenCalls = [];
 
 const electronStub = {
   app: {
@@ -27,11 +29,11 @@ const electronStub = {
     isDestroyed() { return false; }
   },
   dialog: {
-    showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+    showOpenDialog: async () => openDialogResult,
     showSaveDialog: async () => saveDialogResult,
   },
   Notification: class { static isSupported() { return false; } },
-  shell: { openExternal: async () => {} },
+  shell: { openExternal: async (target) => { shellOpenCalls.push(target); } },
   ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
   contextBridge: { exposeInMainWorld: (_name, api) => { preloadApi = api; } },
   ipcRenderer: {
@@ -78,8 +80,12 @@ async function run() {
     const runDiagnostics = handlers.get('diagnostics:run');
     const getRuntimePaths = handlers.get('diagnostics:get-runtime-paths');
     const exportDiagnostics = handlers.get('diagnostics:export');
-    assert.ok(runDiagnostics && getRuntimePaths && exportDiagnostics, 'diagnostic run, runtime path, and export handlers must be registered');
+    const chooseTesterFeedbackScreenshot = handlers.get('tester-feedback:choose-screenshot');
+    const saveTesterFeedback = handlers.get('tester-feedback:save-local');
+    const openTesterFeedbackEmail = handlers.get('tester-feedback:open-email');
+    assert.ok(runDiagnostics && getRuntimePaths && exportDiagnostics && chooseTesterFeedbackScreenshot && saveTesterFeedback && openTesterFeedbackEmail, 'diagnostic and tester feedback handlers must be registered');
     assert.ok(preloadApi?.getRuntimePaths, 'the preload bridge must expose only the fixed runtime path diagnostic method');
+    assert.ok(preloadApi?.chooseTesterFeedbackScreenshot && preloadApi?.saveTesterFeedback && preloadApi?.openTesterFeedbackEmail, 'the preload bridge must expose narrow tester feedback choices');
 
     const mainPaths = await getRuntimePaths();
     assert.equal(mainPaths.ok, true);
@@ -150,7 +156,59 @@ async function run() {
     assert.equal(expired.ok, false);
     assert.match(expired.error, /Run Diagnostics again/i);
 
-    console.log('Desktop diagnostics behavior passed: local reports can be copied by the renderer and exported as user-selected text files.');
+    const missingTesterFeedback = await saveTesterFeedback(null, { area: '', expected: '', actual: '' });
+    assert.equal(missingTesterFeedback.ok, false, 'tester feedback requires the reviewed fields');
+    assert.match(missingTesterFeedback.error, /Choose an area/i);
+    const unsupportedTesterCategory = await saveTesterFeedback(null, { area: 'Something else', category: 'Unknown category', expected: 'Expected behavior', actual: 'Actual behavior' });
+    assert.equal(unsupportedTesterCategory.ok, false, 'tester feedback rejects forged categories outside the reviewed list');
+    assert.match(unsupportedTesterCategory.error, /listed issue categories/i);
+    const invalidFollowUpEmail = await saveTesterFeedback(null, { area: 'Something else', category: 'Something else', email: 'not-an-email', expected: 'Expected behavior', actual: 'Actual behavior' });
+    assert.equal(invalidFollowUpEmail.ok, false, 'tester feedback rejects malformed optional follow-up email values');
+    assert.match(invalidFollowUpEmail.error, /valid follow-up email/i);
+    const testerFeedback = {
+      area: 'Tool details or References',
+      category: 'Hard to understand',
+      email: 'Tester@example.com',
+      expected: 'The Details explanation should open without changing a tool choice.',
+      actual: 'The sample issue did not show the explanation.',
+      steps: 'Open Details, then read the explanation.',
+    };
+    saveDialogResult = { canceled: true, filePath: '' };
+    assert.deepEqual(await saveTesterFeedback(null, testerFeedback), { ok: true, canceled: true }, 'canceling tester feedback save leaves all data local');
+    const feedbackFile = path.join(tempRoot, 'ccti-tester-feedback.txt');
+    saveDialogResult = { canceled: false, filePath: feedbackFile };
+    const savedFeedback = await saveTesterFeedback(null, testerFeedback);
+    assert.deepEqual(savedFeedback, { ok: true, canceled: false, filename: 'ccti-tester-feedback.txt' });
+    const savedFeedbackText = await fs.readFile(feedbackFile, 'utf8');
+    assert.match(savedFeedbackText, /CCTI TESTER FEEDBACK — local draft/);
+    assert.match(savedFeedbackText, /This file is created only on this computer/);
+    assert.match(savedFeedbackText, /Issue category: Hard to understand/);
+    assert.match(savedFeedbackText, /Follow-up email: tester@example\.com/);
+    assert.match(savedFeedbackText, /The sample issue did not show the explanation/);
+    assert.doesNotMatch(savedFeedbackText, /fixture-home/, 'the generated feedback template does not add local paths or secrets');
+    openDialogResult = { canceled: true, filePaths: [] };
+    assert.deepEqual(await chooseTesterFeedbackScreenshot(), { ok: true, canceled: true }, 'canceling screenshot selection keeps all feedback local');
+    const screenshotFile = path.join(tempRoot, 'tester-screenshot.png');
+    await fs.writeFile(screenshotFile, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]));
+    openDialogResult = { canceled: false, filePaths: [screenshotFile] };
+    const chosenScreenshot = await chooseTesterFeedbackScreenshot();
+    assert.equal(chosenScreenshot.ok, true);
+    assert.equal(chosenScreenshot.filename, 'tester-screenshot.png');
+    const screenshotFeedbackFile = path.join(tempRoot, 'ccti-tester-feedback-with-screenshot.txt');
+    saveDialogResult = { canceled: false, filePath: screenshotFeedbackFile };
+    const savedWithScreenshot = await saveTesterFeedback(null, { ...testerFeedback, screenshotToken: chosenScreenshot.screenshotToken });
+    assert.deepEqual(savedWithScreenshot, { ok: true, canceled: false, filename: 'ccti-tester-feedback-with-screenshot.txt', attachment: 'ccti-tester-feedback-with-screenshot-screenshot.png' });
+    const copiedScreenshot = await fs.readFile(path.join(tempRoot, savedWithScreenshot.attachment));
+    assert.deepEqual(copiedScreenshot, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]), 'CCTI copies only the selected screenshot beside the local draft');
+    assert.match(await fs.readFile(screenshotFeedbackFile, 'utf8'), /never uploaded or added to an email draft automatically/i);
+    const emailDraft = await openTesterFeedbackEmail(null, testerFeedback);
+    assert.equal(emailDraft.ok, true, 'opening a tester email draft succeeds through the native shell only');
+    assert.match(emailDraft.message, /Nothing was sent by CCTI/i);
+    assert.equal(shellOpenCalls.length, 1);
+    assert.match(shellOpenCalls[0], /^mailto:support@sk-america\.com\?subject=/);
+    assert.match(decodeURIComponent(shellOpenCalls[0]), /The sample issue did not show the explanation/);
+
+    console.log('Desktop diagnostics and tester feedback behavior passed: local reports and feedback drafts are saved only by explicit user choice.');
   } finally {
     Module._load = originalLoad;
     global.setInterval = originalSetInterval;

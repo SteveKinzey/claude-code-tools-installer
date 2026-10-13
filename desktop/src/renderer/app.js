@@ -32,8 +32,14 @@ const state = {
   terminalReport: { id: '', report: '' },
   terminalDialogInvoker: null,
   componentLibraryInvoker: null,
+  testerDialogInvoker: null,
+  testerFeedbackAttachment: { screenshotToken: '', filename: '' },
 };
 let diagnosticExpiryTimer = null;
+let testerFeedbackDraftTimer = null;
+let testerFeedbackSuccessTimer = null;
+const TESTER_FEEDBACK_DRAFT_KEY = 'ccti-tester-feedback-draft-v1';
+const TESTER_FEEDBACK_DRAFT_DELAY_MS = 500;
 
 const catalogElement = document.querySelector('#catalog');
 const catalogWorkflowElement = document.querySelector('#catalog-workflow');
@@ -84,6 +90,27 @@ const terminalReportFilterSummaryElement = document.querySelector('#terminal-rep
 const terminalReportPreviewElement = document.querySelector('#terminal-report-preview');
 const terminalReportStatusElement = document.querySelector('#terminal-report-status');
 const saveTerminalReportButton = document.querySelector('#save-terminal-report-button');
+const openTestChangelogButton = document.querySelector('#open-test-changelog-button');
+const openTesterFeedbackButton = document.querySelector('#open-tester-feedback-button');
+const testChangelogDialogElement = document.querySelector('#test-changelog-dialog');
+const testChangelogHeadingElement = document.querySelector('#test-changelog-heading');
+const testerFeedbackDialogElement = document.querySelector('#tester-feedback-dialog');
+const testerFeedbackHeadingElement = document.querySelector('#tester-feedback-heading');
+const testerFeedbackAreaElement = document.querySelector('#tester-feedback-area');
+const testerFeedbackCategoryElement = document.querySelector('#tester-feedback-category');
+const testerFeedbackEmailElement = document.querySelector('#tester-feedback-email');
+const testerFeedbackExpectedElement = document.querySelector('#tester-feedback-expected');
+const testerFeedbackActualElement = document.querySelector('#tester-feedback-actual');
+const testerFeedbackActualCountElement = document.querySelector('#tester-feedback-actual-count');
+const testerFeedbackStepsElement = document.querySelector('#tester-feedback-steps');
+const testerFeedbackStatusElement = document.querySelector('#tester-feedback-status');
+const testerFeedbackRecoveryStatusElement = document.querySelector('#tester-feedback-recovery-status');
+const saveTesterFeedbackButton = document.querySelector('#save-tester-feedback-button');
+const emailTesterFeedbackButton = document.querySelector('#email-tester-feedback-button');
+const newTesterFeedbackButton = document.querySelector('#new-tester-feedback-button');
+const clearTesterFeedbackButton = document.querySelector('#clear-tester-feedback-button');
+const attachTesterScreenshotButton = document.querySelector('#attach-tester-screenshot-button');
+const testerScreenshotStatusElement = document.querySelector('#tester-screenshot-status');
 const toggleReferencesButton = document.querySelector('#toggle-references-button');
 const referencesContentElement = document.querySelector('#references-content');
 const referenceSearchElement = document.querySelector('#reference-search');
@@ -1370,7 +1397,208 @@ function restoreTerminalDialogFocus() {
     if (invoker?.isConnected) invoker.focus();
   }, 0);
 }
-
+function openTesterDialog(dialog, heading) {
+  if (typeof dialog?.showModal !== 'function') return;
+  if (document.activeElement instanceof HTMLElement && !dialog.contains(document.activeElement)) state.testerDialogInvoker = document.activeElement;
+  if (!dialog.open) dialog.showModal();
+  focusDuplicateDialog(heading);
+}
+function restoreTesterDialogFocus() {
+  const invoker = state.testerDialogInvoker;
+  state.testerDialogInvoker = null;
+  setTimeout(() => {
+    if (invoker?.isConnected && !invoker.disabled) invoker.focus();
+  }, 0);
+}
+function isValidTesterFeedbackEmail(value) {
+  return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+function testerFeedbackRecoveryPayload() {
+  return {
+    area: testerFeedbackAreaElement.value,
+    category: testerFeedbackCategoryElement.value,
+    email: testerFeedbackEmailElement.value.trim(),
+    expected: testerFeedbackExpectedElement.value,
+    actual: testerFeedbackActualElement.value,
+    steps: testerFeedbackStepsElement.value,
+  };
+}
+function clearTesterFeedbackRecovery() {
+  if (testerFeedbackDraftTimer) clearTimeout(testerFeedbackDraftTimer);
+  testerFeedbackDraftTimer = null;
+  try { localStorage.removeItem(TESTER_FEEDBACK_DRAFT_KEY); } catch {}
+  testerFeedbackRecoveryStatusElement.textContent = 'No private recovery draft is saved on this computer.';
+}
+function saveTesterFeedbackRecovery() {
+  const draft = testerFeedbackRecoveryPayload();
+  if (!Object.values(draft).some(Boolean)) {
+    clearTesterFeedbackRecovery();
+    return;
+  }
+  try {
+    localStorage.setItem(TESTER_FEEDBACK_DRAFT_KEY, JSON.stringify(draft));
+    testerFeedbackRecoveryStatusElement.textContent = 'Private recovery draft saved on this computer. It is not uploaded or sent.';
+  } catch {
+    testerFeedbackRecoveryStatusElement.textContent = 'CCTI could not save a private recovery draft. Keep this window open while you finish your feedback.';
+  }
+}
+function scheduleTesterFeedbackRecovery() {
+  if (testerFeedbackDraftTimer) clearTimeout(testerFeedbackDraftTimer);
+  testerFeedbackDraftTimer = setTimeout(saveTesterFeedbackRecovery, TESTER_FEEDBACK_DRAFT_DELAY_MS);
+}
+function restoreTesterFeedbackRecovery() {
+  try {
+    const rawDraft = localStorage.getItem(TESTER_FEEDBACK_DRAFT_KEY);
+    if (!rawDraft) return false;
+    const draft = JSON.parse(rawDraft);
+    if (!draft || typeof draft !== 'object') return false;
+    testerFeedbackAreaElement.value = typeof draft.area === 'string' ? draft.area : '';
+    testerFeedbackCategoryElement.value = typeof draft.category === 'string' ? draft.category : '';
+    testerFeedbackEmailElement.value = typeof draft.email === 'string' ? draft.email : '';
+    testerFeedbackExpectedElement.value = typeof draft.expected === 'string' ? draft.expected : '';
+    testerFeedbackActualElement.value = typeof draft.actual === 'string' ? draft.actual : '';
+    testerFeedbackStepsElement.value = typeof draft.steps === 'string' ? draft.steps : '';
+    testerFeedbackRecoveryStatusElement.textContent = 'Restored a private recovery draft from this computer. It was not uploaded or sent.';
+    return true;
+  } catch {
+    return false;
+  }
+}
+function resetTesterFeedbackForm() {
+  testerFeedbackAreaElement.value = '';
+  testerFeedbackCategoryElement.value = '';
+  testerFeedbackEmailElement.value = '';
+  testerFeedbackExpectedElement.value = '';
+  testerFeedbackActualElement.value = '';
+  testerFeedbackStepsElement.value = '';
+  state.testerFeedbackAttachment = { screenshotToken: '', filename: '' };
+  syncTesterScreenshotStatus('No screenshot attached. If you save a private draft, CCTI copies the screenshot beside it on this computer.');
+  showTesterFeedbackStatus('');
+  newTesterFeedbackButton.hidden = true;
+  updateTesterFeedbackActualCount();
+  updateTesterFeedbackControls();
+  clearTesterFeedbackRecovery();
+  testerFeedbackAreaElement.focus();
+}
+function setTesterFeedbackEditActionsDisabled(disabled) {
+  clearTesterFeedbackButton.disabled = disabled;
+  newTesterFeedbackButton.disabled = disabled;
+}
+function testerFeedbackPayload() {
+  return {
+    area: testerFeedbackAreaElement.value,
+    category: testerFeedbackCategoryElement.value,
+    email: testerFeedbackEmailElement.value.trim(),
+    expected: testerFeedbackExpectedElement.value,
+    actual: testerFeedbackActualElement.value,
+    steps: testerFeedbackStepsElement.value,
+    screenshotToken: state.testerFeedbackAttachment.screenshotToken,
+  };
+}
+function updateTesterFeedbackControls() {
+  const { area, category, email, expected, actual } = testerFeedbackPayload();
+  const validEmail = isValidTesterFeedbackEmail(email);
+  testerFeedbackEmailElement.setAttribute('aria-invalid', String(Boolean(email && !validEmail)));
+  const complete = Boolean(area && category && validEmail && expected.trim() && actual.trim());
+  saveTesterFeedbackButton.disabled = !complete;
+  emailTesterFeedbackButton.disabled = !complete;
+}
+function updateTesterFeedbackActualCount() {
+  const maximum = Number(testerFeedbackActualElement.maxLength) || 4000;
+  testerFeedbackActualCountElement.textContent = `${testerFeedbackActualElement.value.length.toLocaleString()} of ${maximum.toLocaleString()} characters`;
+}
+function showTesterFeedbackStatus(message, state = 'neutral') {
+  if (testerFeedbackSuccessTimer) clearTimeout(testerFeedbackSuccessTimer);
+  testerFeedbackStatusElement.textContent = message;
+  testerFeedbackStatusElement.classList.toggle('is-error', state === 'error');
+  testerFeedbackStatusElement.classList.toggle('is-success', state === 'success');
+  testerFeedbackStatusElement.classList.remove('is-fading');
+  newTesterFeedbackButton.hidden = state !== 'success';
+  if (state === 'success') {
+    testerFeedbackSuccessTimer = setTimeout(() => testerFeedbackStatusElement.classList.add('is-fading'), 4200);
+  }
+}
+function setTesterFeedbackActionLoading(button, loading, label) {
+  button.disabled = loading;
+  button.setAttribute('aria-busy', String(loading));
+  button.querySelector('.tester-feedback-action-label').textContent = label;
+  button.querySelector('.tester-feedback-action-spinner').hidden = !loading;
+}
+function syncTesterScreenshotStatus(message) {
+  testerScreenshotStatusElement.textContent = message;
+}
+async function chooseTesterFeedbackScreenshot() {
+  if (attachTesterScreenshotButton.disabled || typeof window.installer.chooseTesterFeedbackScreenshot !== 'function') return;
+  attachTesterScreenshotButton.disabled = true;
+  syncTesterScreenshotStatus('Choose a PNG or JPEG screenshot that does not show private information.');
+  try {
+    const result = await window.installer.chooseTesterFeedbackScreenshot();
+    if (!result.ok) {
+      syncTesterScreenshotStatus(result.error || 'CCTI could not use that screenshot.');
+      return;
+    }
+    if (result.canceled) {
+      syncTesterScreenshotStatus('No screenshot attached. Your feedback text stays in this form.');
+      return;
+    }
+    state.testerFeedbackAttachment = { screenshotToken: result.screenshotToken, filename: result.filename };
+    syncTesterScreenshotStatus(`${result.filename} is ready to copy beside a private saved draft. It will not be uploaded or added to an email draft.`);
+  } catch {
+    syncTesterScreenshotStatus('CCTI could not use that screenshot. Your feedback text stays in this form.');
+  } finally {
+    attachTesterScreenshotButton.disabled = false;
+  }
+}
+async function saveTesterFeedback() {
+  if (saveTesterFeedbackButton.disabled || typeof window.installer.saveTesterFeedback !== 'function') return;
+  setTesterFeedbackActionLoading(saveTesterFeedbackButton, true, 'Saving private draft…');
+  emailTesterFeedbackButton.disabled = true;
+  attachTesterScreenshotButton.disabled = true;
+  setTesterFeedbackEditActionsDisabled(true);
+  showTesterFeedbackStatus('Opening a save box for your private tester feedback draft…');
+  try {
+    const result = await window.installer.saveTesterFeedback(testerFeedbackPayload());
+    if (!result.ok) showTesterFeedbackStatus(result.error || 'CCTI could not save the tester feedback.', 'error');
+    else if (result.canceled) showTesterFeedbackStatus('No file was saved. Your text is still here in the form.');
+    else {
+      const attachment = result.attachment ? ` The selected screenshot was copied as ${result.attachment}.` : '';
+      clearTesterFeedbackRecovery();
+      showTesterFeedbackStatus(`Success: Your private feedback draft is saved as ${result.filename} on this computer. CCTI did not send it anywhere.${attachment}`, 'success');
+      if (result.attachment) {
+        state.testerFeedbackAttachment = { screenshotToken: '', filename: '' };
+        syncTesterScreenshotStatus('Screenshot copied beside your saved private feedback draft. It was not uploaded or emailed.');
+      }
+    }
+  } catch {
+    showTesterFeedbackStatus('CCTI could not save the tester feedback. Your text is still here in the form.', 'error');
+  } finally {
+    setTesterFeedbackActionLoading(saveTesterFeedbackButton, false, 'Save private draft…');
+    emailTesterFeedbackButton.setAttribute('aria-busy', 'false');
+    attachTesterScreenshotButton.disabled = false;
+    setTesterFeedbackEditActionsDisabled(false);
+    updateTesterFeedbackControls();
+  }
+}
+async function openTesterFeedbackEmail() {
+  if (emailTesterFeedbackButton.disabled || typeof window.installer.openTesterFeedbackEmail !== 'function') return;
+  saveTesterFeedbackButton.disabled = true;
+  setTesterFeedbackActionLoading(emailTesterFeedbackButton, true, 'Opening email draft…');
+  attachTesterScreenshotButton.disabled = true;
+  setTesterFeedbackEditActionsDisabled(true);
+  showTesterFeedbackStatus('Opening an email draft for you to review…');
+  try {
+    const result = await window.installer.openTesterFeedbackEmail(testerFeedbackPayload());
+    showTesterFeedbackStatus(result.ok ? result.message : result.error || 'CCTI could not open an email draft.', result.ok ? 'neutral' : 'error');
+  } catch {
+    showTesterFeedbackStatus('CCTI could not open an email draft. Save the private draft instead.', 'error');
+  } finally {
+    saveTesterFeedbackButton.setAttribute('aria-busy', 'false');
+    setTesterFeedbackActionLoading(emailTesterFeedbackButton, false, 'Open email draft');
+    attachTesterScreenshotButton.disabled = false;
+    setTesterFeedbackEditActionsDisabled(false);
+    updateTesterFeedbackControls();
+  }
+}
 function openTerminalProfileGuide() {
   terminalProfileGuideStatusElement.textContent = '';
   openTerminalDialog(terminalProfileGuideDialogElement, terminalProfileGuideHeadingElement);
@@ -3407,6 +3635,30 @@ terminalReportDialogElement.addEventListener('close', () => {
   terminalReportFilterSummaryElement.textContent = '';
   restoreTerminalDialogFocus();
 });
+openTestChangelogButton.addEventListener('click', () => openTesterDialog(testChangelogDialogElement, testChangelogHeadingElement));
+openTesterFeedbackButton.addEventListener('click', () => {
+  showTesterFeedbackStatus('');
+  updateTesterFeedbackActualCount();
+  updateTesterFeedbackControls();
+  openTesterDialog(testerFeedbackDialogElement, testerFeedbackHeadingElement);
+});
+for (const input of [testerFeedbackAreaElement, testerFeedbackCategoryElement, testerFeedbackEmailElement, testerFeedbackExpectedElement, testerFeedbackActualElement, testerFeedbackStepsElement]) {
+  input.addEventListener('input', updateTesterFeedbackControls);
+  input.addEventListener('change', updateTesterFeedbackControls);
+  input.addEventListener('input', scheduleTesterFeedbackRecovery);
+  input.addEventListener('change', scheduleTesterFeedbackRecovery);
+}
+testerFeedbackActualElement.addEventListener('input', updateTesterFeedbackActualCount);
+restoreTesterFeedbackRecovery();
+updateTesterFeedbackActualCount();
+updateTesterFeedbackControls();
+attachTesterScreenshotButton.addEventListener('click', chooseTesterFeedbackScreenshot);
+saveTesterFeedbackButton.addEventListener('click', saveTesterFeedback);
+emailTesterFeedbackButton.addEventListener('click', openTesterFeedbackEmail);
+newTesterFeedbackButton.addEventListener('click', resetTesterFeedbackForm);
+clearTesterFeedbackButton.addEventListener('click', resetTesterFeedbackForm);
+testChangelogDialogElement.addEventListener('close', restoreTesterDialogFocus);
+testerFeedbackDialogElement.addEventListener('close', restoreTesterDialogFocus);
 toggleReferencesButton.addEventListener('click', toggleReferences);
 referenceSearchElement.addEventListener('input', renderReferences);
 recheckClaudeButton.addEventListener('click', async () => {

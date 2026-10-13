@@ -458,3 +458,40 @@ h3 { margin: 0; font-size: 1rem; }
 
 .release-integrity-alert{display:flex;align-items:baseline;gap:6px;max-width:760px;margin:0!important;padding:8px 10px;border:1px solid #b97934;border-radius:9px;background:#2c2115;color:#ffdda8!important;font-size:.76rem!important;line-height:1.4}.release-integrity-alert strong{flex:0 0 auto;color:#ffe4b5}@media(max-width:700px){.release-integrity-alert{align-items:flex-start;flex-direction:column;gap:2px}}
 .manifest-drop-zone{grid-column:1/-1;display:grid;gap:4px;padding:13px 14px;border:1px dashed #5d8bb1;border-radius:9px;background:#0a1b2d;color:#d8efff;cursor:pointer;transition:border-color .16s ease,background .16s ease,transform .16s ease}.manifest-drop-zone strong{font-size:.86rem}.manifest-drop-zone span{color:#abc9df;font-size:.78rem;line-height:1.45}.manifest-drop-zone:hover,.manifest-drop-zone:focus-visible,.manifest-drop-zone.is-dragging{border-color:#8be0d1;background:#112f40;outline:none}.manifest-drop-zone.is-dragging{transform:scale(1.01)}.manifest-drop-zone.is-verifying{opacity:.7;cursor:wait}.manifest-drop-zone.is-disabled{opacity:.55;cursor:not-allowed;pointer-events:none}.manifest-comparison-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;grid-column:1/-1}.manifest-comparison-actions span{color:#9ebbd1;font-size:.77rem;line-height:1.4}.manifest-comparison-result{grid-column:1/-1;max-height:240px;margin:0;overflow:auto;padding:13px;border:1px solid #3b5f7a;border-radius:8px;background:#071522;color:#cbe6f5;font:.75rem/1.5 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;white-space:pre-wrap}@media(prefers-reduced-motion:reduce){.manifest-drop-zone{transition:none}}
+
+/* Test-build helpers keep reporting explicit and local-first. */
+.tester-tools-panel { display: flex; justify-content: space-between; align-items: center; gap: 18px 24px; margin: 22px 0; padding: 18px; border: 1px solid #6d5c2e; border-left: 4px solid #f0c85a; border-radius: 12px; background: linear-gradient(135deg, #2b2416, #161d2c); }
+.tester-tools-panel h2 { margin-bottom: 6px; color: #fff0c0; }
+.tester-tools-panel p:not(.eyebrow) { margin: 0; max-width: 760px; color: #e5d8a8; line-height: 1.5; }
+.tester-tools-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 9px; }
+.tester-dialog { width: min(720px, calc(100vw - 48px)); }
+.tester-changelog-list { display: grid; gap: 10px; margin: 0; padding-left: 21px; color: #d5e1f1; line-height: 1.5; }
+.tester-changelog-list strong { color: #fff0c0; }
+.tester-boundary { margin: 0; padding: 10px 12px; border: 1px solid #80682e; border-radius: 8px; background: #241f14; color: #f4dfaa; font-size: .82rem; line-height: 1.45; }
+.tester-feedback-field { display: grid; gap: 6px; color: #d9edff; font-size: .86rem; font-weight: 750; }
+.tester-feedback-field select, .tester-feedback-field textarea { width: 100%; border: 1px solid #4b7190; border-radius: 8px; background: #091523; color: #e9f3ff; padding: 10px 11px; font: inherit; font-weight: 400; }
+.tester-feedback-field textarea { min-height: 78px; resize: vertical; }
+.tester-feedback-character-count { min-height: 1.2em; margin: -5px 0 0; color: #a9c9dc; font-size: .78rem; line-height: 1.4; text-align: right; }
+.tester-feedback-help, .tester-feedback-recovery-status { min-height: 1.2em; margin: -5px 0 0; color: #a9c9dc; font-size: .78rem; line-height: 1.4; }
+.tester-feedback-recovery-status { padding: 8px 10px; border-left: 3px solid #5b7891; background: #0b1b2b; }
+.tester-screenshot-field { display: grid; justify-items: start; gap: 7px; padding: 11px 12px; border: 1px dashed #5b7891; border-radius: 8px; background: #0b1b2b; }
+.tester-screenshot-field .button { min-height: 36px; }
+#tester-screenshot-status { min-height: 1.4em; margin: 0; color: #b8d6e7; font-size: .8rem; line-height: 1.45; }
+.tester-feedback-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.tester-feedback-action-spinner { width: .78rem; height: .78rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: ccti-spin .75s linear infinite; }
+#tester-feedback-status { min-height: 1.4em; margin: 0; color: #bde9e1; font-size: .82rem; line-height: 1.45; }
+#tester-feedback-status.is-error { color: #ffc2d0; }
+#tester-feedback-status.is-success { padding: 10px 12px; border: 1px solid #4f947c; border-radius: 8px; background: #102b28; color: #cbf7e5; }
+#tester-feedback-status.is-success.is-fading { animation: ccti-feedback-success-fade 420ms ease-out forwards; }
+.tester-feedback-new-issue { justify-self: start; border-color: #6da99c; background: #153832; color: #d8fff3; transition: transform 160ms cubic-bezier(.23, 1, .32, 1), border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease; }
+.tester-feedback-new-issue:active { transform: scale(.97); }
+@media (hover: hover) and (pointer: fine) { .tester-feedback-new-issue:hover { transform: translateY(-1px); border-color: #a2e1d2; background: #1a4940; box-shadow: 0 7px 15px rgba(3, 19, 18, .28); } }
+.tester-feedback-new-issue:focus-visible { outline: 2px solid #baf7e6; outline-offset: 3px; }
+@keyframes ccti-feedback-success-fade { to { opacity: .18; } }
+@media (prefers-reduced-motion: reduce) { .tester-feedback-action-spinner { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #tester-feedback-status.is-success.is-fading { animation: none; opacity: .65; } }
+@media (max-width: 720px) {
+  .tester-tools-panel { align-items: flex-start; flex-direction: column; }
+  .tester-tools-actions { width: 100%; }
+  .tester-tools-actions .button { flex: 1 1 220px; }
+}
