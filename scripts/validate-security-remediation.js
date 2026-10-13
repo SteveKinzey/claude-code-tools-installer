@@ -15,7 +15,9 @@ const fieldGuideHealthWorkflow = readWorkflowText(path.join(root, '.github', 'wo
 const macReleaseWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml'));
 const weeklySecurityWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'weekly-dependency-security.yml'));
 const codeqlWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'codeql.yml'));
-const macCandidateWorkflow = readWorkflowText(path.join(root, '.github', 'workflows', 'build-macos-signed-notarized-test.yml'));
+const macCandidateWorkflowPath = path.join(root, '.github', 'workflows', 'build-macos-signed-notarized-test.yml');
+const macCandidateWorkflow = readWorkflowText(macCandidateWorkflowPath);
+const historicalSourceInstallFallback = /if \[\[ -f package-lock\.json \]\]; then\n\s+npm ci\n\s+else\n\s+echo "No package-lock\.json exists in the requested historical source; resolving dependencies for this test-only build\."\n\s+npm install --no-audit --no-fund --package-lock=false\n\s+fi/;
 const minimumNode = '22.12.0';
 
 function versionParts(version) {
@@ -63,8 +65,13 @@ for (const workflowPath of workflows) {
 for (const workflowPath of desktopWorkflows) {
   const contents = readWorkflowText(workflowPath);
   const filename = path.basename(workflowPath);
+  let checkedContents = contents;
+  if (workflowPath === macCandidateWorkflowPath) {
+    checkedContents = contents.replace(historicalSourceInstallFallback, '');
+    assert.notEqual(checkedContents, contents, `${filename} must limit npm install to the lockfile-free historical-source fallback.`);
+  }
   assert.match(contents, /node-version:\s*['"]?22\.12\.0['"]?/, `${filename} must pin Node ${minimumNode}.`);
-  assert.doesNotMatch(contents, /npm install/, `${filename} must use lockfile-deterministic npm ci instead of npm install.`);
+  assert.doesNotMatch(checkedContents, /npm install/, `${filename} must use lockfile-deterministic npm ci except for the guarded historical-source fallback.`);
   assert.match(contents, /npm ci/, `${filename} must install dependencies with npm ci.`);
 }
 
@@ -115,9 +122,14 @@ assert.match(macReleaseWorkflow, /releases\/\$release_database_id\/assets/, 'mac
 assert.match(macReleaseWorkflow, /releases\/\$release_database_id\/assets\?per_page=100/, 'macOS draft retries must list release assets through the numeric release REST endpoint.');
 assert.match(macReleaseWorkflow, /release_asset_database_id.*=~ \^\[0-9\]\+\$/, 'macOS draft retries must reject a missing or non-numeric release asset database ID.');
 assert.match(macReleaseWorkflow, /releases\/assets\/\$release_asset_database_id/, 'macOS draft retries must delete assets by numeric REST database ID.');
-assert.match(macCandidateWorkflow, /source_tag:/, 'macOS candidate workflow must support building an existing immutable source tag.');
-assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" checkout "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must copy runtime files from the requested source tag at repository root.');
-assert.match(macCandidateWorkflow, /git -C "\$GITHUB_WORKSPACE" diff --quiet "\$SOURCE_TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS candidate workflow must verify runtime files exactly match the requested source tag at repository root.');
+assert.match(macCandidateWorkflow, /source_ref:/, 'macOS candidate workflow must support an optional trusted full commit SHA.');
+assert.match(macCandidateWorkflow, /rev-parse --verify --quiet --end-of-options "\$\{SOURCE_REF\}\^\{commit\}"/, 'macOS candidate workflow must resolve the requested SHA without option injection.');
+assert.match(macCandidateWorkflow, /test "\$GITHUB_REF" = refs\/heads\/main/, 'macOS signing controller must run from protected main.');
+assert.match(macCandidateWorkflow, /merge-base --is-ancestor "\$source_commit" refs\/remotes\/origin\/main/, 'macOS signing source must be reachable from fetched protected main.');
+assert.doesNotMatch(macCandidateWorkflow, /if: inputs\.source_ref != ''/, 'Default signing source must pass the same trust gate.');
+assert.match(macCandidateWorkflow, /checkout --detach --force "\$source_commit"/, 'macOS candidate workflow must check out the resolved source commit without retargeting the workflow.');
+assert.match(macCandidateWorkflow, /diff --quiet "\$source_commit"/, 'macOS candidate workflow must verify the workspace matches the resolved source commit.');
+assert.match(macCandidateWorkflow, /test -z "\$\(git -C "\$GITHUB_WORKSPACE" status --porcelain\)"/, 'macOS candidate workflow must reject a dirty resolved source workspace.');
 assert.match(weeklySecurityWorkflow, /cron:\s*'23 8 \* \* 1'/, 'Weekly dependency security scanning must run every Monday.');
 assert.match(weeklySecurityWorkflow, /npm ci --ignore-scripts/, 'Weekly dependency security scanning must not execute lifecycle scripts.');
 assert.match(weeklySecurityWorkflow, /sudo apt-get install --yes xvfb/, 'Weekly dependency security scanning must provide a virtual display for the Electron renderer integration test.');
@@ -132,4 +144,6 @@ assert.match(codeqlWorkflow, /security-events: write/, 'CodeQL must have only th
 assert.match(codeqlWorkflow, /languages:\s*\$\{\{ matrix\.language \}\}/, 'CodeQL must analyze the configured JavaScript and TypeScript language matrix.');
 assert.ok(!workflows.some((workflowPath) => /build-windows-signed-/i.test(path.basename(workflowPath))), 'Obsolete alternate Windows distribution workflows must not be present.');
 
+const sourceTrust = require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, 'test-macos-source-trust.js')], { stdio: 'inherit' });
+assert.equal(sourceTrust.status, 0, 'macOS signing-source positive and negative regressions must pass.');
 console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}, Dependabot policy, pull-request dependency review, and CodeQL scanning.`);
