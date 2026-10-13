@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: "Optional immutable commit, tag, or branch ref to package without retargeting the workflow"
+        description: "Optional full commit SHA reachable from protected main; dispatch this workflow from main"
         required: false
         default: ""
         type: string
@@ -31,13 +31,26 @@ jobs:
 
       - name: Prepare immutable runtime source
         id: source
-        if: inputs.source_ref != ''
         shell: bash
         env:
           SOURCE_REF: ${{ inputs.source_ref }}
         run: |
-          source_commit="$(git -C "$GITHUB_WORKSPACE" rev-parse --verify --quiet "${SOURCE_REF}^{commit}")" || {
-            echo "source_ref was not found: $SOURCE_REF" >&2
+          test "$GITHUB_REF" = refs/heads/main || {
+            echo "Dispatch this secret-bearing workflow only from protected main." >&2
+            exit 2
+          }
+          SOURCE_REF="${SOURCE_REF:-$GITHUB_SHA}"
+          [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "source_ref must be a full immutable commit SHA, not a branch or tag." >&2
+            exit 2
+          }
+          git -C "$GITHUB_WORKSPACE" fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          source_commit="$(git -C "$GITHUB_WORKSPACE" rev-parse --verify --quiet --end-of-options "${SOURCE_REF}^{commit}")" || {
+            echo "source_ref commit was not found." >&2
+            exit 2
+          }
+          git -C "$GITHUB_WORKSPACE" merge-base --is-ancestor "$source_commit" refs/remotes/origin/main || {
+            echo "source_ref must be reachable from protected main before signing." >&2
             exit 2
           }
           git -C "$GITHUB_WORKSPACE" checkout --detach --force "$source_commit"
@@ -116,7 +129,7 @@ jobs:
       - name: Upload signed test artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ccti-macos-signed-notarized-test-${{ steps.source.outputs.commit || github.sha }}
+          name: ccti-macos-signed-notarized-test-${{ steps.source.outputs.commit }}
           path: |
             releases/test-builds/*.dmg
             releases/test-builds/*.zip

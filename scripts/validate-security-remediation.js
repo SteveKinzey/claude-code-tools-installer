@@ -122,8 +122,11 @@ assert.match(macReleaseWorkflow, /releases\/\$release_database_id\/assets/, 'mac
 assert.match(macReleaseWorkflow, /releases\/\$release_database_id\/assets\?per_page=100/, 'macOS draft retries must list release assets through the numeric release REST endpoint.');
 assert.match(macReleaseWorkflow, /release_asset_database_id.*=~ \^\[0-9\]\+\$/, 'macOS draft retries must reject a missing or non-numeric release asset database ID.');
 assert.match(macReleaseWorkflow, /releases\/assets\/\$release_asset_database_id/, 'macOS draft retries must delete assets by numeric REST database ID.');
-assert.match(macCandidateWorkflow, /source_ref:/, 'macOS candidate workflow must support an optional source commit, tag, or branch.');
-assert.match(macCandidateWorkflow, /rev-parse --verify --quiet "\$\{SOURCE_REF\}\^\{commit\}"/, 'macOS candidate workflow must resolve the requested source ref to a commit.');
+assert.match(macCandidateWorkflow, /source_ref:/, 'macOS candidate workflow must support an optional trusted full commit SHA.');
+assert.match(macCandidateWorkflow, /rev-parse --verify --quiet --end-of-options "\$\{SOURCE_REF\}\^\{commit\}"/, 'macOS candidate workflow must resolve the requested SHA without option injection.');
+assert.match(macCandidateWorkflow, /test "\$GITHUB_REF" = refs\/heads\/main/, 'macOS signing controller must run from protected main.');
+assert.match(macCandidateWorkflow, /merge-base --is-ancestor "\$source_commit" refs\/remotes\/origin\/main/, 'macOS signing source must be reachable from fetched protected main.');
+assert.doesNotMatch(macCandidateWorkflow, /if: inputs\.source_ref != ''/, 'Default signing source must pass the same trust gate.');
 assert.match(macCandidateWorkflow, /checkout --detach --force "\$source_commit"/, 'macOS candidate workflow must check out the resolved source commit without retargeting the workflow.');
 assert.match(macCandidateWorkflow, /diff --quiet "\$source_commit"/, 'macOS candidate workflow must verify the workspace matches the resolved source commit.');
 assert.match(macCandidateWorkflow, /test -z "\$\(git -C "\$GITHUB_WORKSPACE" status --porcelain\)"/, 'macOS candidate workflow must reject a dirty resolved source workspace.');
@@ -141,4 +144,6 @@ assert.match(codeqlWorkflow, /security-events: write/, 'CodeQL must have only th
 assert.match(codeqlWorkflow, /languages:\s*\$\{\{ matrix\.language \}\}/, 'CodeQL must analyze the configured JavaScript and TypeScript language matrix.');
 assert.ok(!workflows.some((workflowPath) => /build-windows-signed-/i.test(path.basename(workflowPath))), 'Obsolete alternate Windows distribution workflows must not be present.');
 
+const sourceTrust = require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, 'test-macos-source-trust.js')], { stdio: 'inherit' });
+assert.equal(sourceTrust.status, 0, 'macOS signing-source positive and negative regressions must pass.');
 console.log(`Dependency security contract passed: Electron ${lockfile.packages['node_modules/electron'].version}, no vulnerable extract-zip, ${desktopWorkflows.length} desktop CI workflows pinned to Node ${minimumNode}, Dependabot policy, pull-request dependency review, and CodeQL scanning.`);
