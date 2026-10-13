@@ -31,13 +31,13 @@
 
       <section id="tester-tools-panel" class="tester-tools-panel" aria-labelledby="tester-tools-heading">
         <div>
-          <p class="eyebrow">TEST BUILD HELP</p>
-          <h2 id="tester-tools-heading">Test CCTI with a clear record of what you see</h2>
-          <p>Open the short list of features in this test build, then save a private issue draft with an optional screenshot or open an email draft if something does not work as expected.</p>
+          <p class="eyebrow">FEATURES &amp; FEEDBACK</p>
+          <h2 id="tester-tools-heading">Explore CCTI and report what you see</h2>
+          <p>Open the feature guide, then save a private issue draft with an optional screenshot or open an email draft if something does not work as expected.</p>
         </div>
         <div class="tester-tools-actions">
-          <button id="open-test-changelog-button" class="button button-secondary" type="button">What changed in this test</button>
-          <button id="open-tester-feedback-button" class="button button-ghost" type="button">Report a test issue</button>
+          <button id="open-test-changelog-button" class="button button-secondary" type="button">Feature guide</button>
+          <button id="open-tester-feedback-button" class="button button-ghost" type="button">Report an issue</button>
         </div>
       </section>
 
@@ -666,9 +666,9 @@
 
     <dialog id="test-changelog-dialog" class="duplicate-skill-dialog tester-dialog" aria-labelledby="test-changelog-heading" aria-describedby="test-changelog-copy" aria-modal="true">
       <form method="dialog" class="duplicate-skill-dialog-content">
-        <p class="eyebrow">TEST BUILD CHANGELOG</p>
-        <h2 id="test-changelog-heading" tabindex="-1">What this CCTI test build adds</h2>
-        <p id="test-changelog-copy">This test build is for checking the new CCTI choices on a real Mac before they are described as a normal public macOS release.</p>
+        <p class="eyebrow">FEATURE GUIDE</p>
+        <h2 id="test-changelog-heading" tabindex="-1">What you can do in CCTI</h2>
+        <p id="test-changelog-copy">Use this guide to explore CCTI choices and understand the safeguards before taking action.</p>
         <ul class="tester-changelog-list">
           <li><strong>Clear Details:</strong> Every tool and project component can explain what it does, when to choose it, a simple example, where it goes, and what CCTI will do.</li>
           <li><strong>References stay optional:</strong> Normal setup remains inside CCTI. Technical source links and package names live in a separate References panel.</li>
@@ -676,9 +676,9 @@
           <li><strong>Careful Claude Code removal:</strong> The removal preview requires the exact typed confirmation and protects Claude Desktop, browser data, extensions, and unrelated Anthropic apps.</li>
           <li><strong>Private project interview:</strong> A guided set of questions can draft a project plan and suggested tools without selecting or installing anything.</li>
           <li><strong>Clear accessibility feedback:</strong> CCTI uses visible keyboard focus, plain live status messages, and dialogs that return you to the button you used after closing.</li>
-          <li><strong>Keyboard-friendly testing:</strong> Buttons work with Enter or Space, and the standard Escape key closes an open test dialog without changing your setup.</li>
+          <li><strong>Keyboard-friendly dialogs:</strong> Buttons work with Enter or Space, and the standard Escape key closes an open dialog without changing your setup.</li>
         </ul>
-        <p class="tester-boundary">This list is for testing. The app should not install anything merely because you open this window.</p>
+        <p class="tester-boundary">Opening this guide does not select or install anything.</p>
         <div class="duplicate-skill-dialog-actions">
           <button id="close-test-changelog-button" class="button button-secondary" type="submit">Back to CCTI</button>
         </div>
@@ -687,7 +687,7 @@
     <dialog id="tester-feedback-dialog" class="duplicate-skill-dialog tester-dialog" aria-labelledby="tester-feedback-heading" aria-describedby="tester-feedback-copy" aria-modal="true">
       <form id="tester-feedback-form" method="dialog" class="duplicate-skill-dialog-content" novalidate>
         <p class="eyebrow">TESTER FEEDBACK</p>
-        <h2 id="tester-feedback-heading" tabindex="-1">Report a test issue</h2>
+        <h2 id="tester-feedback-heading" tabindex="-1">Report an issue</h2>
         <p id="tester-feedback-copy">Describe the problem in plain words. CCTI never sends this form by itself. You can save a private text draft, or choose to open your email app and review the draft before you send it.</p>
         <label class="tester-feedback-field" for="tester-feedback-area">Where did you see the issue?
           <select id="tester-feedback-area" required>
