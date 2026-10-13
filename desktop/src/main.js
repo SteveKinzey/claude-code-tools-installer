@@ -1653,7 +1653,7 @@ async function chooseTesterFeedbackScreenshot() {
     const expiresAt = Date.now() + TESTER_FEEDBACK_SCREENSHOT_LIFETIME_MS;
     const timer = setTimeout(() => forgetTesterFeedbackScreenshot(token), TESTER_FEEDBACK_SCREENSHOT_LIFETIME_MS);
     timer.unref?.();
-    testerFeedbackScreenshots.set(token, { selectedPath, extension, size: details.size, expiresAt, timer });
+    testerFeedbackScreenshots.set(token, { selectedPath, extension, size: details.size, dev: details.dev, ino: details.ino, mtimeMs: details.mtimeMs, expiresAt, timer });
     return { ok: true, canceled: false, screenshotToken: token, filename: path.basename(selectedPath), size: details.size };
   } catch (error) {
     return { ok: false, error: `CCTI could not use that screenshot: ${error.message}` };
@@ -1663,20 +1663,38 @@ async function chooseTesterFeedbackScreenshot() {
 async function copyTesterFeedbackScreenshot(token, feedbackPath) {
   purgeExpiredTesterFeedbackScreenshots();
   const record = testerFeedbackScreenshots.get(String(token || ''));
-  if (!record) return { ok: true, attachment: null };
+  if (!record) return token
+    ? { ok: false, error: 'The selected screenshot expired or is unavailable. Choose it again before saving.' }
+    : { ok: true, attachment: null };
+  let sourceHandle;
   try {
     const details = await fs.lstat(record.selectedPath);
-    if (!details.isFile() || details.isSymbolicLink() || details.size !== record.size || details.size > TESTER_FEEDBACK_SCREENSHOT_MAXIMUM_BYTES) {
+    if (!details.isFile() || details.isSymbolicLink() || details.size !== record.size || details.size > TESTER_FEEDBACK_SCREENSHOT_MAXIMUM_BYTES || details.dev !== record.dev || details.ino !== record.ino || details.mtimeMs !== record.mtimeMs) {
       return { ok: false, error: 'The selected screenshot changed or is unavailable. Choose it again before saving.' };
     }
+    sourceHandle = await fs.open(record.selectedPath, nodeFs.constants.O_RDONLY | (nodeFs.constants.O_NOFOLLOW || 0));
+    const opened = await sourceHandle.stat();
+    if (!opened.isFile() || opened.size !== record.size || opened.dev !== record.dev || opened.ino !== record.ino || opened.mtimeMs !== record.mtimeMs) {
+      return { ok: false, error: 'The selected screenshot changed. Choose it again before saving.' };
+    }
+    const bytes = Buffer.alloc(record.size + 1);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = await sourceHandle.read(bytes, offset, bytes.length - offset, offset);
+      if (!read.bytesRead) break;
+      offset += read.bytesRead;
+    }
+    const after = await sourceHandle.stat();
+    if (offset !== record.size || after.size !== record.size || after.mtimeMs !== record.mtimeMs) return { ok: false, error: 'The screenshot changed while reading. Choose it again.' };
+    await sourceHandle.close();
+    sourceHandle = null;
     const directory = path.dirname(feedbackPath);
     const baseName = path.basename(feedbackPath, path.extname(feedbackPath));
     for (let index = 0; index < 100; index += 1) {
       const suffix = index ? `-${index + 1}` : '';
       const attachmentPath = path.join(directory, `${baseName}-screenshot${suffix}${record.extension}`);
       try {
-        await fs.copyFile(record.selectedPath, attachmentPath, nodeFs.constants.COPYFILE_EXCL);
-        await fs.chmod(attachmentPath, 0o600);
+        await writePrivateTesterFeedbackFile(attachmentPath, bytes.subarray(0, offset));
         forgetTesterFeedbackScreenshot(token);
         return { ok: true, attachment: path.basename(attachmentPath) };
       } catch (error) {
@@ -1686,6 +1704,8 @@ async function copyTesterFeedbackScreenshot(token, feedbackPath) {
     return { ok: false, error: 'CCTI could not create a unique name for the screenshot next to your feedback draft.' };
   } catch (error) {
     return { ok: false, error: `CCTI saved the feedback text but could not copy the screenshot: ${error.message}` };
+  } finally {
+    if (sourceHandle) await sourceHandle.close();
   }
 }
 
@@ -1734,6 +1754,26 @@ function buildTesterFeedbackReport(payload = {}) {
   return { ok: true, report, area, category, email, expected, actual, steps, screenshotToken };
 }
 
+async function writePrivateTesterFeedbackFile(destination, contents) {
+  const temporary = path.join(path.dirname(destination), `.ccti-feedback-${randomUUID()}.tmp`);
+  let handle;
+  let created = false;
+  try {
+    handle = await fs.open(temporary, 'wx', 0o600);
+    created = true;
+    await handle.writeFile(contents, 'utf8');
+    await handle.chmod(0o600);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    // Hard-link publication is atomic and exclusive: never replace a file or follow a destination symlink.
+    await fs.link(temporary, destination);
+  } finally {
+    if (handle) await handle.close();
+    if (created) await fs.unlink(temporary).catch(() => {});
+  }
+}
+
 async function saveTesterFeedbackLocally(payload = {}) {
   const result = buildTesterFeedbackReport(payload);
   if (!result.ok) return result;
@@ -1744,13 +1784,14 @@ async function saveTesterFeedbackLocally(payload = {}) {
       filters: [{ name: 'Text file', extensions: ['txt'] }],
     });
     if (destination.canceled || !destination.filePath) return { ok: true, canceled: true };
-    await fs.writeFile(destination.filePath, `${result.report}\n`, { encoding: 'utf8', mode: 0o600 });
+    await writePrivateTesterFeedbackFile(destination.filePath, `${result.report}\n`);
     const screenshot = await copyTesterFeedbackScreenshot(result.screenshotToken, destination.filePath);
     if (!screenshot.ok) return { ok: false, error: screenshot.error, filename: path.basename(destination.filePath) };
     return screenshot.attachment
       ? { ok: true, canceled: false, filename: path.basename(destination.filePath), attachment: screenshot.attachment }
       : { ok: true, canceled: false, filename: path.basename(destination.filePath) };
   } catch (error) {
+    if (error.code === 'EEXIST') return { ok: false, error: 'Choose a new filename. Existing files and links are never replaced by feedback drafts.' };
     return { ok: false, error: `CCTI could not save the tester feedback: ${error.message}` };
   }
 }
@@ -1760,8 +1801,10 @@ async function openTesterFeedbackEmail(payload = {}) {
   if (!result.ok) return result;
   const subject = encodeURIComponent(`CCTI tester feedback — ${result.category}: ${result.area}`);
   const body = encodeURIComponent(`${result.report}\n\nPlease review this draft before sending.`);
+  const mailto = `mailto:${TESTER_FEEDBACK_SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+  if (mailto.length > 2081) return { ok: false, error: 'This feedback is too long for a portable email draft. Save the local draft and attach it manually in your email app.' };
   try {
-    await shell.openExternal(`mailto:${TESTER_FEEDBACK_SUPPORT_EMAIL}?subject=${subject}&body=${body}`);
+    await shell.openExternal(mailto);
     return { ok: true, message: 'Your email app opened with a draft. Nothing was sent by CCTI.' };
   } catch {
     return { ok: false, error: 'CCTI could not open your email app. Save the local draft instead.' };

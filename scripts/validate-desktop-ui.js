@@ -178,9 +178,15 @@ if (!html.includes('id="open-test-changelog-button"') || !html.includes('id="ope
 if (!preload.includes("chooseTesterFeedbackScreenshot: () => ipcRenderer.invoke('tester-feedback:choose-screenshot')") || !preload.includes("saveTesterFeedback: (payload) => ipcRenderer.invoke('tester-feedback:save-local', payload)") || !preload.includes("openTesterFeedbackEmail: (payload) => ipcRenderer.invoke('tester-feedback:open-email', payload)") || !main.includes("ipcMain.handle('tester-feedback:choose-screenshot'") || !main.includes("ipcMain.handle('tester-feedback:save-local'") || !main.includes("ipcMain.handle('tester-feedback:open-email'") || !main.includes('async function chooseTesterFeedbackScreenshot()') || !main.includes('async function copyTesterFeedbackScreenshot(') || !main.includes('async function saveTesterFeedbackLocally(') || !main.includes('async function openTesterFeedbackEmail(') || !html.includes('CCTI never sends this form by itself.')) {
   throw new Error('Tester feedback must use narrow local-save or explicit email-draft IPC operations.');
 }
-if (/tester-feedback:[\s\S]{0,1000}(?:fetch\(|https?:\/\/|net\.request)/.test(main)) {
+const testerFeedbackStart = main.indexOf('const TESTER_FEEDBACK_MAXIMUM_BYTES');
+const testerFeedbackEnd = main.indexOf('async function exportDiagnosticReport', testerFeedbackStart);
+if (testerFeedbackStart < 0 || testerFeedbackEnd <= testerFeedbackStart) throw new Error('Tester feedback implementation boundaries must be present.');
+const testerFeedbackImplementation = main.slice(testerFeedbackStart, testerFeedbackEnd);
+if (/(?:\bfetch\s*\(|https?:\/\/|\bnet\.request\s*\()/i.test(testerFeedbackImplementation)) {
   throw new Error('Tester feedback must never be sent over the network by CCTI.');
 }
+const testerFeedbackFixtures = require('node:child_process').spawnSync(process.execPath, [require('node:path').join(__dirname, 'test-tester-feedback.js')], { stdio: 'inherit' });
+if (testerFeedbackFixtures.status !== 0) throw new Error('Tester feedback local privacy and output-bound regressions must pass.');
 if (!html.includes('id="runtime-path-health"') || !html.includes('id="runtime-path-health-cards"') || !html.includes('id="runtime-path-health-summary"') || !renderer.includes('function renderRuntimePathHealth(snapshot, diagnostic)') || !renderer.includes('function clearRuntimePathHealth()') || !renderer.includes('window.installer.getRuntimePaths()') || !styles.includes('.runtime-path-health-cards') || !preload.includes("getRuntimePaths: async () =>") || !main.includes("ipcMain.handle('diagnostics:get-runtime-paths'")) {
   throw new Error('Desktop diagnostics must display a local-only runtime PATH health summary through the fixed renderer bridge.');
 }
