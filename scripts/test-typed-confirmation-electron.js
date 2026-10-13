@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Real-Electron renderer test for the four destructive flows that need a typed final check:
-// Remove Claude Code, Uninstall CCTI, Remove project package, and Remove CCTI extras.
+// Real-Electron renderer test for destructive typed-confirmation flows and the local-first
+// tester changelog and feedback controls.
 // Electron's window.prompt throws ("prompt() is not supported"), so it is deliberately NOT
 // stubbed here: each flow must use the in-app typed-confirmation dialog. For every flow this
 // proves the dialog appears, a wrong phrase keeps the action disabled, Cancel sends nothing, and
@@ -75,6 +75,9 @@ function injectedBridge() {
       },
       applyManagedExtrasRemoval: async (payload) => { record('applyManagedExtrasRemoval', payload); return { ok: false, error: 'Fixture stopped before managed extras removal.' }; },
       reportAnonymousSetupSuccess: async () => ({ ok: true }),
+      chooseTesterFeedbackScreenshot: async () => { record('chooseTesterFeedbackScreenshot'); return { ok: true, canceled: false, screenshotToken: 'tester-screenshot-token', filename: 'tester-screenshot.png', size: 1234 }; },
+      saveTesterFeedback: async (payload) => { record('saveTesterFeedback', payload); await new Promise((resolve) => setTimeout(resolve, 30)); return { ok: true, canceled: false, filename: 'ccti-tester-feedback.txt' }; },
+      openTesterFeedbackEmail: async (payload) => { record('openTesterFeedbackEmail', payload); return { ok: true, message: 'Your email app opened with a draft. Nothing was sent by CCTI.' }; },
       onOutput: () => {},
       onState: () => {},
       onComponentOutput: () => {},
@@ -227,6 +230,134 @@ async function run() {
       assert.equal(await evaluate(window, "document.querySelector('#typed-confirm-input').value"), '', `${flow.label}: the typed phrase is cleared`);
       evidence.push(flow.label);
     }
+    const selectedBeforeTesterWindows = await evaluate(window, "document.querySelectorAll('.tool-toggle[aria-checked=\"true\"]').length");
+    await evaluate(window, "(() => { const button = document.querySelector('#open-test-changelog-button'); button.focus(); button.click(); })()");
+    await waitFor(window, () => document.querySelector('#test-changelog-dialog')?.open === true, 'test changelog dialog');
+    const changelog = await evaluate(window, `(() => ({
+      labelledBy: document.querySelector('#test-changelog-dialog').getAttribute('aria-labelledby'),
+      modal: document.querySelector('#test-changelog-dialog').getAttribute('aria-modal'),
+      focusInDialog: document.querySelector('#test-changelog-dialog').contains(document.activeElement),
+      listItems: document.querySelectorAll('.tester-changelog-list li').length,
+      selected: document.querySelectorAll('.tool-toggle[aria-checked="true"]').length,
+    }))()`);
+    assert.equal(changelog.labelledBy, 'test-changelog-heading');
+    assert.equal(changelog.modal, 'true');
+    assert.equal(changelog.focusInDialog, true, 'changelog dialog moves focus inside');
+    assert.equal(changelog.listItems, 7, 'changelog explains each approved test scope, including accessibility and keyboard behavior');
+    assert.equal(await evaluate(window, "document.querySelector('.tester-changelog-list').textContent.includes('Clear accessibility feedback')"), true, 'changelog names the accessibility changes');
+    assert.equal(changelog.selected, selectedBeforeTesterWindows, 'opening the changelog cannot select tools');
+    await evaluate(window, "document.querySelector('#close-test-changelog-button').click()");
+    await waitFor(window, () => document.querySelector('#test-changelog-dialog')?.open === false, 'test changelog close');
+    await waitFor(window, () => document.activeElement?.id === 'open-test-changelog-button', 'test changelog focus restoration');
+
+    await evaluate(window, "(() => { const button = document.querySelector('#open-tester-feedback-button'); button.focus(); button.click(); })()");
+    await waitFor(window, () => document.querySelector('#tester-feedback-dialog')?.open === true, 'tester feedback dialog');
+    const initialFeedback = await evaluate(window, `(() => ({
+      labelledBy: document.querySelector('#tester-feedback-dialog').getAttribute('aria-labelledby'),
+      describedBy: document.querySelector('#tester-feedback-dialog').getAttribute('aria-describedby'),
+      modal: document.querySelector('#tester-feedback-dialog').getAttribute('aria-modal'),
+      focusInDialog: document.querySelector('#tester-feedback-dialog').contains(document.activeElement),
+      saveDisabled: document.querySelector('#save-tester-feedback-button').disabled,
+      emailDisabled: document.querySelector('#email-tester-feedback-button').disabled,
+      clearLabel: document.querySelector('#clear-tester-feedback-button').textContent.trim(),
+      clearDisabled: document.querySelector('#clear-tester-feedback-button').disabled,
+      categoryRequired: document.querySelector('#tester-feedback-category').required,
+      followUpType: document.querySelector('#tester-feedback-email').type,
+      descriptionCount: document.querySelector('#tester-feedback-actual-count').textContent,
+      attachmentButton: document.querySelector('#attach-tester-screenshot-button').textContent.trim(),
+    }))()`);
+    assert.deepEqual(initialFeedback, {
+      labelledBy: 'tester-feedback-heading',
+      describedBy: 'tester-feedback-copy',
+      modal: 'true',
+      focusInDialog: true,
+      saveDisabled: true,
+      emailDisabled: true,
+      clearLabel: 'Clear form',
+      clearDisabled: false,
+      categoryRequired: true,
+      followUpType: 'email',
+      descriptionCount: '0 of 4,000 characters',
+      attachmentButton: 'Attach a screenshot (optional)…',
+    }, 'tester feedback starts with a named modal and no enabled send-like actions');
+    await evaluate(window, `(() => {
+      const set = (selector, value, eventName = 'input') => {
+        const element = document.querySelector(selector);
+        element.value = value;
+        element.dispatchEvent(new Event(eventName, { bubbles: true }));
+      };
+      set('#tester-feedback-area', 'Tool details or References', 'change');
+      set('#tester-feedback-category', 'Hard to understand', 'change');
+      set('#tester-feedback-email', 'tester@example.com');
+      set('#tester-feedback-expected', 'A detail explanation should open without changing my choices.');
+      set('#tester-feedback-actual', 'The sample issue did not show the detail explanation.');
+      set('#tester-feedback-steps', '1. Open Details. 2. Read the explanation.');
+    })()`);
+    await waitFor(window, () => !document.querySelector('#save-tester-feedback-button')?.disabled && !document.querySelector('#email-tester-feedback-button')?.disabled, 'completed tester feedback controls');
+    assert.match(await evaluate(window, "document.querySelector('#tester-feedback-actual-count').textContent"), /^[1-9][0-9]* of 4,000 characters$/, 'description counter reflects the typed feedback');
+    await waitFor(window, () => {
+      const raw = localStorage.getItem('ccti-tester-feedback-draft-v1');
+      return Boolean(raw && JSON.parse(raw).email === 'tester@example.com');
+    }, 'private local feedback recovery draft');
+    assert.equal(await evaluate(window, "Object.hasOwn(JSON.parse(localStorage.getItem('ccti-tester-feedback-draft-v1')), 'screenshotToken')"), false, 'private recovery drafts never retain screenshot tokens');
+    await evaluate(window, "document.querySelector('#attach-tester-screenshot-button').click()");
+    await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'chooseTesterFeedbackScreenshot'), 'screenshot selection call');
+    await waitFor(window, () => document.querySelector('#tester-screenshot-status')?.textContent.includes('tester-screenshot.png'), 'selected screenshot status');
+    await evaluate(window, "document.querySelector('#save-tester-feedback-button').click()");
+    const saveProgress = await evaluate(window, `(() => ({
+      busy: document.querySelector('#save-tester-feedback-button').getAttribute('aria-busy'),
+      label: document.querySelector('#save-tester-feedback-button .tester-feedback-action-label').textContent,
+      spinnerHidden: document.querySelector('#save-tester-feedback-button .tester-feedback-action-spinner').hidden,
+    }))()`);
+    assert.deepEqual(saveProgress, { busy: 'true', label: 'Saving private draft…', spinnerHidden: false }, 'saving feedback gives an accessible visible loading state');
+    await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'saveTesterFeedback'), 'local feedback save call');
+    await waitFor(window, () => document.querySelector('#save-tester-feedback-button')?.getAttribute('aria-busy') === 'false', 'save feedback loading state clears');
+    const saveSuccess = await evaluate(window, `(() => ({
+      text: document.querySelector('#tester-feedback-status').textContent,
+      success: document.querySelector('#tester-feedback-status').classList.contains('is-success'),
+    }))()`);
+    assert.equal(saveSuccess.success, true, 'saving a local draft gives a distinct success confirmation');
+    assert.match(saveSuccess.text, /^Success: Your private feedback draft is saved as ccti-tester-feedback\.txt/i);
+    assert.equal(await evaluate(window, "document.querySelector('#new-tester-feedback-button').hidden"), false, 'a saved draft offers a quick next-issue action');
+    assert.equal(await evaluate(window, "getComputedStyle(document.querySelector('#new-tester-feedback-button')).transitionProperty.includes('transform')"), true, 'Report another issue has a transform-only interactive transition');
+    assert.equal(await evaluate(window, "localStorage.getItem('ccti-tester-feedback-draft-v1')"), null, 'successful explicit save clears the private recovery draft');
+    await evaluate(window, "document.querySelector('#email-tester-feedback-button').click()");
+    await waitFor(window, () => window.__typedConfirmFixture.calls.some((call) => call.method === 'openTesterFeedbackEmail'), 'explicit email draft call');
+    const savedFeedback = await callsOf(window, 'saveTesterFeedback');
+    const emailedFeedback = await callsOf(window, 'openTesterFeedbackEmail');
+    assert.equal(savedFeedback.length, 1, 'one local feedback save request is made');
+    assert.equal(emailedFeedback.length, 1, 'one explicit email-draft request is made');
+    assert.deepEqual(emailedFeedback[0].payload, savedFeedback[0].payload, 'save and email choices use the same reviewed feedback text');
+    assert.equal(savedFeedback[0].payload.category, 'Hard to understand', 'the selected issue category crosses the narrow bridge');
+    assert.equal(savedFeedback[0].payload.email, 'tester@example.com', 'the optional follow-up email crosses the narrow bridge only after explicit feedback actions');
+    assert.equal(savedFeedback[0].payload.screenshotToken, 'tester-screenshot-token', 'only an opaque screenshot token crosses the renderer boundary');
+    assert.match(savedFeedback[0].payload.actual, /sample issue/i);
+    assert.equal(await evaluate(window, "document.querySelector('#tester-feedback-status').textContent.includes('Nothing was sent by CCTI.')"), true, 'email draft status is explicit that CCTI did not send anything');
+    await evaluate(window, "document.querySelector('#new-tester-feedback-button').click()");
+    const resetFeedback = await evaluate(window, `(() => ({
+      area: document.querySelector('#tester-feedback-area').value,
+      category: document.querySelector('#tester-feedback-category').value,
+      email: document.querySelector('#tester-feedback-email').value,
+      actual: document.querySelector('#tester-feedback-actual').value,
+      count: document.querySelector('#tester-feedback-actual-count').textContent,
+      nextHidden: document.querySelector('#new-tester-feedback-button').hidden,
+    }))()`);
+    assert.deepEqual(resetFeedback, { area: '', category: '', email: '', actual: '', count: '0 of 4,000 characters', nextHidden: true }, 'Report another issue clears only the current tester form and prepares a fresh draft');
+    await evaluate(window, `(() => {
+      const field = document.querySelector('#tester-feedback-actual');
+      field.value = 'A private note to clear.';
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#clear-tester-feedback-button').click();
+    })()`);
+    assert.deepEqual(await evaluate(window, `(() => ({
+      actual: document.querySelector('#tester-feedback-actual').value,
+      count: document.querySelector('#tester-feedback-actual-count').textContent,
+      recovery: localStorage.getItem('ccti-tester-feedback-draft-v1'),
+    }))()`), { actual: '', count: '0 of 4,000 characters', recovery: null }, 'Clear form discards current text and its on-device recovery draft');
+    await evaluate(window, "document.querySelector('#close-tester-feedback-button').click()");
+    await waitFor(window, () => document.querySelector('#tester-feedback-dialog')?.open === false, 'tester feedback close');
+    await waitFor(window, () => document.activeElement?.id === 'open-tester-feedback-button', 'tester feedback focus restoration');
+    evidence.push('test changelog and local-first tester feedback');
     assert.deepEqual(await callsOf(window, 'csp-violation'), [], 'no Content-Security-Policy violation');
     console.log(JSON.stringify({ ok: true, windowPromptThrows: promptThrows, flows: evidence }));
   } finally {

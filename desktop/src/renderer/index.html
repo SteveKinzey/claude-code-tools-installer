@@ -29,6 +29,18 @@
         </div>
       </section>
 
+      <section id="tester-tools-panel" class="tester-tools-panel" aria-labelledby="tester-tools-heading">
+        <div>
+          <p class="eyebrow">FEATURES &amp; FEEDBACK</p>
+          <h2 id="tester-tools-heading">Explore CCTI and report what you see</h2>
+          <p>Open the feature guide, then save a private issue draft with an optional screenshot or open an email draft if something does not work as expected.</p>
+        </div>
+        <div class="tester-tools-actions">
+          <button id="open-test-changelog-button" class="button button-secondary" type="button">Feature guide</button>
+          <button id="open-tester-feedback-button" class="button button-ghost" type="button">Report an issue</button>
+        </div>
+      </section>
+
       <section class="notice" aria-label="Installation policy">
         <strong>No command-line steps are required in this app.</strong> Start by setting up Claude Code, choose only the tools you want, and review every change before it runs. Project-level Convex packages are kept separate so they never install in the wrong folder.
       </section>
@@ -652,6 +664,84 @@
       </form>
     </dialog>
 
+    <dialog id="test-changelog-dialog" class="duplicate-skill-dialog tester-dialog" aria-labelledby="test-changelog-heading" aria-describedby="test-changelog-copy" aria-modal="true">
+      <form method="dialog" class="duplicate-skill-dialog-content">
+        <p class="eyebrow">FEATURE GUIDE</p>
+        <h2 id="test-changelog-heading" tabindex="-1">What you can do in CCTI</h2>
+        <p id="test-changelog-copy">Use this guide to explore CCTI choices and understand the safeguards before taking action.</p>
+        <ul class="tester-changelog-list">
+          <li><strong>Clear Details:</strong> Every tool and project component can explain what it does, when to choose it, a simple example, where it goes, and what CCTI will do.</li>
+          <li><strong>References stay optional:</strong> Normal setup remains inside CCTI. Technical source links and package names live in a separate References panel.</li>
+          <li><strong>Direct Claude Code choices:</strong> CCTI can run Claude Code from the selected folder and prepares supported project needs, including a missing package.json file.</li>
+          <li><strong>Careful Claude Code removal:</strong> The removal preview requires the exact typed confirmation and protects Claude Desktop, browser data, extensions, and unrelated Anthropic apps.</li>
+          <li><strong>Private project interview:</strong> A guided set of questions can draft a project plan and suggested tools without selecting or installing anything.</li>
+          <li><strong>Clear accessibility feedback:</strong> CCTI uses visible keyboard focus, plain live status messages, and dialogs that return you to the button you used after closing.</li>
+          <li><strong>Keyboard-friendly dialogs:</strong> Buttons work with Enter or Space, and the standard Escape key closes an open dialog without changing your setup.</li>
+        </ul>
+        <p class="tester-boundary">Opening this guide does not select or install anything.</p>
+        <div class="duplicate-skill-dialog-actions">
+          <button id="close-test-changelog-button" class="button button-secondary" type="submit">Back to CCTI</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="tester-feedback-dialog" class="duplicate-skill-dialog tester-dialog" aria-labelledby="tester-feedback-heading" aria-describedby="tester-feedback-copy" aria-modal="true">
+      <form id="tester-feedback-form" method="dialog" class="duplicate-skill-dialog-content" novalidate>
+        <p class="eyebrow">TESTER FEEDBACK</p>
+        <h2 id="tester-feedback-heading" tabindex="-1">Report an issue</h2>
+        <p id="tester-feedback-copy">Describe the problem in plain words. CCTI never sends this form by itself. You can save a private text draft, or choose to open your email app and review the draft before you send it.</p>
+        <label class="tester-feedback-field" for="tester-feedback-area">Where did you see the issue?
+          <select id="tester-feedback-area" required>
+            <option value="">Choose an area</option>
+            <option value="Opening the app">Opening the app</option>
+            <option value="Tool details or References">Tool details or References</option>
+            <option value="Claude Code setup or Run Claude Code">Claude Code setup or Run Claude Code</option>
+            <option value="Claude Code removal preview">Claude Code removal preview</option>
+            <option value="Project setup or Project Interview">Project setup or Project Interview</option>
+            <option value="Something else">Something else</option>
+          </select>
+        </label>
+        <label class="tester-feedback-field" for="tester-feedback-category">What kind of issue is this?
+          <select id="tester-feedback-category" required>
+            <option value="">Choose a category</option>
+            <option value="Something did not work">Something did not work</option>
+            <option value="Hard to understand">Hard to understand</option>
+            <option value="Accessibility or keyboard use">Accessibility or keyboard use</option>
+            <option value="Safety or privacy concern">Safety or privacy concern</option>
+            <option value="Incorrect information">Incorrect information</option>
+            <option value="Something else">Something else</option>
+          </select>
+        </label>
+        <label class="tester-feedback-field" for="tester-feedback-email">Email for a follow-up (optional)
+          <input id="tester-feedback-email" type="email" inputmode="email" autocomplete="email" maxlength="254" aria-describedby="tester-feedback-email-help">
+        </label>
+        <p id="tester-feedback-email-help" class="tester-feedback-help">Only include this if you want a follow-up. CCTI keeps it only in a private recovery or saved draft on this computer, or in an email draft you choose to open; it does not send anything itself.</p>
+        <label class="tester-feedback-field" for="tester-feedback-expected">What did you expect to happen?
+          <textarea id="tester-feedback-expected" rows="3" maxlength="4000" required></textarea>
+        </label>
+        <label class="tester-feedback-field" for="tester-feedback-actual">What happened instead?
+          <textarea id="tester-feedback-actual" rows="4" maxlength="4000" required aria-describedby="tester-feedback-actual-count"></textarea>
+        </label>
+        <p id="tester-feedback-actual-count" class="tester-feedback-character-count">0 of 4,000 characters</p>
+        <label class="tester-feedback-field" for="tester-feedback-steps">Steps that may help repeat it (optional)
+          <textarea id="tester-feedback-steps" rows="3" maxlength="4000"></textarea>
+        </label>
+        <div class="tester-screenshot-field">
+          <button id="attach-tester-screenshot-button" class="button button-ghost" type="button">Attach a screenshot (optional)…</button>
+          <p id="tester-screenshot-status" role="status" aria-live="polite">No screenshot attached. If you save a private draft, CCTI copies the screenshot beside it on this computer.</p>
+        </div>
+        <p class="tester-boundary"><strong>Screenshots stay local:</strong> CCTI never uploads them and does not add them to an email draft. Check the image before saving; do not include passwords, keys, or private project information.</p>
+        <p class="tester-boundary"><strong>Keep private information out:</strong> do not include passwords, API keys, private project content, personal contact details, or full computer paths.</p>
+        <p id="tester-feedback-recovery-status" class="tester-feedback-recovery-status">Typed feedback stays in a private recovery draft on this computer until you save, email, or clear it.</p>
+        <p id="tester-feedback-status" role="status" aria-live="polite"></p>
+        <button id="new-tester-feedback-button" class="button button-secondary tester-feedback-new-issue" type="button" hidden>Report another issue</button>
+        <div class="duplicate-skill-dialog-actions">
+          <button id="clear-tester-feedback-button" class="button button-ghost" type="button">Clear form</button>
+          <button id="save-tester-feedback-button" class="button button-secondary tester-feedback-action" type="button" disabled aria-busy="false"><span class="tester-feedback-action-label">Save private draft…</span><span class="tester-feedback-action-spinner" aria-hidden="true" hidden></span></button>
+          <button id="email-tester-feedback-button" class="button button-primary tester-feedback-action" type="button" disabled aria-busy="false"><span class="tester-feedback-action-label">Open email draft</span><span class="tester-feedback-action-spinner" aria-hidden="true" hidden></span></button>
+          <button id="close-tester-feedback-button" class="button button-ghost" type="submit">Cancel</button>
+        </div>
+      </form>
+    </dialog>
     <script src="../tool-matcher.js"></script>
     <script src="../project-interview.js"></script>
     <script src="../inventory/manage-view.js"></script>
