@@ -83,8 +83,8 @@
     "update-metadata:verify": "node ../scripts/test-verify-macos-update-metadata.js"
   },
   "devDependencies": {
-    "@electron/notarize": "^3.1.0",
-    "electron": "^44.4.5",
+    "@electron/notarize": "^3.1.2",
+    "electron": "^44.7.0",
     "electron-builder": "26.17.0"
   },
   "build": {
