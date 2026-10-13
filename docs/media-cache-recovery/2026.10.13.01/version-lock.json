@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "version": "2026.10.13.01",
+  "skill_name": "ccti-bundled-media-cache-recovery",
+  "skill_files": {
+    "SKILL.md": "ec220ee2b620b404457859dacf6cd3ec18753be8dbc26c8e1aba8fbd47ab1bc5",
+    "references/attempt-patterns-and-team-brief.md": "cfcbc3e3afca43566f488b35dd01ca4d20ecad745d8494f0470803b390350e40",
+    "references/bounded-selected-controls.md": "78a263e5807596fb680acb5c8a5a51d4596d3be64c16abcfe763f9d4a20274ea",
+    "references/build-parity.md": "ee82d6b931067f9fab0b05a2991dbb65d80f1eb095f2a11876df313fecb84a88",
+    "references/caption-routing-and-support-draft.md": "37375f7638c5c62f012349e9b0ec3291503c0997e0bc0e62751ea319c4007831",
+    "references/ccti-deployment-map.md": "df65a5e96c09f2a87b890234da77ba0881c5d9b5985211b74d2739f6ad99759c",
+    "references/ccti-staging-example.md": "15e7b288057e4703e73610213bcb8bf3b882fb2822f2f082b3e0b7531abfb59e",
+    "references/cloud-continuation-verification.md": "fbbb78a33bff8aaf4890476c2e679e528573017dafa35fe9bcc3ab06ecb4143b",
+    "references/concurrent-load-and-team-script.md": "7b40f4e97ce25799aa10f19843935aec362f723f5f62bb0feb036c384cf39e57",
+    "references/csv-export-and-team-deployment.md": "df6cdfcc94213cbe85755c19450484b0864f973e8e05f5979f08be0414b7a479",
+    "references/edge-mime-ticket-template.md": "b5adf1ab55cd85d988dbc8948b2baa83c9ad9cc787fc96837a4b5dd20738a597",
+    "references/followup-decision-tree.md": "231aa8d8b544d6495379b40f6a3a0f7928b176d8bfbd4f59c9cd6e32fc83eb10",
+    "references/pass-fail-cohort-deep-dive.md": "f9849367737b883641b6a9b2f354bd14e969cbcdab4e13e0d8aff3666d4c4d89",
+    "references/regression-and-production-mime.md": "df42df9221e57f3410dd7d731fdf055096d37c56d56d30c82a34ac5d2d716f25",
+    "references/staging-bootstrap.md": "20bf78b83dab2f17ea4b9366c7236a90375005af0a10b29f6f315e21f616e475",
+    "references/static-evidence-site-fingerprints.md": "6a3dbd9e13f066244ae719360147fec6c0e320b8f1194aca335bc3b18cedd3b1",
+    "references/team-package-receipt-review.md": "46c1c64c51a478d0010b7c00e2ab0c61bbd62930de93fb35c2bcde0ac6f693f9",
+    "references/telemetry-and-draft-evidence.md": "b76469613c50f4cf10bc7604fa1f3529ff2c00b15a8206a87e23c58b50639554",
+    "references/transport-diagnostics.md": "dd442cddfe36f73d2f0c2a4af52bd1dc3b2e743e4fad08734b65093292ffd06e",
+    "references/usage-and-dependencies.md": "31134120a7bd3b7eafdaa3009e94ffcdff6bcbf52eb270bd1f16e4f450d7c1b6",
+    "scripts/analyze_attempt_patterns.py": "796a702007f9018441c1479e253b18e73c101cc5eb2d10a9f8cc99fdaa131bc0",
+    "scripts/analyze_pass_fail_cohort.py": "4e08ddc1221696409cfd38455c28d15ddd67fbc65945e6c7c01e53a762a92525",
+    "scripts/analyze_transport_scan.py": "42220b1f9627230a07fe32ac5ec9784075e2c3b5301d65126584707060cfb4ba",
+    "scripts/build_asset_manifest.py": "b5d334ba1ea46f73a9b052890d872af9f802b5749e3da1daf079de958ea6dfb4",
+    "scripts/caption_route_prototype.mjs": "d0ef80cb73b8fc21077299d7620ce4c127230ec62b9fc7d5382a8fbdc7a7c1b0",
+    "scripts/compare_bounded_pairs.py": "c3131d13c4cf753e4722cef758d61ecabb149a9f04d3edff89247398074d9c3b",
+    "scripts/compare_concurrent_pairs.py": "0aeb4b4a3a13f1d6afef7b9e94622d97ddc43339816695f6ed039d9e9619ac73",
+    "scripts/compare_same_window.py": "e5ec35acd6821d05a3216e24d15bde113fbab07d6ee3ae6ab3ba67e603960fc4",
+    "scripts/diagnose_asset_transport.py": "9c9b19670998ede1fdb20e1246afc35df606ef78be4de7ef9c01b4663ba3b87a",
+    "scripts/export_timeout_csv.py": "33f152c4d3c8386795ff057fce47fa8bdb421d5c9aa34606306c350513cb9d5f",
+    "scripts/recheck_bundled_failures.py": "dab649615afabc595fbba196cd533883f5bf49f314bf8f7ebfdf8b090aaefa41",
+    "scripts/review_asset_scan.py": "60068d831eb5c3867057cca915a95c9af62c12bda71e86ef6e3ceef9b39b62de",
+    "scripts/review_team_package.py": "f5bba8877a2e933d7de20570951c2c4d1c0c5cf235175f3d665c122fe54cc89a",
+    "scripts/review_telemetry_receipt.py": "aaa713b165cc083f5b88767ac3d5195b142c93624a2756449324b18faef95e87",
+    "scripts/test_analyze_transport_scan.py": "86ec929948c9ecb28839df8f36c574e857d055337b190245c5ae42c5db09278b",
+    "scripts/test_attempt_patterns.py": "3e2249b7780e9faf6c729047edd7b563066297f424e98696bf77d248dd546103",
+    "scripts/test_bounded_pairs.py": "0fb3e3e0557ece45580e8572bb9bf08983db1571c9fe14b201c01aa7ea5684a6",
+    "scripts/test_caption_route_prototype.mjs": "3e79aba72d641f460a93267cb85d2167bfd31717bff066ae62393b88fa1f254b",
+    "scripts/test_cli_integration.py": "dc178b1b3f07e7723f2ad731d6c5fc174e7d4808c83ff63b6b0edb7663d5b53d",
+    "scripts/test_concurrent_pairs.py": "565c3661e12fddf9696f380ee3ecb79a995050fc516445f92ebd2c6063472eb1",
+    "scripts/test_diagnose_asset_transport.py": "67bbb374dce0c35b9daad628ff3240ff8600802609fd58b03c425e6c2f503a61",
+    "scripts/test_export_timeout_csv.py": "033693de84310eff4425e78da0e7fd34884114097a0f862ef4863f9b6c37f21d",
+    "scripts/test_gateway_html.py": "cec5c71a05c2ca5a64c70cb0410c7e54c7292ae9c067e076f37e6f1081ba89ac",
+    "scripts/test_http_integration.py": "8d3943553f3af33f7205af16f0f049a9ee05bb8e4eb27ee546fe20a66d142a00",
+    "scripts/test_local_vtt_edges.py": "df36192c36535abc999730ecc9a8fb50390ec8e81f3c65664b587f7525455110",
+    "scripts/test_manifest_contract.py": "fb6339b6dc261a6a242d8578a0ff68e1d5f3255c05c72465e7e0fa0e526802fb",
+    "scripts/test_pass_fail_cohort.py": "572e4d7f65cdf7023e2b9414f6ccaced15870c513f0076b74bd1d9471c9341f1",
+    "scripts/test_recheck_bundled_failures.py": "6166c230a91a03882eeff910d15e78e51618dafe0038caaaf1249c3dd8c0b9f3",
+    "scripts/test_renderer_journeys.py": "a5196193a4b858ee9e673d19dd7b04f0e98993a0428f7109d2d30d232756359d",
+    "scripts/test_review_asset_scan.py": "0f073773d8b36553902e44137c9160d84dff24c5783897f93ce25d0ee70bafdf",
+    "scripts/test_same_window.py": "fe48b0799a064d549e8ec4975c5f43c5fc877f27f90b6dd33e31bb85d55781a8",
+    "scripts/test_team_package.py": "92d6f8b8ffd8bf6ced8e8a2bc21b4cae130903dc5390bca6849f7eb5e20f32fb",
+    "scripts/test_telemetry_receipt.py": "ad6b0f1c4532c5ae27fef4e64b70765c4512d97062459a5bebdb4eda4ec86581",
+    "scripts/test_transport_evidence.py": "96bf70bb5bbd7344b269e98af033c646efac3d3301868f476226510bb0076497",
+    "scripts/test_verify_assets.py": "53561a4a9f5a38b2e2edd9dc0a7bb27f7fe194e8024e510dec778f728c096c94",
+    "scripts/verify_assets.py": "e7277c2c6b40ba74bc6fa074e955dfcf0b72413fff55632e8d78e071309767b9",
+    "scripts/verify_caption_browser.py": "43862464e3ddcbdfa9e14d177c6cb3e9701a4156de18ebc596a449d95fb6f46d",
+    "scripts/verify_renderer_journeys.py": "52495b97380b5c4dfa891bb4435cfbb83a2e4eed35ef6d46be832e27163b5bee",
+    "scripts/verify_staging_isolation.py": "fbac90150da322bbe96d8c1bcb23baa785638fd2f85f47995fcf7c073339105f",
+    "templates/caption-route-fixture.vtt": "d470a4db9fa3642491b8d52c32525f94a475fe4fce98dd7d87ff43f4db8a46d3"
+  },
+  "skill_package": {
+    "file": "bundled-media-cache-recovery-2026.10.13.01.skill",
+    "bytes": 152668,
+    "sha256": "65717254032ca1ce6f9d1fc27c7f52f298298703a3f042c91f27c350f0d489d6"
+  },
+  "portal_checkpoint": "b976550dee668a83a3f5d13b866db3f87c1f4df8",
+  "portal_source_files": {
+    ".gitignore": "1e6abd92535946bf3ea350734506d63ac3705595785715503c113505d826a5c2",
+    "README.md": "a3d8be6c775187dee58b0c4e1ad14fb43ad33b56b58cce91a0e415f27ace5216",
+    "TODO.md": "5764655dcca87ecccec87b009fb0ff03811f22e24d498fd7cca33ba026e6f543",
+    "app.config.ts": "009af829a6aa6e8dff822370205edbd70479800c1913d5db4614e22b9a131b59",
+    "content/caption-http.json": "9f06ee11ef8327513d8a49176cb7e7334c906743f1011c2f109bfda558dcc4ae",
+    "content/handbook.md": "ab1fbb892691644fb584f2d1362d0deb8ae2d34de26dcf41e55a1501b3459140",
+    "content/native-caption.json": "baf07b96881b361c240223fb84304ec516aa8b1529347f8eac967480d1042f71",
+    "content/references.json": "881a09cb0899c249624b7e080b4989fb8e3336df99fff61827531b24a306d176",
+    "content/suite.json": "c4579ad40822bb854d05887f8797bf60e8a1c62c398ca7a5d5410f41001ded33",
+    "package.json": "f1213945b4bc1979d24d17bc047dbabbf15867a4b068675daa09dd64ed9c6ca5",
+    "plan.md": "aae516a661e3e647edff34c185df62520383ace01a19b5806515912124b6529e",
+    "pnpm-lock.yaml": "17c814b167307942d3609c7b9d916ceddb85839573ab39baa114e30edb132a1a",
+    "pnpm-workspace.yaml": "97fa4b52beb5b33a9a64ca939b93e86b2bb887007760f07241e319ecc6c85c22",
+    "public/assets/ccti-icon.svg": "03103c82f9c2f0022cc84cd60ff0529c647134d513b67b83120136025d980429",
+    "scripts/build.mjs": "baed53234ca8dbd4ce4e5c1688944b2d5d31f084ab4ac02f946dddad9385a870",
+    "scripts/check.mjs": "60040fe6931f21dee188933f65300701c933cfa6d2062fbc5426b2a8053015af",
+    "scripts/serve.mjs": "2b2477176667bfe5d5d34e22b07d35bbdd9833e7825e3fce2f10c7da4d3afe1e",
+    "src/client/clipboard.mjs": "c80c16bf07e60cc472216a8ac8c713909e7021cb08b5f95259a921788cdfceef",
+    "src/client/filter.mjs": "23689d49676fe24a59169d86181e5350768b73e74e2ddd0aab0e58a15222fce3",
+    "src/client/main.mjs": "7f4741a851337121aad5d7207504373be37ad6dbe0f6fae048a3586ff8d804cb",
+    "src/components/overview-workflow.mjs": "7004fc80c177e16b398802e315488ea642b37a121e5a22f239ad7ae958e10222",
+    "src/components/routing-downloads.mjs": "f65b2baa44c70ee72f5652cb3ee62f78cad44d5cf2426abbbc2febf35743c7a2",
+    "src/components/tests-captions.mjs": "6ef818580c92e23bf9a3d78f93c6415d2f1aa8df1d3f26fd9d49927ad6ac632e",
+    "src/html.mjs": "57269a4e423e82e9db05fde5cd361bb8d00f0e76ba937ef8255f4ce0d1292f76",
+    "src/styles.css": "860d69c6b22861bca98e73526c4b155dd4751c1f1a37fcf865b269ae2e2562a3",
+    "tests/portal.test.mjs": "f9376e12d67831f904de76eb193fb07389386ffe3185a8ab8f75c54e3e440fb7"
+  },
+  "portal_source_archive": {
+    "file": "verification-portal-source-b976550d.zip",
+    "bytes": 44864,
+    "sha256": "b86eef1df47e3a2c67d059b590e092bf9068cc658f1a082038fb8c2247beea27"
+  },
+  "portal_output_files": {
+    "404.html": {
+      "bytes": 196,
+      "sha256": "c4294588af1522d02868e5ef70ea71906c960cd7b8df4cca35f0dd43a377c76f"
+    },
+    "assets/ccti-icon-03103c82f9c2f002.svg": {
+      "bytes": 617,
+      "sha256": "03103c82f9c2f0022cc84cd60ff0529c647134d513b67b83120136025d980429"
+    },
+    "assets/clipboard-c80c16bf07e60cc4.mjs": {
+      "bytes": 1378,
+      "sha256": "c80c16bf07e60cc472216a8ac8c713909e7021cb08b5f95259a921788cdfceef"
+    },
+    "assets/filter-23689d49676fe24a.mjs": {
+      "bytes": 1298,
+      "sha256": "23689d49676fe24a59169d86181e5350768b73e74e2ddd0aab0e58a15222fce3"
+    },
+    "assets/notebook-860d69c6b22861bc.css": {
+      "bytes": 14027,
+      "sha256": "860d69c6b22861bca98e73526c4b155dd4751c1f1a37fcf865b269ae2e2562a3"
+    },
+    "assets/notebook-b72c7c792ccece67.mjs": {
+      "bytes": 318,
+      "sha256": "b72c7c792ccece67e1f0ba3b31fcc65473d619090589376e2b97eefb50038d18"
+    },
+    "data/http-9f06ee11ef832751.json": {
+      "bytes": 1687,
+      "sha256": "9f06ee11ef8327513d8a49176cb7e7334c906743f1011c2f109bfda558dcc4ae"
+    },
+    "data/native-baf07b96881b361c.json": {
+      "bytes": 3308,
+      "sha256": "baf07b96881b361c240223fb84304ec516aa8b1529347f8eac967480d1042f71"
+    },
+    "data/suite-c4579ad40822bb85.json": {
+      "bytes": 12399,
+      "sha256": "c4579ad40822bb854d05887f8797bf60e8a1c62c398ca7a5d5410f41001ded33"
+    },
+    "downloads/handbook-ab1fbb892691644f.md": {
+      "bytes": 8704,
+      "sha256": "ab1fbb892691644fb584f2d1362d0deb8ae2d34de26dcf41e55a1501b3459140"
+    },
+    "downloads/http-9f06ee11ef832751.json": {
+      "bytes": 1687,
+      "sha256": "9f06ee11ef8327513d8a49176cb7e7334c906743f1011c2f109bfda558dcc4ae"
+    },
+    "downloads/native-baf07b96881b361c.json": {
+      "bytes": 3308,
+      "sha256": "baf07b96881b361c240223fb84304ec516aa8b1529347f8eac967480d1042f71"
+    },
+    "downloads/suite-c4579ad40822bb85.json": {
+      "bytes": 12399,
+      "sha256": "c4579ad40822bb854d05887f8797bf60e8a1c62c398ca7a5d5410f41001ded33"
+    },
+    "index.html": {
+      "bytes": 51947,
+      "sha256": "50018e86a811cad8171b1715210518976ffff3ec3f12da13f21b112aa168b662"
+    },
+    "manus-routes.json": {
+      "bytes": 100,
+      "sha256": "1c03b3baa9b1f6782e6cb85a27007233b7b62d215dd46ca5f2ab1a4b4c27de2f"
+    },
+    "release-manifest.json": {
+      "bytes": 3941,
+      "sha256": "207a59d84ce828a0a4d6df12048a94a79d6566cfa643aaab2513fd4730645015"
+    }
+  },
+  "freeze_scope": "Reproducible archived source snapshot; not a binary release, account lock or new website deployment",
+  "suggested_source_tag": "media-cache-recovery-v2026.10.13.01"
+}
