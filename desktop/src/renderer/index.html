@@ -339,7 +339,7 @@
             <h2 id="components-entry-heading">Need a Convex backend component?</h2>
             <p>Browse all <strong id="component-count">145</strong> catalogued Convex packages for a specific app. These are separate from Claude Code tools and will only run inside a project folder you choose.</p>
           </div>
-          <button id="open-components-library" class="button button-primary" type="button">Browse Convex Components</button>
+          <button id="open-components-library" class="button button-primary" type="button" aria-controls="component-library" aria-expanded="false">Browse Convex Components</button>
         </section>
 
         <section id="component-library" class="component-library is-hidden" aria-labelledby="component-library-heading">
@@ -482,15 +482,18 @@
         <div>
           <p class="eyebrow">TOOL ADVISOR</p>
           <h2 id="compass-heading">Compass</h2>
-          <p id="compass-status">Private Guide · works from this verified catalog</p>
+          <p id="compass-status">Private Guide · verified workflow and catalog help</p>
         </div>
-        <button id="compass-minimize" class="icon-button" type="button" aria-label="Minimize Compass">×</button>
+        <button id="compass-minimize" class="icon-button" type="button" aria-label="Minimize Compass and return to its opener">×</button>
       </div>
       <div id="compass-messages" class="compass-messages" aria-live="polite"></div>
       <div class="compass-prompts" aria-label="Compass quick questions">
         <button class="prompt-chip" type="button" data-compass-prompt="I am new to Claude Code. What is a simple starter setup?">Simple starter setup</button>
         <button class="prompt-chip" type="button" data-compass-prompt="Compare the tools I selected and tell me which ones overlap.">Compare my choices</button>
         <button class="prompt-chip" type="button" data-compass-prompt="I need a real-time backend. What should I look at?">I need a backend</button>
+        <button class="prompt-chip" type="button" data-compass-prompt="How do I recover gstack after Complete setup?">Recover setup</button>
+        <button class="prompt-chip" type="button" data-compass-prompt="Should I use global or project skill scope?">Choose skill scope</button>
+        <button class="prompt-chip" type="button" data-compass-prompt="Does Start fresh make a backup?">Understand Start fresh</button>
       </div>
       <form id="compass-form" class="compass-form">
         <label class="sr-only" for="compass-input">Ask Compass a question</label>
@@ -500,7 +503,7 @@
       <div id="compass-connected-controls" class="compass-connected-controls">
         <button id="open-compass-connect" class="button button-ghost" type="button">Need a deeper answer? Ask online Compass</button>
         <div id="compass-connect-form" class="compass-connect-form is-hidden">
-          <p><strong>Online Compass is free to use.</strong> Your next question and a small amount of recent chat context will leave this computer so Compass can give a deeper answer. It does not install or change anything.</p>
+          <p><strong>Online Compass is free to use.</strong> Your next question and a small amount of recent chat context will leave this computer so Compass can give a deeper answer. Consent does not authorize remote installation, commands, configuration changes, or access to credentials. CCTI still shows a local plan and waits for your approval.</p>
           <div class="button-group">
             <button id="connect-compass-button" class="button button-secondary" type="button">Continue online</button>
             <button id="cancel-compass-connect" class="button button-ghost" type="button">Stay private</button>
@@ -508,7 +511,7 @@
         </div>
       </div>
     </aside>
-    <button id="compass-toggle" class="compass-toggle" type="button" aria-label="Open Compass tool advisor">?</button>
+    <button id="compass-toggle" class="compass-toggle" type="button" aria-label="Open Compass tool advisor" aria-controls="compass-panel" aria-expanded="false">?</button>
 
     <dialog id="duplicate-skill-dialog" class="duplicate-skill-dialog" aria-labelledby="duplicate-skill-dialog-heading" aria-describedby="duplicate-skill-dialog-copy" aria-modal="true">
       <form method="dialog" class="duplicate-skill-dialog-content">
@@ -652,6 +655,7 @@
     <script src="../tool-matcher.js"></script>
     <script src="../project-interview.js"></script>
     <script src="../inventory/manage-view.js"></script>
+    <script src="workflow-help.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

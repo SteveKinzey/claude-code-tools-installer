@@ -947,6 +947,105 @@ function Install-Item {
   }
 }
 
+function Get-RollbackExpectedPath {
+  param(
+    [string]$Kind,
+    [string]$ItemId,
+    [string]$Target
+  )
+  switch ("$Kind|$ItemId") {
+    "path|learn-claude-code" { return (Join-Path $CloneDir "learn-claude-code") }
+    "path|karpathy-skills" { return (Join-Path $CloneDir "andrej-karpathy-skills") }
+    "path|ui-ux-pro-max" { return (Join-Path $CloneDir "ui-ux-pro-max") }
+    "path|awesome-claude-skills" { return (Join-Path $CloneDir "awesome-claude-skills") }
+    "path|multica" { return (Join-Path $CloneDir "multica") }
+    "path|awesome-mcp-servers" { return (Join-Path $CloneDir "awesome-mcp-servers") }
+    "path|system-prompts-ai" { return (Join-Path $CloneDir "system-prompts-and-models-of-ai-tools") }
+    "path|best-practice" { return (Join-Path $CloneDir "claude-code-best-practice") }
+    "path|caveman" { return (Join-Path $CloneDir "caveman") }
+    "path|gstack" { return (Join-Path $HOME ".claude\skills\gstack") }
+    "managed-runtime|node-runtime" { return $NodeRuntimeDir }
+    "skill|ponytail" { $skill = "ponytail" }
+    "skill|taste-skill" { $skill = "design-taste-frontend" }
+    "skill|planning-with-files" { $skill = "planning-with-files" }
+    "skill|graphify" { $skill = "graphify" }
+    default { return $null }
+  }
+  $globalSkill = Join-Path $HOME ".claude\skills\$skill"
+  $projectSkill = Join-Path (Get-Location).Path ".claude\skills\$skill"
+  try { $normalizedTarget = [IO.Path]::GetFullPath($Target) }
+  catch { return $null }
+  if ($normalizedTarget -ieq [IO.Path]::GetFullPath($globalSkill)) { return $globalSkill }
+  if ($normalizedTarget -ieq [IO.Path]::GetFullPath($projectSkill)) { return $projectSkill }
+  return $null
+}
+
+function Test-RollbackPathHasReparsePoint {
+  param([string]$Path)
+  try {
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $root = [IO.Path]::GetPathRoot($fullPath)
+    $relative = $fullPath.Substring($root.Length).TrimStart([char[]]@('\', '/'))
+    $current = $root
+    foreach ($segment in ($relative -split '[\\/]')) {
+      if (-not $segment) { continue }
+      $current = Join-Path $current $segment
+      if (Test-Path -LiteralPath $current) {
+        $entry = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $true }
+      }
+    }
+  }
+  catch {
+    # An unreadable path cannot be verified as owned by CCTI, so fail closed.
+    return $true
+  }
+  return $false
+}
+
+function Test-RollbackPathIsSafe {
+  param(
+    [string]$Target,
+    [string]$Expected
+  )
+  if ([string]::IsNullOrWhiteSpace($Target) -or [string]::IsNullOrWhiteSpace($Expected)) { return $false }
+  if ($Target -match '(^|[\\/])\.{1,2}([\\/]|$)' -or -not [IO.Path]::IsPathRooted($Target)) { return $false }
+  try {
+    $fullTarget = [IO.Path]::GetFullPath($Target)
+    $fullExpected = [IO.Path]::GetFullPath($Expected)
+    $homePath = [IO.Path]::GetFullPath($HOME)
+    $root = [IO.Path]::GetPathRoot($fullTarget)
+  }
+  catch {
+    return $false
+  }
+  if ($fullTarget -ine $fullExpected) { return $false }
+  if ($fullTarget -ieq $root -or $fullTarget -ieq $homePath) { return $false }
+  return -not (Test-RollbackPathHasReparsePoint $fullTarget)
+}
+
+function Test-RollbackMcpTarget {
+  param([string]$ItemId, [string]$Target)
+  return ($ItemId -eq "repomix" -and $Target -eq "repomix") -or ($ItemId -eq "playwright-mcp" -and $Target -eq "playwright")
+}
+
+function Test-RollbackNpmTarget {
+  param([string]$ItemId, [string]$Target)
+  switch ("$ItemId|$Target") {
+    "bun-runtime|bun" { return $true }
+    "codegraph|@colbymchenry/codegraph" { return $true }
+    "repomix|repomix" { return $true }
+    "firecrawl|firecrawl-cli" { return $true }
+    "claude-code-router|@musistudio/claude-code-router" { return $true }
+    default { return $false }
+  }
+}
+
+function Test-RollbackManualReviewTarget {
+  param([string]$ItemId, [string]$Target)
+  return $ItemId -eq "claude-mem" -and $Target -eq "claude-mem"
+}
+
 function Uninstall-Manifest {
   if (-not (Test-Path $Manifest) -or ((Get-Item $Manifest).Length -eq 0)) {
     Write-Host "No manifest found at $Manifest"
@@ -969,35 +1068,41 @@ function Uninstall-Manifest {
     $extra = $parts[3]
     $itemId = $parts[4]
     switch ($kind) {
-      "path" {
-        if (Test-Path $target) {
-          Write-Log "+ Remove-Item -Recurse -Force $target"
-          if (-not $DryRun) { Remove-Item -Recurse -Force $target }
+      { $_ -in @("path", "skill", "managed-runtime") } {
+        $expected = Get-RollbackExpectedPath $kind $itemId $target
+        if (-not (Test-RollbackPathIsSafe $target $expected)) {
+          Write-Log "Skipping untrusted manifest entry for $itemId ($kind): target is not an approved, non-symlink CCTI path."
         }
-      }
-      "skill" {
-        if (Test-Path $target) {
+        elseif (Test-Path -LiteralPath $target -PathType Container) {
           Write-Log "+ Remove-Item -Recurse -Force $target"
-          if (-not $DryRun) { Remove-Item -Recurse -Force $target }
+          if (-not $DryRun) { Remove-Item -LiteralPath $target -Recurse -Force }
         }
       }
       "mcp" {
-        if (Test-McpExists $target) {
+        if (-not (Test-RollbackMcpTarget $itemId $target)) {
+          Write-Log "Skipping untrusted manifest entry for $itemId ($kind): target is not allowlisted."
+        }
+        elseif (Test-McpExists $target) {
           Invoke-Logged claude @("mcp", "remove", $target)
         }
       }
       "npm-global" {
-        Invoke-Logged npm @("uninstall", "-g", $target)
-      }
-      "managed-runtime" {
-        if (Test-Path $target) {
-          Write-Log "+ Remove-Item -Recurse -Force $target"
-          if (-not $DryRun) { Remove-Item -Recurse -Force $target }
+        if (-not (Test-RollbackNpmTarget $itemId $target)) {
+          Write-Log "Skipping untrusted manifest entry for $itemId ($kind): target is not allowlisted."
+        }
+        else {
+          Invoke-Logged npm @("uninstall", "-g", $target)
         }
       }
       "manual-review" {
-        Write-Log "Manual rollback review required for $itemId`: $target $extra"
+        if (Test-RollbackManualReviewTarget $itemId $target) {
+          Write-Log "Manual rollback review required for $itemId`: $target $extra"
+        }
+        else {
+          Write-Log "Skipping untrusted manifest entry for $itemId ($kind): target is not allowlisted."
+        }
       }
+      default { Write-Log "Skipping untrusted manifest entry: unsupported kind '$kind'." }
     }
   }
 }

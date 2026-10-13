@@ -984,7 +984,79 @@ select_items() {
   printf '%s\n' "$selected" | sed '/^$/d'
 }
 
+rollback_expected_path() {
+  local kind="$1" item="$2" target="$3" skill="" project_dir
+  case "${kind}:${item}" in
+    path:learn-claude-code) printf '%s\n' "${CLONE_DIR}/learn-claude-code" ;;
+    path:karpathy-skills) printf '%s\n' "${CLONE_DIR}/andrej-karpathy-skills" ;;
+    path:ui-ux-pro-max) printf '%s\n' "${CLONE_DIR}/ui-ux-pro-max" ;;
+    path:awesome-claude-skills) printf '%s\n' "${CLONE_DIR}/awesome-claude-skills" ;;
+    path:multica) printf '%s\n' "${CLONE_DIR}/multica" ;;
+    path:awesome-mcp-servers) printf '%s\n' "${CLONE_DIR}/awesome-mcp-servers" ;;
+    path:system-prompts-ai) printf '%s\n' "${CLONE_DIR}/system-prompts-and-models-of-ai-tools" ;;
+    path:best-practice) printf '%s\n' "${CLONE_DIR}/claude-code-best-practice" ;;
+    path:caveman) printf '%s\n' "${CLONE_DIR}/caveman" ;;
+    path:gstack) printf '%s\n' "${HOME}/.claude/skills/gstack" ;;
+    managed-runtime:node-runtime) printf '%s\n' "$NODE_RUNTIME_DIR" ;;
+    skill:ponytail) skill="ponytail" ;;
+    skill:taste-skill) skill="design-taste-frontend" ;;
+    skill:planning-with-files) skill="planning-with-files" ;;
+    skill:graphify) skill="graphify" ;;
+    *) return 1 ;;
+  esac
+  if [[ -n "$skill" ]]; then
+    project_dir="$(pwd -P)"
+    if [[ "$target" == "${HOME}/.claude/skills/${skill}" ]]; then
+      printf '%s\n' "${HOME}/.claude/skills/${skill}"
+    elif [[ "$target" == "${project_dir}/.claude/skills/${skill}" ]]; then
+      printf '%s\n' "${project_dir}/.claude/skills/${skill}"
+    else
+      return 1
+    fi
+  fi
+}
+
+rollback_path_is_safe() {
+  local target="$1" expected="$2" remainder part current="/"
+  [[ -n "$target" && -n "$expected" ]] || return 1
+  [[ "$target" == /* && "$target" != "/" && "$target" != "$HOME" ]] || return 1
+  [[ "$target" == "$expected" && "$target" != *"//"* ]] || return 1
+  [[ ! "$target" =~ (^|/)\.\.?(/|$) ]] || return 1
+
+  # A manifest must never turn a CCTI-owned path into a deletion through a symlink.
+  remainder="${target#/}"
+  IFS='/' read -r -a rollback_parts <<< "$remainder"
+  for part in "${rollback_parts[@]}"; do
+    [[ -n "$part" ]] || return 1
+    current="${current%/}/${part}"
+    [[ ! -L "$current" ]] || return 1
+  done
+}
+
+rollback_mcp_is_allowed() {
+  case "$1:$2" in
+    repomix:repomix|playwright-mcp:playwright) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+rollback_npm_target_is_allowed() {
+  case "$1:$2" in
+    bun-runtime:bun|codegraph:@colbymchenry/codegraph|repomix:repomix|firecrawl:firecrawl-cli|claude-code-router:@musistudio/claude-code-router) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+rollback_cask_is_allowed() {
+  [[ "$1" == "cc-switch" && "$2" == "cc-switch" ]]
+}
+
+rollback_manual_review_is_allowed() {
+  [[ "$1" == "claude-mem" && "$2" == "claude-mem" ]]
+}
+
 uninstall_manifest() {
+  local separator=$'\034'
   if [[ ! -s "$MANIFEST" ]]; then
     echo "No manifest found at $MANIFEST"
     exit 0
@@ -994,36 +1066,49 @@ uninstall_manifest() {
     read -r -p "Proceed with rollback of recorded paths/MCP/npm/casks? [y/N] " answer
     [[ "$answer" =~ ^[Yy]$ ]] || exit 0
   fi
-  awk '{ lines[NR] = $0 } END { for (i = NR; i >= 1; i--) print lines[i] }' "$MANIFEST" | while IFS=$'\t' read -r ts kind target extra item; do
+  awk '{ lines[NR] = $0 } END { for (i = NR; i >= 1; i--) print lines[i] }' "$MANIFEST" | while IFS= read -r line || [[ -n "$line" ]]; do
+    # Bash treats tab as whitespace in IFS and collapses consecutive tabs. Translate it to a
+    # non-whitespace separator first so the intentionally empty `extra` field is not discarded.
+    line="${line//$'\t'/$separator}"
+    IFS="$separator" read -r ts kind target extra item <<< "$line"
     case "$kind" in
-      path|skill)
-        if [[ -e "$target" ]]; then
-          run_cmd rm -rf "$target"
+      path|skill|managed-runtime)
+        expected="$(rollback_expected_path "$kind" "$item" "$target" 2>/dev/null || true)"
+        if ! rollback_path_is_safe "$target" "$expected"; then
+          log "Skipping untrusted manifest entry for $item ($kind): target is not an approved, non-symlink CCTI path."
+        elif [[ -d "$target" ]]; then
+          run_cmd rm -rf -- "$target"
         fi
         ;;
       mcp)
-        if mcp_exists "$target"; then
+        if ! rollback_mcp_is_allowed "$item" "$target"; then
+          log "Skipping untrusted manifest entry for $item ($kind): target is not allowlisted."
+        elif mcp_exists "$target"; then
           run_cmd claude mcp remove "$target"
         fi
         ;;
       npm-global)
-        if npm list -g "$target" >/dev/null 2>&1; then
+        if ! rollback_npm_target_is_allowed "$item" "$target"; then
+          log "Skipping untrusted manifest entry for $item ($kind): target is not allowlisted."
+        elif npm list -g "$target" >/dev/null 2>&1; then
           run_cmd npm uninstall -g "$target"
         fi
         ;;
       brew-cask)
-        if command -v brew >/dev/null 2>&1 && brew list --cask "$target" >/dev/null 2>&1; then
+        if ! rollback_cask_is_allowed "$item" "$target"; then
+          log "Skipping untrusted manifest entry for $item ($kind): target is not allowlisted."
+        elif command -v brew >/dev/null 2>&1 && brew list --cask "$target" >/dev/null 2>&1; then
           run_cmd brew uninstall --cask "$target"
         fi
         ;;
-      managed-runtime)
-        if [[ -e "$target" ]]; then
-          run_cmd rm -rf "$target"
+      manual-review)
+        if rollback_manual_review_is_allowed "$item" "$target"; then
+          log "Manual rollback review required for $item: $target $extra"
+        else
+          log "Skipping untrusted manifest entry for $item ($kind): target is not allowlisted."
         fi
         ;;
-      manual-review)
-        log "Manual rollback review required for $item: $target $extra"
-        ;;
+      *) log "Skipping untrusted manifest entry: unsupported kind '${kind:-empty}'." ;;
     esac
   done
 }

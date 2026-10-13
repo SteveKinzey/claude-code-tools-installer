@@ -14,10 +14,14 @@ const project = path.join(tempRoot, 'project');
 const fakeClaudePath = path.join(home, '.local', 'bin', isWindows ? 'claude.exe' : 'claude');
 const commandLocator = isWindows ? 'where' : 'which';
 const installerCommand = isWindows ? 'pwsh' : 'bash';
-// On Windows CCTI resolves every bare program name to an absolute path from absolute PATH entries
-// (never the project folder), so the stub compares program names without folder or extension.
+// CCTI resolves every bare program name to an absolute path from trusted absolute PATH entries
+// (never the project folder). The stub therefore compares program basenames, while checks that
+// matter for the planted-project defense still inspect the full spawned Windows path below.
 const windowsFixtureBin = path.join(tempRoot, 'windows-bin');
-const commandName = (command) => isWindows ? path.basename(String(command)).toLowerCase().replace(/\.(?:exe|cmd)$/, '') : command;
+const commandName = (command) => {
+  const basename = path.basename(String(command)).toLowerCase();
+  return isWindows ? basename.replace(/\.(?:exe|cmd)$/, '') : basename;
+};
 const completeFlag = isWindows ? '-Complete' : '--complete';
 const noLaunchFlag = isWindows ? '-NoLaunch' : '--no-launch';
 const appManagedPluginsFlag = isWindows ? '-AppManagedPlugins' : '--app-managed-plugins';

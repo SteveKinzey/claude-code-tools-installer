@@ -5,6 +5,7 @@ const { createHash, randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const nodeFs = require('node:fs');
 const os = require('node:os');
+const { StringDecoder } = require('node:string_decoder');
 const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
 const { comparePackageVersions, parsePackageVersion, parseReleaseIdentity } = require('./release-identity');
 const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
@@ -50,6 +51,12 @@ const maximumDiagnosticReports = 5;
 const maximumDiagnosticReportBytes = 64 * 1024;
 const maximumSkillHashFiles = 2000;
 const maximumSkillHashBytes = 25 * 1024 * 1024;
+const componentInstallTimeoutMs = 10 * 60 * 1000;
+// A timeout must not make a still-running npm process available for a second install. Give npm a
+// short graceful-stop window, then force-stop it; retain the lock if it still has not closed.
+const componentInstallGracefulTerminationMs = 5_000;
+const componentInstallForceKillWaitMs = 1_000;
+const maximumComponentOutputBytes = 256 * 1024;
 const compassOnlineEndpoint = process.env.COMPASS_ONLINE_ENDPOINT || 'https://claudetool.app/api/trpc/compass.onlineChat?batch=1';
 const anonymousSuccessEndpoint = process.env.ANONYMOUS_SUCCESS_ENDPOINT || 'https://claudetool.app/api/trpc/signals.reportSetupSuccess?batch=1';
 const releaseApiEndpoint = 'https://api.github.com/repos/SteveKinzey/claude-code-tools-installer/releases?per_page=100';
@@ -447,9 +454,19 @@ function claudeProcessEnv() {
   ];
   const inheritedPath = process.env.PATH || process.env.Path || '';
   // Same as path.delimiter on every real host; spelled out so the Windows rules also hold when the
-  // tests simulate Windows on another platform.
+  // tests simulate Windows on another platform. POSIX lookup must never retain `.` or another
+  // relative/empty entry: selected projects are sometimes the child-process cwd.
   const delimiter = process.platform === 'win32' ? ';' : ':';
-  const resolvedPath = [...new Set([nativeBin, bunBin, managedNodeBin, ...commonPaths, inheritedPath].filter(Boolean).join(delimiter).split(delimiter).filter(Boolean))].join(delimiter);
+  const safePathEntry = (entry) => {
+    const candidate = String(entry || '').trim();
+    if (!candidate) return false;
+    return process.platform === 'win32' ? isAbsoluteWindowsPath(candidate) : path.isAbsolute(candidate);
+  };
+  const resolvedPath = [...new Set([nativeBin, bunBin, managedNodeBin, ...commonPaths, inheritedPath]
+    .filter(Boolean)
+    .join(delimiter)
+    .split(delimiter)
+    .filter(safePathEntry))].join(delimiter);
   return {
     ...process.env,
     PATH: resolvedPath,
@@ -460,13 +477,38 @@ function claudeProcessEnv() {
   };
 }
 
-// On Windows a bare program name is looked up in the working folder before PATH. Resolve it to an
-// absolute path from absolute PATH entries only; throws WINDOWS_EXECUTABLE_NOT_FOUND otherwise.
-// Other platforms are unchanged.
+// A selected project can be the child-process cwd. Resolve bare command names from trusted,
+// absolute PATH entries on every platform rather than relying on cwd-sensitive lookup behavior.
 function trustedExecutable(command, env) {
-  if (process.platform !== 'win32') return command;
   const source = env || process.env;
-  return resolveWindowsExecutable(command, { pathValue: windowsPathFromEnv(source), pathext: source.PATHEXT });
+  if (process.platform === 'win32') {
+    return resolveWindowsExecutable(command, { pathValue: windowsPathFromEnv(source), pathext: source.PATHEXT });
+  }
+  const name = String(command || '').trim();
+  if (!name || (name.includes(path.sep) && !path.isAbsolute(name))) {
+    throw new Error('CCTI only starts commands found in an absolute trusted PATH folder.');
+  }
+  if (path.isAbsolute(name)) {
+    try {
+      if (nodeFs.statSync(name).isFile()) {
+        nodeFs.accessSync(name, nodeFs.constants.X_OK);
+        return name;
+      }
+    } catch {}
+    throw new Error(`CCTI could not execute ${name}. Check that it exists and has execute permission. Nothing was started.`);
+  }
+  for (const directory of String(source.PATH || source.Path || '').split(':').filter((entry) => path.isAbsolute(entry))) {
+    const candidate = path.join(directory, name);
+    try {
+      if (nodeFs.statSync(candidate).isFile()) {
+        // Preserve executable symlink shims, but skip a non-executable shadow so a later
+        // absolute PATH candidate can be used. Spawn still handles subsequent path changes.
+        nodeFs.accessSync(candidate, nodeFs.constants.X_OK);
+        return candidate;
+      }
+    } catch {}
+  }
+  throw new Error(`CCTI could not find ${name} in a trusted folder on this computer's PATH. Nothing was started.`);
 }
 
 function catalogResource() {
@@ -719,7 +761,7 @@ function updateReleaseUrlFor(version) {
 }
 
 // Windows builds are not code-signed (no win.publisherName), so the in-app updater only checks
-// the downloaded package's integrity (its SHA-512 from the release feed) there. Windows status
+// transfer corruption against its feed SHA-512 there, not publisher identity or GitHub SHA-256. Windows status
 // text must not claim a signature; macOS updates are signed and keep their wording.
 function signedUpdateWord() {
   return process.platform === 'win32' ? '' : 'signed ';
@@ -727,7 +769,7 @@ function signedUpdateWord() {
 
 function incompleteUpdateMessage(version) {
   return process.platform === 'win32'
-    ? `CCTI ${version || 'update'} is available, but its in-app update did not complete or pass its integrity check. Your current CCTI app was not changed. Select Check for Updates to retry, or use View Release to update safely.`
+    ? `CCTI ${version || 'update'} is available, but its download did not complete or pass the feed checksum corruption check. Your current CCTI app was not changed. Select Check for Updates to retry, or use View Release.`
     : `CCTI ${version || 'update'} is available, but its signed in-app update did not complete or verify. Your current CCTI app was not changed. Select Check for Updates to retry, or use View Release to update safely.`;
 }
 
@@ -805,7 +847,7 @@ async function checkForUpdates() {
         message: available
           ? canDownload
             ? process.platform === 'win32'
-              ? `CCTI ${latestVersion} is available. Select Check for Updates to download the update now; CCTI checks its integrity before installing it.${releaseSourceNotice}`
+              ? `CCTI ${latestVersion} is available. Select Check for Updates to download it. The feed checksum detects transfer corruption; it does not verify publisher identity or match the public GitHub SHA-256.${releaseSourceNotice}`
               : `CCTI ${latestVersion} is available. Select Check for Updates to download the signed update now.${releaseSourceNotice}`
             : `CCTI ${latestVersion} is available. This build does not support in-app updates; use View Release to update.${releaseSourceNotice}`
           : compareVersions(latestPackageVersion, currentVersion) === 0
@@ -937,7 +979,7 @@ function configureNativeUpdaterEvents() {
       releaseUrl: updateStatus.releaseUrl || updateReleaseUrlFor(updateStatus.latestPublicTag),
       checkedAt: new Date().toISOString(),
       message: process.platform === 'win32'
-        ? `CCTI ${updateStatus.latestVersion || latestPackageVersion} is downloaded and passed its integrity check. Restart CCTI to apply it now.`
+        ? `CCTI ${updateStatus.latestVersion || latestPackageVersion} is downloaded and passed the feed checksum corruption check, not publisher or public GitHub SHA-256 verification. Restart CCTI only if you trust this release.`
         : `CCTI ${updateStatus.latestVersion || latestPackageVersion} is downloaded and verified. Restart CCTI to apply it now.`,
       canDownload: false,
       canInstall: true,
@@ -1569,10 +1611,21 @@ async function exportDiagnosticReport({ diagnosticId } = {}) {
       filters: [{ name: 'Text file', extensions: ['txt'] }],
     });
     if (result.canceled || !result.filePath) return { ok: true, canceled: true };
-    await fs.writeFile(result.filePath, `${stored.report}\n`, 'utf8');
+    // Diagnostics include local PATH entries. Never follow or replace a pre-existing chosen file:
+    // create a fresh owner-only file instead, so a broad umask or link cannot expose this report.
+    const handle = await fs.open(result.filePath, 'wx', 0o600);
+    try {
+      await handle.writeFile(`${stored.report}\n`, 'utf8');
+      await handle.chmod(0o600);
+    } finally {
+      await handle.close();
+    }
     return { ok: true, canceled: false, filename: path.basename(result.filePath) };
   } catch (error) {
-    return { ok: false, error: `CCTI could not save the diagnostic report: ${error.message}` };
+    const suffix = error?.code === 'EEXIST'
+      ? ' Choose a new filename; CCTI will not replace an existing file.'
+      : '';
+    return { ok: false, error: `CCTI could not save the diagnostic report: ${error.message}.${suffix}` };
   }
 }
 
@@ -2464,6 +2517,205 @@ async function selectedComponents(componentIds) {
   return selected;
 }
 
+function componentNpmPaths() {
+  const stateRoot = path.join(setupManagerDir(), 'component-npm');
+  return {
+    root: stateRoot,
+    cache: path.join(stateRoot, 'cache'),
+    userconfig: path.join(stateRoot, 'npmrc'),
+  };
+}
+
+function componentNpmArguments(projectPath, packages) {
+  const { cache, userconfig } = componentNpmPaths();
+  // These CLI flags take precedence over project .npmrc values. The explicit selected-project
+  // prefix keeps packages local while global/prefix policy and lifecycle scripts cannot redirect
+  // or execute project-controlled work.
+  return ['--prefix', projectPath, '--global=false', '--ignore-scripts', '--userconfig', userconfig, '--cache', cache, 'install', ...packages];
+}
+
+async function assertNoProjectNpmConfig(projectPath) {
+  // npm still reads project .npmrc with an explicit userconfig. Do not parse or follow it.
+  try {
+    await fs.lstat(path.join(projectPath, '.npmrc'));
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
+    throw new Error('CCTI could not verify project npm configuration. Nothing was started.');
+  }
+  throw new Error('This project has an .npmrc configuration file. CCTI will not run an automatic component install because it may change registries, credentials or npm behavior. Review it and use your own project workflow; CCTI does not remove or edit the file.');
+}
+
+function quoteComponentPreviewPath(value) {
+  const text = String(value);
+  // Windows paths cannot contain a double quote. POSIX single-quote escaping keeps an unusual
+  // selected path copyable into a shell without changing the command that CCTI will run.
+  return process.platform === 'win32'
+    ? `"${text}"`
+    : `'${text.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function componentNpmPreview(projectPath, packages) {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const argumentsToPreview = componentNpmArguments(projectPath, packages);
+  return [npm, ...argumentsToPreview.map((argument, index) => {
+    const preceding = argumentsToPreview[index - 1];
+    return ['--prefix', '--userconfig', '--cache'].includes(preceding)
+      ? quoteComponentPreviewPath(argument)
+      : String(argument);
+  })].join(' ');
+}
+
+async function prepareComponentNpmConfig() {
+  const { root, cache, userconfig } = componentNpmPaths();
+  const home = await fs.realpath(app.getPath('home'));
+  const directories = [setupManagerDir(), root, cache];
+  const verified = [];
+  const unsafe = () => new Error('CCTI npm config/cache paths changed or contain a link or unsafe file. Nothing was started. Review the CCTI state folder before retrying.');
+  const verifyDirectories = async () => {
+    for (const entry of verified) {
+      const current = await fs.lstat(entry.folder, { bigint: true });
+      if (current.isSymbolicLink() || !current.isDirectory() || current.dev !== entry.dev || current.ino !== entry.ino || await fs.realpath(entry.folder) !== entry.real) throw unsafe();
+    }
+  };
+  for (const folder of directories) {
+    await verifyDirectories();
+    // Create one level at a time; recursive mkdir could follow an unreviewed ancestor link.
+    try { await fs.mkdir(folder, { mode: 0o700 }); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+    const stat = await fs.lstat(folder, { bigint: true });
+    const real = await fs.realpath(folder);
+    const expected = path.join(home, path.relative(app.getPath('home'), folder));
+    if (stat.isSymbolicLink() || !stat.isDirectory() || real !== expected) throw unsafe();
+    verified.push({ folder, real, dev: stat.dev, ino: stat.ino });
+  }
+  const verifyConfig = async () => {
+    try {
+      const stat = await fs.lstat(userconfig, { bigint: true });
+      if (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1n) throw unsafe();
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  };
+  await verifyDirectories();
+  await verifyConfig();
+  const temporary = path.join(root, `.npmrc-${randomUUID()}.tmp`);
+  let handle;
+  let published = false;
+  let created;
+  try {
+    // Exclusive creation never truncates an existing inode. NOFOLLOW is defense in depth on
+    // POSIX; O_EXCL protects an existing link on Windows too. chmod operates on our open handle.
+    handle = await fs.open(temporary, nodeFs.constants.O_WRONLY | nodeFs.constants.O_CREAT | nodeFs.constants.O_EXCL | (nodeFs.constants.O_NOFOLLOW || 0), 0o600);
+    created = await handle.stat({ bigint: true });
+    await handle.chmod(0o600);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await verifyDirectories();
+    await verifyConfig();
+    const pending = await fs.lstat(temporary, { bigint: true });
+    if (pending.isSymbolicLink() || !pending.isFile() || pending.nlink !== 1n || pending.dev !== created.dev || pending.ino !== created.ino) throw unsafe();
+    // Rename replaces a directory entry, never follows/truncates an old npmrc link or hard link.
+    await fs.rename(temporary, userconfig);
+    published = true;
+    await verifyDirectories();
+    await verifyConfig();
+    const current = await fs.lstat(userconfig, { bigint: true });
+    if (current.dev !== created.dev || current.ino !== created.ino || current.size !== 0n) throw unsafe();
+  } finally {
+    await handle?.close();
+    if (!published) {
+      // Do not unlink through a changed ancestor during failure cleanup.
+      try { await verifyDirectories(); await fs.unlink(temporary); } catch {}
+    }
+  }
+  return { cache, userconfig };
+}
+
+function componentNpmEnvironment() {
+  const environment = claudeProcessEnv();
+  // Environment configuration has higher npm precedence than project config. Drop inherited
+  // npm_config_* policy as well; componentNpmArguments supplies the reviewed fixed values.
+  for (const key of Object.keys(environment)) {
+    if (key.toLowerCase().startsWith('npm_config_')) delete environment[key];
+  }
+  return environment;
+}
+
+function emitBoundedComponentOutput(child) {
+  let emittedBytes = 0;
+  let truncated = false;
+  const forward = (stream, text) => {
+    if (!text) return;
+    if (truncated) return;
+    const bytes = Buffer.from(text, 'utf8');
+    const remaining = maximumComponentOutputBytes - emittedBytes;
+    if (remaining <= 0) {
+      truncated = true;
+      emit('component:output', { stream: 'stderr', text: `[CCTI] Component output was truncated at ${Math.round(maximumComponentOutputBytes / 1024)} KiB to keep this activity bounded.\n` });
+      return;
+    }
+    // Do not complete a partial capped code point with a replacement character.
+    const visible = new StringDecoder('utf8').write(bytes.subarray(0, remaining));
+    emittedBytes += Buffer.byteLength(visible, 'utf8');
+    if (visible) emit('component:output', { stream, text: visible });
+    if (bytes.length > remaining) {
+      truncated = true;
+      emit('component:output', { stream: 'stderr', text: `[CCTI] Component output was truncated at ${Math.round(maximumComponentOutputBytes / 1024)} KiB to keep this activity bounded.\n` });
+    }
+  };
+  for (const stream of ['stdout', 'stderr']) {
+    const decoder = new StringDecoder('utf8');
+    child[stream].on('data', (chunk) => forward(stream, decoder.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))));
+    child[stream].on('end', () => forward(stream, decoder.end()));
+  }
+}
+
+function waitForComponentInstall(child) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timedOut = false;
+    let forceKillTimer = null;
+    let conservativeLockTimer = null;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (conservativeLockTimer) clearTimeout(conservativeLockTimer);
+      resolve(result);
+    };
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      timedOut = true;
+      try { child.kill('SIGTERM'); } catch {}
+      forceKillTimer = setTimeout(() => {
+        if (settled) return;
+        try { child.kill('SIGKILL'); } catch {}
+      }, componentInstallGracefulTerminationMs);
+      forceKillTimer.unref?.();
+      conservativeLockTimer = setTimeout(() => {
+        // Do not clear the install lock merely because the kill signal was sent: an uncooperative
+        // npm process may still be writing the selected project's package files.
+        finish({ code: -1, timedOut: true, stillRunning: true });
+      }, componentInstallGracefulTerminationMs + componentInstallForceKillWaitMs);
+      conservativeLockTimer.unref?.();
+    }, componentInstallTimeoutMs);
+    timeout.unref?.();
+    child.on('error', (error) => {
+      if (settled) return;
+      if (timedOut) {
+        // A failed kill can emit error without close. Keep both termination timers and the
+        // conservative lock outcome active; error alone is never proof that npm stopped.
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (conservativeLockTimer) clearTimeout(conservativeLockTimer);
+      reject(error);
+    });
+    child.on('close', (code) => finish({ code, timedOut }));
+  });
+}
+
 async function askSitePoweredCompass(payload) {
   const message = String(payload?.message || '').trim();
   if (!message || message.length > 4000) {
@@ -2568,11 +2820,104 @@ function duplicateSkillSort(left, right) {
   return compareSkillKeeper(left, right);
 }
 
+function pathIsInside(root, candidate) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+// Validate every directory between an owned anchor and a root immediately before a file action.
+// lstat catches an entry swapped to a link; realpath containment catches a parent redirected by
+// another process. This is a local check-then-act safeguard, not an authorization boundary for a
+// process that can already rewrite the person's home or selected project.
+async function assertPlainDirectoryWithin(anchor, directory, label) {
+  const resolvedAnchor = path.resolve(anchor);
+  const resolvedDirectory = path.resolve(directory);
+  if (!pathIsInside(resolvedAnchor, resolvedDirectory)) throw new Error(`${label} is outside its checked CCTI location.`);
+  const anchorInfo = await fs.lstat(resolvedAnchor);
+  if (!anchorInfo.isDirectory() || anchorInfo.isSymbolicLink()) throw new Error(`${label} has a symbolic-link root.`);
+  const realAnchor = await fs.realpath(resolvedAnchor);
+  const segments = path.relative(resolvedAnchor, resolvedDirectory).split(path.sep).filter(Boolean);
+  let current = resolvedAnchor;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    const info = await fs.lstat(current);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`${label} has a symbolic-link root.`);
+    const realCurrent = await fs.realpath(current);
+    if (!pathIsInside(realAnchor, realCurrent)) throw new Error(`${label} is outside its checked CCTI location.`);
+  }
+  return fs.realpath(resolvedDirectory);
+}
+
+// The only movable items are directories directly below one known skill/backup root. The direct
+// parent, its route from the checked anchor, and the item itself are all re-checked before use.
+async function assertPlainDirectChild(root, target, { anchor, label, allowMissing = false } = {}) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(target);
+  if (path.dirname(resolvedTarget) !== resolvedRoot) throw new Error(`${label || 'This skill'} is not directly inside its checked CCTI folder.`);
+  const realRoot = await assertPlainDirectoryWithin(anchor || resolvedRoot, resolvedRoot, label || 'This skill folder');
+  let info;
+  try {
+    info = await fs.lstat(resolvedTarget);
+  } catch (error) {
+    if (allowMissing && error.code === 'ENOENT') return { root: realRoot, target: resolvedTarget };
+    throw error;
+  }
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`${label || 'This skill'} is not a plain folder.`);
+  const realTarget = await fs.realpath(resolvedTarget);
+  if (path.dirname(realTarget) !== realRoot || path.basename(realTarget) !== path.basename(resolvedTarget)) {
+    throw new Error(`${label || 'This skill'} is not directly inside its checked CCTI folder.`);
+  }
+  const lastCheck = await fs.lstat(realTarget);
+  if (!lastCheck.isDirectory() || lastCheck.isSymbolicLink()) throw new Error(`${label || 'This skill'} changed while CCTI was checking it.`);
+  return { root: realRoot, target: realTarget };
+}
+
+function skillRootForCheckedPath(report, source) {
+  const userRoot = path.join(app.getPath('home'), '.claude', 'skills');
+  const projectRoot = report?.projectPath ? path.join(report.projectPath, '.claude', 'skills') : '';
+  const parent = path.dirname(path.resolve(source));
+  if (parent === userRoot) return { root: userRoot, anchor: app.getPath('home'), label: 'The personal Claude Code skills folder' };
+  if (projectRoot && parent === projectRoot) return { root: projectRoot, anchor: report.projectPath, label: 'The project Claude Code skills folder' };
+  return null;
+}
+
+function backupRootForCheckedPath(report, source) {
+  const userRoot = path.join(setupManagerDir(), 'disabled-skills');
+  const projectRoot = report?.projectPath ? path.join(report.projectPath, '.claude', '.setup-my-claude-disabled') : '';
+  const parent = path.dirname(path.resolve(source));
+  if (parent === userRoot) return { root: userRoot, anchor: app.getPath('home'), label: 'The personal CCTI skill backup folder' };
+  if (projectRoot && parent === projectRoot) return { root: projectRoot, anchor: report.projectPath, label: 'The project CCTI skill backup folder' };
+  return null;
+}
+
+async function verifySkillSource(report, source) {
+  const location = skillRootForCheckedPath(report, source);
+  if (!location) throw new Error('This skill is outside the Claude Code locations checked by CCTI.');
+  return assertPlainDirectChild(location.root, source, location);
+}
+
+async function verifyBackupSource(report, source) {
+  const location = backupRootForCheckedPath(report, source);
+  if (!location) throw new Error('This backup is outside the CCTI locations checked by this app.');
+  return assertPlainDirectChild(location.root, source, location);
+}
+
+async function prepareSkillDestination(report, destination) {
+  const location = skillRootForCheckedPath(report, destination);
+  if (!location) throw new Error('This skill destination is outside the Claude Code locations checked by CCTI.');
+  await fs.mkdir(location.root, { recursive: true, mode: 0o700 });
+  return assertPlainDirectChild(location.root, destination, { ...location, allowMissing: true });
+}
+
+async function prepareBackupDestination(report, destination) {
+  const location = backupRootForCheckedPath(report, destination);
+  if (!location) throw new Error('This backup destination is outside the CCTI locations checked by this app.');
+  await fs.mkdir(location.root, { recursive: true, mode: 0o700 });
+  return assertPlainDirectChild(location.root, destination, { ...location, allowMissing: true });
+}
+
 function skillSourceWithinCheckedRoot(report, source) {
-  const userSkillRoot = path.join(app.getPath('home'), '.claude', 'skills');
-  const projectSkillRoot = report?.projectPath ? path.join(report.projectPath, '.claude', 'skills') : '';
-  const parent = path.dirname(source);
-  return parent === userSkillRoot || parent === projectSkillRoot;
+  return Boolean(skillRootForCheckedPath(report, source));
 }
 
 function skillBackupDestination(report, source) {
@@ -2693,22 +3038,43 @@ const skillScanConcurrency = 4;
 
 async function skillContentManifest(skillPath) {
   const root = path.resolve(skillPath);
+  const rootInfo = await fs.lstat(root);
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) throw new Error('A skill contains a symbolic link.');
+  const realRoot = await fs.realpath(root);
+  const assertSkillDirectory = async (directory) => {
+    const info = await fs.lstat(directory);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('A skill contains a symbolic link.');
+    const realDirectory = await fs.realpath(directory);
+    if (!pathIsInside(realRoot, realDirectory)) throw new Error('A skill contains a symbolic link.');
+  };
+  const assertSkillFile = async (filePath, expectedSize) => {
+    const info = await fs.lstat(filePath);
+    if (!info.isFile() || info.isSymbolicLink() || (expectedSize !== undefined && info.size !== expectedSize)) {
+      throw new Error('A skill changed while CCTI was checking it.');
+    }
+    const realFile = await fs.realpath(filePath);
+    if (!pathIsInside(realRoot, realFile)) throw new Error('A skill contains a symbolic link.');
+    return info;
+  };
   // Pass 1 walks names and sizes only, in the same order and with the same symlink, file-count,
   // and byte checks as before, so an oversized skill is refused without reading any contents.
   const planned = [];
   let totalBytes = 0;
   const walk = async (directory) => {
+    await assertSkillDirectory(directory);
     const entries = await fs.readdir(directory, { withFileTypes: true });
+    await assertSkillDirectory(directory);
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       if (entry.isSymbolicLink()) throw new Error('A skill contains a symbolic link.');
       const filePath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
+      const metadata = await fs.lstat(filePath);
+      if (metadata.isSymbolicLink()) throw new Error('A skill contains a symbolic link.');
+      if (metadata.isDirectory()) {
         await walk(filePath);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!metadata.isFile()) continue;
       if (planned.length >= maximumSkillHashFiles) throw new Error('A skill contains too many files to verify safely.');
-      const metadata = await fs.stat(filePath);
       totalBytes += metadata.size;
       if (totalBytes > maximumSkillHashBytes) throw new Error('A skill is too large to verify safely.');
       const relativePath = path.relative(root, filePath).split(path.sep).join('/');
@@ -2719,7 +3085,18 @@ async function skillContentManifest(skillPath) {
   // Pass 2 hashes only once the whole skill is within the limits.
   const files = [];
   for (const file of planned) {
-    const contents = await fs.readFile(file.filePath);
+    await assertSkillFile(file.filePath, file.size);
+    // O_NOFOLLOW makes the final open reject a leaf symlink swapped in after lstat on platforms
+    // that support it. The handle's stat also binds the size check to the bytes being hashed.
+    const handle = await fs.open(file.filePath, nodeFs.constants.O_RDONLY | (nodeFs.constants.O_NOFOLLOW || 0));
+    let contents;
+    try {
+      const metadata = await handle.stat();
+      if (!metadata.isFile() || metadata.size !== file.size) throw new Error('A skill changed while CCTI was checking it.');
+      contents = await handle.readFile();
+    } finally {
+      await handle.close();
+    }
     files.push({ path: file.relativePath, size: file.size, sha256: createHash('sha256').update(contents).digest('hex') });
   }
   if (!files.some((file) => file.path === 'SKILL.md')) throw new Error('The skill no longer contains SKILL.md.');
@@ -3838,6 +4215,7 @@ async function applyCleanupUnlocked({ reviewId }) {
     return { ok: false, error: 'This cleanup review is no longer available. Check this computer again and review the backup move before continuing.' };
   }
   try {
+    await verifySkillSource(discoveredSkillCleanup.get(plan.discoveryId), plan.source);
     const currentManifest = await skillContentManifest(plan.source);
     if (currentManifest.identity !== plan.contentHash) {
       return { ok: false, error: 'This skill changed after you looked at it, so nothing was moved. Check this computer again to see it as it is now.' };
@@ -3846,10 +4224,11 @@ async function applyCleanupUnlocked({ reviewId }) {
     return { ok: false, error: 'The selected skill could not be moved. It may already be gone or no longer be a skill folder. Check this computer again to see it as it is now.' };
   }
   try {
-    await fs.access(path.join(plan.source, 'SKILL.md'));
-    await fs.mkdir(path.dirname(plan.destination), { recursive: true });
-    await fs.rename(plan.source, plan.destination);
     const cleanupReport = discoveredSkillCleanup.get(plan.discoveryId);
+    await verifySkillSource(cleanupReport, plan.source);
+    await prepareBackupDestination(cleanupReport, plan.destination);
+    await fs.access(path.join(plan.source, 'SKILL.md'));
+    await fs.rename(plan.source, plan.destination);
     cleanupReport?.skills.delete(plan.findingId);
     reviewedCleanupPlans.delete(reviewId);
     await recordSkillResolutions(plan.moves, cleanupReport?.projectPath || '');
@@ -3929,6 +4308,7 @@ async function applyAllDuplicateSkills({ reviewId } = {}) {
       return { ok: false, error: 'The discovered duplicate list changed. Check this computer again before continuing.' };
     }
     try {
+      await verifySkillSource(report, move.source);
       const currentManifest = await skillContentManifest(move.source);
       if (currentManifest.identity !== move.contentHash || JSON.stringify(currentManifest.files) !== JSON.stringify(move.files)) {
         return { ok: false, error: 'A duplicate skill changed after the preview. Check this computer again before continuing.' };
@@ -3937,6 +4317,7 @@ async function applyAllDuplicateSkills({ reviewId } = {}) {
       return { ok: false, error: error.code === 'ENOENT' ? 'A duplicate skill folder is no longer available. Check this computer again before continuing.' : 'CCTI could not recheck one of the duplicate skill folders. Nothing was moved.' };
     }
     try {
+      await prepareBackupDestination(report, move.destination);
       await fs.access(move.destination);
       return { ok: false, error: 'A backup location is already in use. Check this computer again to create a new cleanup plan.' };
     } catch (error) {
@@ -3948,7 +4329,8 @@ async function applyAllDuplicateSkills({ reviewId } = {}) {
   const moved = [];
   try {
     for (const move of plan.moves) {
-      await fs.mkdir(path.dirname(move.destination), { recursive: true });
+      await verifySkillSource(report, move.source);
+      await prepareBackupDestination(report, move.destination);
       await fs.rename(move.source, move.destination);
       report.skills.delete(move.findingId);
       moved.push(move);
@@ -4289,6 +4671,8 @@ async function applyAllSkillBackups({ reviewId } = {}) {
     }
     if (await pathExists(move.destination)) return { ok: false, error: 'An original skill location is now in use. CCTI will not overwrite it. Check this computer again.' };
     try {
+      await verifyBackupSource(report, move.source);
+      await prepareSkillDestination(report, move.destination);
       const currentManifest = await skillContentManifest(move.source);
       if (currentManifest.identity !== move.contentHash || JSON.stringify(currentManifest.files) !== JSON.stringify(move.files)) {
         return { ok: false, error: 'A skill backup changed after the preview. Check this computer again before continuing.' };
@@ -4301,7 +4685,8 @@ async function applyAllSkillBackups({ reviewId } = {}) {
   const restored = [];
   try {
     for (const move of plan.moves) {
-      await fs.mkdir(path.dirname(move.destination), { recursive: true });
+      await verifyBackupSource(report, move.source);
+      await prepareSkillDestination(report, move.destination);
       await fs.rename(move.source, move.destination);
       report.backups.delete(move.backupId);
       restored.push(move);
@@ -4394,6 +4779,8 @@ async function applySkillBackupReplacement({ reviewId } = {}) {
     return { ok: false, error: 'The active skill or backup list changed. Check this computer again before replacing a skill.' };
   }
   try {
+    await verifySkillSource(report, activeMove.source);
+    await verifyBackupSource(report, restoreMove.source);
     const [activeManifest, backupManifest] = await Promise.all([
       skillContentManifest(activeMove.source),
       skillContentManifest(restoreMove.source),
@@ -4407,9 +4794,14 @@ async function applySkillBackupReplacement({ reviewId } = {}) {
   activeSkillCleanup = true;
   let activeMoved = false;
   try {
-    await fs.mkdir(path.dirname(activeMove.destination), { recursive: true });
+    await verifySkillSource(report, activeMove.source);
+    await prepareBackupDestination(report, activeMove.destination);
+    await verifyBackupSource(report, restoreMove.source);
+    await prepareSkillDestination(report, restoreMove.destination);
     await fs.rename(activeMove.source, activeMove.destination);
     activeMoved = true;
+    await verifyBackupSource(report, restoreMove.source);
+    await prepareSkillDestination(report, restoreMove.destination);
     await fs.rename(restoreMove.source, restoreMove.destination);
     report.backups.delete(plan.backupId);
     reviewedSkillBackupReplacementPlans.delete(plan.reviewId);
@@ -4685,16 +5077,17 @@ app.whenReady().then(async () => {
         prepareProjectPackage(projectPath, { dryRun: true }),
         selectedComponents(componentIds),
       ]);
+      await assertNoProjectNpmConfig(projectPackage.projectPath);
       return {
         ok: true,
         projectPath: projectPackage.projectPath,
         components,
-        command: `npm install ${components.map((component) => component.packageName).join(' ')}`,
+        command: componentNpmPreview(projectPackage.projectPath, components.map((component) => component.packageName)),
         packageJsonPath: projectPackage.packageJsonPath,
         packageState: projectPackage.packageState,
         note: projectPackage.wouldCreate
-          ? 'CCTI will prepare Node.js if needed, create package.json in this selected project folder, then install these packages here. Component-specific configuration remains a separate, reviewed step.'
-          : 'CCTI will prepare Node.js if needed, then install these packages in the selected project only. Component-specific configuration remains a separate, reviewed step.',
+          ? 'CCTI will prepare Node.js if needed, create package.json in this selected project folder, then install these packages here with global installs disabled, npm lifecycle scripts disabled, and CCTI-owned npm config/cache. Component-specific configuration remains a separate, reviewed step.'
+          : 'CCTI will prepare Node.js if needed, then install these packages in the selected project only with global installs disabled, npm lifecycle scripts disabled, and CCTI-owned npm config/cache. Component-specific configuration remains a separate, reviewed step.',
       };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -4704,6 +5097,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('components:install', async (_event, { projectPath, componentIds, dryRun }) => {
     if (activeComponentInstall) return { ok: false, error: 'A project component installation is already running.' };
     const holdsInstallLock = !dryRun;
+    let releaseInstallLock = holdsInstallLock;
     if (holdsInstallLock) {
       activeComponentInstall = true;
       emit('component:state', { running: true });
@@ -4713,9 +5107,10 @@ app.whenReady().then(async () => {
         inspectProjectPackage(projectPath),
         selectedComponents(componentIds),
       ]);
+      await assertNoProjectNpmConfig(projectInspection.projectPath);
       const packages = components.map((component) => component.packageName);
       if (dryRun) {
-        return { ok: true, preview: true, command: `npm install ${packages.join(' ')}`, components, packageJsonPath: projectInspection.packageJsonPath, packageState: projectInspection.packageState };
+        return { ok: true, preview: true, command: componentNpmPreview(projectInspection.projectPath, packages), components, packageJsonPath: projectInspection.packageJsonPath, packageState: projectInspection.packageState };
       }
       emit('component:output', { stream: 'stdout', text: '[CCTI] Preparing the required project runtime…\n' });
       const prerequisites = await spawnInstaller('project-prerequisites');
@@ -4723,20 +5118,36 @@ app.whenReady().then(async () => {
       const projectPackage = await prepareProjectPackage(projectInspection.projectPath);
       if (projectPackage.created) emit('component:output', { stream: 'stdout', text: `[CCTI] Created required project file: ${projectPackage.packageJsonPath}\n` });
       const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-      // spawnSafely runs npm.cmd through cmd.exe with quoted arguments on Windows (Node refuses to
-      // start a .cmd without a shell) and spawns npm directly everywhere else, as before.
-      const child = spawnSafely(npmCommand, ['install', ...packages], { cwd: projectPackage.projectPath, windowsHide: true, env: claudeProcessEnv() });
-      child.stdout.on('data', (chunk) => emit('component:output', { stream: 'stdout', text: chunk.toString() }));
-      child.stderr.on('data', (chunk) => emit('component:output', { stream: 'stderr', text: chunk.toString() }));
-      const result = await new Promise((resolve, reject) => {
-        child.on('error', reject);
-        child.on('close', (code) => resolve({ code }));
-      });
+      await prepareComponentNpmConfig();
+      const env = componentNpmEnvironment();
+      const executable = trustedExecutable(npmCommand, env);
+      // spawnSafely runs npm.cmd through cmd.exe with quoted arguments on Windows. On POSIX the
+      // resolved absolute executable and sanitized PATH prevent an untrusted project cwd from
+      // supplying npm. Its reviewed arguments match the preview; the executable itself is resolved
+      // from a trusted absolute PATH entry immediately before it runs.
+      await assertNoProjectNpmConfig(projectPackage.projectPath);
+      const child = spawnSafely(executable, componentNpmArguments(projectPackage.projectPath, packages), { cwd: projectPackage.projectPath, windowsHide: true, env });
+      emitBoundedComponentOutput(child);
+      const result = await waitForComponentInstall(child);
+      if (result.timedOut) {
+        if (result.stillRunning) {
+          releaseInstallLock = false;
+          child.once('close', () => {
+            // The timed-out child finally exited. It is now safe to allow a new install attempt.
+            activeComponentInstall = false;
+            emit('component:state', { running: false });
+          });
+          return { ok: false, code: result.code, components, packageJsonPath: projectPackage.packageJsonPath, packageState: projectPackage.packageState, error: 'Component installation timed out after 10 minutes. CCTI sent a graceful stop and SIGKILL, but npm has not exited, so the install lock remains active. Check the project and wait for npm to exit before retrying.' };
+        }
+        return { ok: false, code: result.code, components, packageJsonPath: projectPackage.packageJsonPath, packageState: projectPackage.packageState, error: process.platform === 'win32'
+          ? 'Component installation timed out after 10 minutes. CCTI stopped the Windows command wrapper before releasing the install lock, but npm may still be running. Check the project before retrying.'
+          : 'Component installation timed out after 10 minutes. CCTI stopped npm before releasing the install lock; check the project before retrying.' };
+      }
       return { ok: result.code === 0, code: result.code, components, packageJsonPath: projectPackage.packageJsonPath, packageState: projectPackage.packageState };
     } catch (error) {
       return { ok: false, error: error.message };
     } finally {
-      if (holdsInstallLock) {
+      if (releaseInstallLock) {
         activeComponentInstall = false;
         emit('component:state', { running: false });
       }

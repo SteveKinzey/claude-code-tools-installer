@@ -11,6 +11,7 @@ const platform = process.argv[2];
 if (!['darwin', 'win32', 'linux'].includes(platform)) throw new Error('Usage: node scripts/test-terminal-adapters.js <darwin|win32|linux>');
 
 const root = path.resolve(__dirname, '..');
+require('./test-windows-terminal-availability')(root);
 const windowsCommandModule = path.join(root, 'desktop', 'src', 'windows-command.js');
 const { quoteCommand } = require(windowsCommandModule);
 // Drop the cached copy so main.js loads it again after child_process is replaced below.
@@ -63,7 +64,7 @@ function fakeSpawn(command, args, options = {}) {
   const result = child();
   process.nextTick(() => {
     if (platform === 'win32' && command === 'where.exe') throw new Error('where.exe must be resolved to an absolute path before it is spawned');
-    if (command === 'which' || command === 'C:\\Windows\\System32\\where.exe') {
+    if (path.basename(command) === 'which' || command === 'C:\\Windows\\System32\\where.exe') {
       if (platform === 'win32') assert.match(options.env?.Path || '', /Windows\\System32/, 'Windows command discovery must preserve a mixed-case inherited Path variable');
       const located = commandLocations[args[0]] || '';
       if (located) {
@@ -82,7 +83,7 @@ function fakeSpawn(command, args, options = {}) {
       return;
     }
     launches.push({ command, args, options: null });
-    if (command === 'osascript') {
+    if (path.basename(command) === 'osascript') {
       result.emit('close', 0);
       return;
     }
@@ -136,6 +137,28 @@ const windowsFs = {
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === 'electron') return electronStub;
   if (request === 'node:fs' && platform === 'win32') return windowsFs;
+  if (request === 'node:fs' && platform === 'darwin') return {
+    ...fs,
+    statSync(candidate, ...args) {
+      if (['/usr/bin/open', '/usr/bin/osascript'].includes(String(candidate))) return { isFile: () => true };
+      return fs.statSync(candidate, ...args);
+    },
+    accessSync(candidate, mode) {
+      if (mode === fs.constants.X_OK && ['/usr/bin/open', '/usr/bin/osascript'].includes(String(candidate))) return;
+      return fs.accessSync(candidate, mode);
+    },
+  };
+  if (request === 'node:fs' && platform === 'linux') return {
+    ...fs,
+    statSync(candidate, ...args) {
+      if (Object.values(commandLocations).includes(String(candidate)) && String(candidate).startsWith('/usr/bin/')) return { isFile: () => true };
+      return fs.statSync(candidate, ...args);
+    },
+    accessSync(candidate, mode) {
+      if (mode === fs.constants.X_OK && Object.values(commandLocations).includes(String(candidate)) && String(candidate).startsWith('/usr/bin/')) return;
+      return fs.accessSync(candidate, mode);
+    },
+  };
   if (request === 'node:child_process') return { spawn: fakeSpawn };
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -183,7 +206,14 @@ async function run() {
   try {
     await fsp.mkdir(path.dirname(fakeClaudePath), { recursive: true });
     await fsp.writeFile(fakeClaudePath, platform === 'win32' ? '@echo off\r\n' : '#!/bin/sh\n', { mode: 0o755 });
-    if (platform === 'darwin') await Promise.all(Object.values(macBundles).map((bundle) => fsp.mkdir(bundle, { recursive: true })));
+    if (platform === 'darwin') {
+      await Promise.all(Object.entries(macBundles).map(async ([name, bundle]) => {
+        const bin = path.join(bundle, 'Contents', 'MacOS');
+        await fsp.mkdir(bin, { recursive: true });
+        const executables = { 'Ghostty.app': 'ghostty', 'WezTerm.app': 'wezterm', 'Alacritty.app': 'Alacritty', 'kitty.app': 'kitty', 'Tabby.app': 'Tabby' };
+        if (executables[name]) await fsp.writeFile(path.join(bin, executables[name]), '#!/bin/sh\n', { mode: 0o755 });
+      }));
+    }
 
     require(path.join(root, 'desktop', 'src', 'main.js'));
     await readyCallback();
@@ -210,7 +240,7 @@ async function run() {
       const test = await testTerminal();
       assert.equal(test.ok, true);
       assert.match(test.message, /iTerm2/);
-      assert.equal(launches.at(-1).command, 'osascript');
+      assert.equal(path.basename(launches.at(-1).command), 'osascript');
       assert.match(launches.at(-1).args[1], /CCTI terminal launch test passed/);
       assert.match(launches.at(-1).args[1], /tell application id "com\.googlecode\.iterm2"/);
 
