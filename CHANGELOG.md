@@ -4,7 +4,7 @@ All notable changes are documented in this file. New version tags use `vYYYY.MM.
 
 ## v2026.10.12.00 — Component install safety and POSIX command lookup
 
-> **Release status:** Source-only version tag, package identity `2026.10.1200`. No macOS, Windows, or Linux installer artifacts are published by this tag. Downloads and native updater availability remain tied to the prior verified binary release until exact-tag platform staging and separate publication complete.
+> **Release status:** The source tag maps to package identity `2026.10.1200`. The GitHub Release published verified macOS and Linux artifacts; Windows availability is separate and must be confirmed from the public asset inventory. Source-only and build-only Windows preparation does not itself create a public Windows download.
 
 ### Component install safety ([#82](https://github.com/SteveKinzey/claude-code-tools-installer/pull/82))
 
