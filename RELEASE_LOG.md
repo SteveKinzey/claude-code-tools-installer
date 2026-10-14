@@ -1,8 +1,8 @@
-# CCTI Desktop Release Log — v2026.10.14.00
+# CCTI Desktop Release Log — v2026.10.14.01
 
 ## Scope and authoritative version
 
-The owner selected **Claude Code Tools Installer desktop app**, not the unrelated connected freight app or separately deployed website source. Use the established immutable daily-revision convention `vYYYY.MM.DD.RR`; `v1.0.0` would downgrade the existing package identity. This candidate is `v2026.10.14.00` / `2026.10.1400`. A tag, changelog, or build-only artifact does not prove public distribution.
+The owner selected **Claude Code Tools Installer desktop app**, not the unrelated connected freight app or separately deployed website source. Use the established immutable daily-revision convention `vYYYY.MM.DD.RR`; `v1.0.0` would downgrade the existing package identity. This candidate is `v2026.10.14.01` / `2026.10.1401`; the earlier immutable private `.00` staging record is retained below. A tag, changelog, or build-only artifact does not prove public distribution.
 
 ## Phase 1 — Preservation and branch audit
 
@@ -42,3 +42,9 @@ The owner selected **Claude Code Tools Installer desktop app**, not the unrelate
 **Pending until exact final evidence is recorded.** Require final clean install, complete native/source tests, zero full/runtime audit, redacted current/history secret scan, exact-head Linux/Windows CI, immutable main/tag/package/lock parity, signed/notarized macOS staging, Sigstore Linux staging, and native unsigned Windows install/launch/uninstall plus both attestation checks. Keep previous public downloads intact until all intended new assets verify.
 
 Publication changes public distribution and updater selection; review the exact staged asset inventory and release notes before the final publication action. Main must enforce PRs and required passing checks, and prevent force pushes/deletion. Do not bypass existing rules. After the verified release is frozen, preserve its tag/bytes; later work uses versioned branches and reviewed PRs. Keep the prior verified public release for rollback rather than overwriting artifacts or moving tags.
+
+## Native staging correction — daily revision 01
+
+The original immutable `v2026.10.14.00` staging tag remains unchanged. Its exact-source macOS signing/notarization, Linux native packaged adapter/Sigstore, and CodeQL passed. Windows NSIS install, main-window launch and uninstall also printed a genuine pass, then the wrapper falsely failed because it tested an unset/stale native `$LASTEXITCODE` after invoking a PowerShell script. The draft was not published.
+
+Prepare `v2026.10.14.01` / package `2026.10.1401` through a new versioned branch/PR rather than moving that tag. Correct only the wrapper status protocol: evaluate script `$?`, propagate a real helper failure, then explicitly clear stale native status after success. Required Windows CI now simulates unset, stale and real-failure cases using the actual workflow wrapper; real installer lifecycle is still required in the final release lane. All runtime/dependency changes from the previous candidate are retained, and all exact-source gates must re-run for this new revision. Prior public downloads remain untouched.

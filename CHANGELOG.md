@@ -2,6 +2,12 @@
 
 All notable changes are documented in this file. New version tags use `vYYYY.MM.DD.RR`; historical `vYYYY.MM.DD` tags remain unchanged.
 
+## v2026.10.14.01 — Correct native lifecycle wrapper status
+
+- Preserve immutable private staging tag `v2026.10.14.00` and its verified macOS/Linux artifacts; do not move the tag or overwrite public downloads.
+- Correct the Windows release wrapper to evaluate PowerShell script success, not an unset/stale native `$LASTEXITCODE`. The previous exact-source native NSIS install, main-window launch and uninstall had passed before its wrapper falsely failed.
+- Add native PowerShell wrapper regressions for successful return with unset/stale exit status and real lifecycle failure. Re-run all exact-source release/security/platform gates for this new daily revision before publishing.
+
 ## v2026.10.14.00 — Consolidation, zero-audit build chain, and verified unsigned Windows release
 
 > **Release boundary:** Package identity `2026.10.1400`. This is the consolidated release/freeze baseline. macOS, Linux, and unsigned Windows availability is established only by their exact-tag artifacts, native checks, trust verification, and final public GitHub Release—not by this changelog or source tag. Until then, prior public downloads remain authoritative.
