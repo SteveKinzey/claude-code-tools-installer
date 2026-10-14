@@ -2,7 +2,7 @@
 
 ## Scope and authoritative version
 
-The owner selected **Claude Code Tools Installer desktop app**, not the unrelated connected freight app or separately deployed website source. Use the established immutable daily-revision convention `vYYYY.MM.DD.RR`; `v1.0.0` would downgrade the existing package identity. This candidate is `v2026.10.14.00` / `2026.10.1400`. A tag, changelog, or build-only artifact does not prove public distribution.
+The owner selected **Claude Code Tools Installer desktop app**, not the unrelated connected freight app or separately deployed website source. Use the established immutable daily-revision convention `vYYYY.MM.DD.RR`; `v1.0.0` would downgrade the existing package identity. This candidate is `v2026.10.14.01` / `2026.10.1401`; the earlier immutable private `.00` staging record is retained below. A tag, changelog, or build-only artifact does not prove public distribution.
 
 ## Phase 1 — Preservation and branch audit
 
