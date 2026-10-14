@@ -241,4 +241,5 @@ test('final unsigned release isolates build, attestation and draft staging', () 
   }
 });
 require('./test-windows-unsigned-retries.cjs')(root);
+require('./test-windows-lifecycle-wrapper.cjs')(root);
 console.log(`PASS ${cases} unsigned preparation groups; inert disposable repositories/artifacts only, no installer execution or publication.`);

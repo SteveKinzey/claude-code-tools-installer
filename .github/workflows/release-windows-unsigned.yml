@@ -80,7 +80,9 @@ jobs:
           $installer = Get-ChildItem product/releases/test-builds -File -Filter '*-win-x64.exe' | Select-Object -First 1
           $version = (Get-Content product/desktop/package.json -Raw | ConvertFrom-Json).version
           & ./scripts/test-windows-nsis-lifecycle.ps1 -Installer $installer.FullName -Version $version
-          if ($LASTEXITCODE -ne 0) { throw 'Native installer lifecycle failed.' }
+          if (-not $?) { throw 'Native installer lifecycle failed.' }
+          # Script success is not a native-command exit status. Avoid a stale/null LASTEXITCODE.
+          $global:LASTEXITCODE = 0
       - name: Upload verified unsigned build inputs
         id: preparation
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
