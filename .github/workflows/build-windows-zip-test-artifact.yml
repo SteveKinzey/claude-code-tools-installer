@@ -71,8 +71,8 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      id-token: write
-      attestations: write
+    outputs:
+      artifact_id: ${{ steps.preparation.outputs.artifact-id }}
     defaults:
       run:
         shell: pwsh
@@ -101,7 +101,7 @@ jobs:
           New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\product" | Out-Null
           tar -xf "$env:RUNNER_TEMP\source.tar" -C "$env:GITHUB_WORKSPACE\product"
           if ($LASTEXITCODE -ne 0) { throw 'Could not extract tagged source.' }
-          node product/scripts/release-identity.js --tag $env:SOURCE_TAG --package-json product/desktop/package.json --require-daily-revision
+          node scripts/release-identity.js --tag $env:SOURCE_TAG --package-json product/desktop/package.json --require-daily-revision
           if ($LASTEXITCODE -ne 0) { throw 'Tagged package identity failed.' }
       - name: Install and validate exact-tag desktop source
         working-directory: product/desktop
@@ -122,34 +122,81 @@ jobs:
           if ((Get-AuthenticodeSignature -FilePath $installers[0].FullName).Status -ne 'NotSigned') { throw 'Expected intentionally unsigned installer.' }
           node scripts/prepare-windows-unsigned-artifact.cjs "$env:GITHUB_WORKSPACE\product" $env:GITHUB_WORKSPACE "$env:GITHUB_WORKSPACE\product\releases\test-builds" $env:SOURCE_TAG $env:SOURCE_COMMIT
           if ($LASTEXITCODE -ne 0) { throw 'Source/hash/feed verification failed.' }
-      - name: Attest installer build-controller provenance
-        id: provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: product/releases/test-builds/*-win-x64.exe
-      - name: Attest exact tagged product source binding
-        id: source
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: product/releases/test-builds/*-win-x64.exe
-          predicate-type: https://claudetool.app/attestations/windows-unsigned-source/v1
-          predicate-path: product/releases/test-builds/windows-unsigned-source-predicate.json
-      - name: Preserve attestation bundles
-        env:
-          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
-          SOURCE_BUNDLE: ${{ steps.source.outputs.bundle-path }}
-        run: |
-          Copy-Item -LiteralPath $env:PROVENANCE_BUNDLE -Destination product/releases/test-builds/windows-build-provenance.sigstore.json
-          Copy-Item -LiteralPath $env:SOURCE_BUNDLE -Destination product/releases/test-builds/windows-source-binding.sigstore.json
-      - name: Upload verified unsigned installer preparation
+      - name: Upload verified unsigned build inputs
+        id: preparation
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ccti-windows-unsigned-${{ inputs.source_tag }}-${{ github.sha }}
+          name: ccti-windows-unsigned-inputs-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             product/releases/test-builds/*-win-x64.exe
             product/releases/test-builds/*-win-x64.exe.sha256
             product/releases/test-builds/latest.yml
             product/releases/test-builds/windows-unsigned-source*.json
-            product/releases/test-builds/windows-*.sigstore.json
+          if-no-files-found: error
+          retention-days: 30
+
+  attest-unsigned:
+    name: Attest verified unsigned Windows build
+    needs: unsigned
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      # Never install dependencies or execute tagged source in this privileged job.
+      - name: Download only this run's verified build inputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.unsigned.outputs.artifact_id }}
+          path: attestation-inputs
+          merge-multiple: true
+      - id: inputs
+        name: Independently bind downloaded bytes to selected source and controller
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          $files = @(Get-ChildItem attestation-inputs -File -Filter '*-win-x64.exe')
+          if ($files.Count -ne 1) { throw 'Require exactly one downloaded installer.' }
+          $installer = $files[0]
+          if ((Get-AuthenticodeSignature -FilePath $installer.FullName).Status -ne 'NotSigned') { throw 'Expected intentionally unsigned downloaded installer.' }
+          $receipt = Get-Content -LiteralPath attestation-inputs/windows-unsigned-source-predicate.json -Raw | ConvertFrom-Json
+          if ($receipt.source_tag -ne $env:SOURCE_TAG -or $receipt.source_commit -ne $env:SOURCE_COMMIT -or $receipt.controller_commit -ne $env:GITHUB_SHA) { throw 'Downloaded source/controller receipt mismatch.' }
+          if ($receipt.workflow_run -ne "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID") { throw 'Receipt must belong to this workflow run.' }
+          if ($receipt.installer.name -ne $installer.Name -or $receipt.installer.size -ne $installer.Length) { throw 'Downloaded installer identity mismatch.' }
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
+          if ($receipt.installer.sha256 -ne $hash) { throw 'Downloaded installer SHA-256 mismatch.' }
+          $checksum = (Get-Content -LiteralPath "$($installer.FullName).sha256" -Raw).Trim()
+          if ($checksum -ne "$hash  $($installer.Name)") { throw 'Downloaded checksum mismatch.' }
+          "installer=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - name: Attest installer build-controller provenance
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.inputs.outputs.installer }}
+      - name: Attest exact tagged product source binding
+        id: source
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.inputs.outputs.installer }}
+          predicate-type: https://claudetool.app/attestations/windows-unsigned-source/v1
+          predicate-path: attestation-inputs/windows-unsigned-source-predicate.json
+      - name: Preserve attestation bundles
+        env:
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SOURCE_BUNDLE: ${{ steps.source.outputs.bundle-path }}
+        run: |
+          Copy-Item -LiteralPath $env:PROVENANCE_BUNDLE -Destination attestation-inputs/windows-build-provenance.sigstore.json
+          Copy-Item -LiteralPath $env:SOURCE_BUNDLE -Destination attestation-inputs/windows-source-binding.sigstore.json
+      - name: Upload verified unsigned installer preparation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ccti-windows-unsigned-${{ inputs.source_tag }}-${{ github.sha }}
+          path: attestation-inputs/*
           if-no-files-found: error
           retention-days: 30
