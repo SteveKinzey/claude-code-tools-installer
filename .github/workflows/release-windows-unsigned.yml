@@ -194,14 +194,15 @@ jobs:
           TAG: ${{ inputs.tag }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          node scripts/verify-windows-staged-artifact.cjs staged-inputs $env:TAG $env:GITHUB_SHA
-          if ($LASTEXITCODE -ne 0) { throw 'Staging byte/source/updater validation failed.' }
           $installer = Get-ChildItem staged-inputs -File -Filter '*-win-x64.exe' | Select-Object -First 1
           $identity = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/.github/workflows/release-windows-unsigned.yml@refs/tags/$env:TAG"
           gh attestation verify $installer.FullName --repo $env:GITHUB_REPOSITORY --bundle staged-inputs/windows-build-provenance.sigstore.json --cert-identity $identity --source-digest $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'Build provenance signature failed.' }
-          gh attestation verify $installer.FullName --repo $env:GITHUB_REPOSITORY --bundle staged-inputs/windows-source-binding.sigstore.json --cert-identity $identity --source-digest $env:GITHUB_SHA --predicate-type https://claudetool.app/attestations/windows-unsigned-source/v1
+          $verified = Join-Path $env:RUNNER_TEMP 'windows-source-verified.json'
+          gh attestation verify $installer.FullName --repo $env:GITHUB_REPOSITORY --bundle staged-inputs/windows-source-binding.sigstore.json --cert-identity $identity --source-digest $env:GITHUB_SHA --predicate-type https://claudetool.app/attestations/windows-unsigned-source/v1 --format json | Set-Content -LiteralPath $verified -Encoding utf8
           if ($LASTEXITCODE -ne 0) { throw 'Tagged-source attestation signature failed.' }
+          node scripts/verify-windows-staged-artifact.cjs staged-inputs $env:TAG $env:GITHUB_SHA $verified
+          if ($LASTEXITCODE -ne 0) { throw 'Staging byte/source/updater/signed-predicate validation failed.' }
       - name: Upload only to an unpublished draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -213,5 +214,24 @@ jobs:
             gh release create $env:TAG --target $env:GITHUB_SHA --title $env:TAG --generate-notes --draft
             if ($LASTEXITCODE -ne 0) { throw 'Could not create draft release.' }
           }
-          gh release upload $env:TAG staged-inputs/* --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Draft asset staging failed.' }
+          $releaseId = gh release view $env:TAG --json databaseId --jq '.databaseId'
+          if ($LASTEXITCODE -ne 0 -or $releaseId -notmatch '^\d+$') { throw 'Missing numeric draft release ID.' }
+          foreach ($asset in Get-ChildItem staged-inputs -File | Sort-Object Name) {
+            $uploaded = $false
+            for ($attempt = 1; $attempt -le 4; $attempt++) {
+              $draft = gh release view $env:TAG --json isDraft --jq '.isDraft'
+              if ($LASTEXITCODE -ne 0 -or $draft -ne 'true') { throw 'Release must remain a draft during each asset retry.' }
+              $assetsJson = @(gh api --paginate "repos/$env:GITHUB_REPOSITORY/releases/$releaseId/assets?per_page=100" --jq '.[]|{id,name}')
+              if ($LASTEXITCODE -ne 0) { throw 'Failed to list numeric draft asset IDs.' }
+              $existing = @($assetsJson | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object name -eq $asset.Name)
+              foreach ($old in $existing) {
+                if ([string]$old.id -notmatch '^\d+$') { throw 'Invalid numeric release asset ID.' }
+                gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/assets/$($old.id)"
+                if ($LASTEXITCODE -ne 0) { throw 'Failed to remove exact conflicting draft asset.' }
+              }
+              gh release upload $env:TAG $asset.FullName
+              if ($LASTEXITCODE -eq 0) { $uploaded = $true; break }
+              if ($attempt -lt 4) { Start-Sleep -Seconds (5 * $attempt) }
+            }
+            if (-not $uploaded) { throw "Draft asset upload retries exhausted: $($asset.Name)" }
+          }

@@ -150,7 +150,6 @@ jobs:
           NODE
           if compgen -G "$download_dir/*-win-x64.exe" >/dev/null; then
             source_commit="$(git rev-parse "${TAG}^{commit}")"
-            node scripts/verify-windows-staged-artifact.cjs "$download_dir" "$TAG" "$source_commit"
             installer="$(find "$download_dir" -maxdepth 1 -type f -name '*-win-x64.exe' -print -quit)"
             signer="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-windows-unsigned.yml@refs/tags/${TAG}"
             gh attestation verify "$installer" --repo "$GITHUB_REPOSITORY" \
@@ -159,7 +158,9 @@ jobs:
             gh attestation verify "$installer" --repo "$GITHUB_REPOSITORY" \
               --bundle "$download_dir/windows-source-binding.sigstore.json" \
               --cert-identity "$signer" --source-digest "$source_commit" \
-              --predicate-type https://claudetool.app/attestations/windows-unsigned-source/v1
+              --predicate-type https://claudetool.app/attestations/windows-unsigned-source/v1 \
+              --format json > "$RUNNER_TEMP/windows-source-verified.json"
+            node scripts/verify-windows-staged-artifact.cjs "$download_dir" "$TAG" "$source_commit" "$RUNNER_TEMP/windows-source-verified.json"
           fi
           echo "release_database_id=$release_database_id" >> "$GITHUB_ENV"
 

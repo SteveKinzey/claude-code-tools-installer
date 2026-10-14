@@ -116,20 +116,34 @@ test('prepare generates exact source, checksum and dual receipts', () => withFix
   }
 }));
 test('staged verification binds installer, updater and immutable source', () => withFixture((fixture) => {
-  prepare(fixture.options);
+  const receipt = prepare(fixture.options);
   for (const bundle of ['windows-build-provenance.sigstore.json', 'windows-source-binding.sigstore.json']) {
     fs.writeFileSync(path.join(fixture.artifacts, bundle), '{}'); // Structural fixture only; signature trust is independent.
   }
   const { verify } = require('./verify-windows-staged-artifact.cjs');
-  assert.equal(verify(fixture.artifacts, tag, fixture.expectedCommit).passed, true);
+  const verifiedPath = path.join(fixture.source, 'verified-attestation-output.json');
+  fs.writeFileSync(verifiedPath, JSON.stringify([{ verificationResult: { statement: {
+    predicateType: 'https://claudetool.app/attestations/windows-unsigned-source/v1',
+    predicate: receipt, subject: [{ name, digest: { sha256: receipt.installer.sha256 } }],
+  } } }])); // Structural verification output fixture, not a cryptographic pass claim.
+  const check = (commit = fixture.expectedCommit) => verify(fixture.artifacts, tag, commit, verifiedPath);
+  assert.equal(check().passed, true);
   const feedPath = path.join(fixture.artifacts, 'latest.yml');
   const original = fs.readFileSync(feedPath);
   fs.writeFileSync(feedPath, 'tampered updater');
-  assert.throws(() => verify(fixture.artifacts, tag, fixture.expectedCommit), /Staged updater bytes mismatch/);
+  assert.throws(() => check(), /Staged updater bytes mismatch/);
+  const forged = { ...receipt, updater_sha256: digest(Buffer.from('tampered updater')) };
+  for (const file of ['windows-unsigned-source.json', 'windows-unsigned-source-predicate.json']) {
+    fs.writeFileSync(path.join(fixture.artifacts, file), JSON.stringify(forged));
+  }
+  assert.throws(() => check(), /Signed source predicate must equal downloaded receipt/, 'Mutually consistent receipt/feed tampering must still be refused');
+  for (const file of ['windows-unsigned-source.json', 'windows-unsigned-source-predicate.json']) {
+    fs.writeFileSync(path.join(fixture.artifacts, file), JSON.stringify(receipt));
+  }
   fs.writeFileSync(feedPath, original);
-  assert.throws(() => verify(fixture.artifacts, tag, '0'.repeat(40)), /Staged source commit mismatch/);
+  assert.throws(() => check('0'.repeat(40)), /Staged source commit mismatch/);
   fs.writeFileSync(path.join(fixture.artifacts, name), 'MZfixture-installeR');
-  assert.throws(() => verify(fixture.artifacts, tag, fixture.expectedCommit), /Staged SHA-256 mismatch/);
+  assert.throws(() => check(), /Verified source subject must bind exact installer bytes/);
 }));
 rejects('prepare refuses same-size tagged source tampering', (f) => fs.writeFileSync(path.join(f.source, 'fixture.txt'), 'tagged-contenT\n'), /Exported tagged source mismatch/);
 rejects('prepare refuses missing tagged source', (f) => fs.unlinkSync(path.join(f.source, 'fixture.txt')), /ENOENT/);
@@ -216,9 +230,15 @@ test('final unsigned release isolates build, attestation and draft staging', () 
   assert.match(staging, /Refusing to modify an already-public release/);
   assert.match(staging, /gh release create.*--draft/);
   assert.equal((staging.match(/gh attestation verify/g) || []).length, 2);
+  assert.match(staging, /--format json/);
+  assert.ok(staging.indexOf('--format json') < staging.indexOf('node scripts/verify-windows-staged-artifact.cjs'), 'Authenticate signed statement before trusting receipt');
+  assert.match(staging, /gh api -X DELETE/);
+  assert.match(staging, /draft during each asset retry/);
+  assert.doesNotMatch(staging, /--clobber/);
   assert.doesNotMatch(text, /azure\/login|AZURE_CODESIGN|draft=false/);
   for (const job of Object.values(release.jobs)) {
     for (const step of job.steps) if (step.uses) assert.match(step.uses, /@[a-f0-9]{40}$/);
   }
 });
+require('./test-windows-unsigned-retries.cjs')(root);
 console.log(`PASS ${cases} unsigned preparation groups; inert disposable repositories/artifacts only, no installer execution or publication.`);

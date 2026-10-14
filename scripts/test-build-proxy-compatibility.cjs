@@ -11,13 +11,13 @@ const os = require('node:os');
 const path = require('node:path');
 const desktop = path.resolve(__dirname, '../desktop');
 const mode = process.argv[2];
-const openssl = process.platform === 'win32'
-  ? path.join(process.env.ProgramFiles || 'C:/Program Files', 'Git', 'usr', 'bin', 'openssl.exe')
-  : 'openssl';
+const { resolveOpenSsl } = require('./resolve-test-openssl.cjs');
 
 // A separate process per bootstrap isolates global-agent's network patches.
 // Only disposable loopback servers and a generated local certificate are used.
 if (!mode) {
+  require('./test-openssl-discovery.cjs');
+  const openssl = resolveOpenSsl();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ccti-proxy-'));
   try {
     cp.execFileSync(openssl, [

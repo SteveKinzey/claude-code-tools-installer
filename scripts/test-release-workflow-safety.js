@@ -53,7 +53,7 @@ assert.match(signedWindowsWorkflow, /actions\/attest-build-provenance@[0-9a-f]{4
 assert.match(signedWindowsWorkflow, /Status -ne 'NotSigned'/, 'unsigned Windows staging must confirm the installer really is unsigned');
 assert.match(signedWindowsWorkflow, /attestations: write/, 'Windows staging must be allowed to write build provenance');
 assert.match(signedWindowsWorkflow, /Windows signing only stages assets on a draft release/, 'signed Windows staging must not publish the shared release');
-assert.match(publisherWorkflow, /unsigned Windows x64 installer/, 'the shared publisher must verify a signed Windows installer before publication');
+assert.match(publisherWorkflow, /unsigned Windows x64 installer/, 'the shared publisher must verify an unsigned Windows installer before publication');
 assert.match(publisherWorkflow, /Windows checksum sidecar does not match the staged unsigned installer/, 'the shared publisher must validate the Windows checksum sidecar');
 assert.match(publisherWorkflow, /Windows latest\.yml does not reference the unsigned installer/, 'the shared publisher must validate the Windows updater feed');
 assert.match(publisherWorkflow, /verify-windows-staged-artifact\.cjs/, 'publisher must verify complete Windows byte/source/updater receipts');
