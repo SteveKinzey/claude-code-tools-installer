@@ -209,7 +209,7 @@ Before public release language is changed, verify the custom site domain, manage
 
 - **macOS:** releases are signed with an Apple Developer ID and notarized by Apple.
 - **Linux:** archives carry a SHA-256 checksum and a keyless Sigstore signature bound to this repository's release workflow.
-- **Windows:** the installer is currently unsigned and published with a SHA-256 checksum. This project is applying for free open-source code signing from SignPath Foundation; once approved, Windows releases will show SignPath Foundation as the publisher.
+- **Windows:** the installer is currently unsigned and published with a SHA-256 checksum. Unsigned Windows distribution is intentional under the current owner policy. Verify the SHA-256 digest and GitHub build-provenance attestation; neither is an Authenticode signature. No Azure configuration or Microsoft Store submission is required, and no future signing date or provider approval is promised.
 
 Which files are signed, how they are built, and who approves releases are described in the [Code Signing Policy](https://claudetool.app/code-signing).
 
@@ -219,7 +219,7 @@ The desktop app is an Electron application in `desktop/`. Release resources incl
 
 ```bash
 cd desktop
-npm install
+npm ci
 npm run start
 ```
 
@@ -239,22 +239,45 @@ npm run dist:linux
 
 macOS releases must be code-signed and notarized before distribution.
 
-Windows packages must meet the current signed-release verification requirements before distribution.
+Windows x64 NSIS packages are intentionally unsigned. Require native Windows acceptance, exact-tag source identity, `NotSigned` state, complete SHA-256 and updater SHA-512/size/version checks, and GitHub build-provenance verification before distribution. Do not confuse a portable ZIP or build-only artifact with a published installer.
 
 ### Cross-platform GitHub release staging
 
-A public cross-platform release is staged in two manual workflows from the same immutable `vYYYY.MM.DD` tag. **Release signed and notarized macOS DMG** stages the notarized DMG, native-update ZIP, `latest-mac.yml`, and checksums on a draft release. **Build, sign, and stage Linux CCTI release archive** builds one Linux x64 tarball, runs the packaged adapter smoke test, produces a SHA-256 sidecar, and creates a keyless Sigstore bundle bound to that tag and workflow. It also uploads only to the draft release.
+A public cross-platform release is staged through the maintained platform workflows from the same immutable `vYYYY.MM.DD.RR` tag, mapped to the semver-compatible package identity by `scripts/release-identity.js`. **Release signed and notarized macOS DMG** stages the notarized DMG, native-update ZIP, `latest-mac.yml`, and checksums on a draft release. **Build, sign, and stage Linux CCTI release archive** builds one Linux x64 tarball, runs the packaged adapter smoke test, produces a SHA-256 sidecar, and creates a keyless Sigstore bundle bound to that tag and workflow. It also uploads only to the draft release.
 
-After both lanes pass, run **Publish verified cross-platform CCTI release** from the same tag. It rechecks the staged macOS checksum inventory and the downloaded Linux archive, checksum, and Sigstore identity before making the GitHub Release public. Do not add Linux assets to a release that is already public; ship the next version instead. The public Linux verifier is `scripts/verify-published-ccti-linux-release.sh vYYYY.MM.DD`.
+Stage the unsigned Windows x64 NSIS installer and provenance through the maintained Windows release lane as well. Its draft-only restriction must remain intact. After all intended platform lanes and independent trust checks pass, run **Publish verified cross-platform CCTI release** from the same tag. It rechecks the staged macOS checksum inventory and the downloaded Linux archive, checksum, and Sigstore identity before making the GitHub Release public. Do not add Linux assets to a release that is already public; ship the next version instead. The public Linux verifier is `scripts/verify-published-ccti-linux-release.sh vYYYY.MM.DD.RR`.
 
 The app downloads Claude Code only after the user selects **Complete setup** or **Install or update Claude Code only**; it does not redistribute Claude Code inside this repository.
+
+## Architecture and Configuration
+
+The Electron **main process** (`desktop/src/main.js`) owns filesystem access, reviewed subprocess execution, updates, and bounded external requests. The **preload bridge** (`desktop/src/preload.js`) exposes specific operations, not shell or filesystem primitives. The bundled **renderer** (`desktop/src/renderer/`) runs with context isolation, no Node integration, sandboxing, a restrictive CSP, and blocked page navigation. Catalogs and platform adapters share validated identities; project-level packages remain separate from computer-level additions.
+
+There is no application database, web server, or server-side user login in this repository. Desktop status/diagnostics are its local health controls. Web authentication, CORS/HSTS, public endpoint rate limits, and a web health endpoint belong to the separately deployed product site; adding a listening server to this desktop release would expand the attack surface. Online Compass and anonymous counts remain optional consent-based calls, not automatic data collection.
+
+| Configuration | Purpose and handling |
+|---|---|
+| `COMPASS_ONLINE_ENDPOINT`, `ANONYMOUS_SUCCESS_ENDPOINT` | Optional desktop service endpoints. Defaults are bundled; do not put credentials in endpoint URLs. |
+| `CCTI_ELECTRON_TEST`, `CCTI_TEST_HOME`, other `CCTI_TEST_*` flags | Disposable test fixtures only. Do not configure these for a normal installed app. |
+| `MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_CODESIGN_IDENTITY` | Managed GitHub Actions signing secrets; never put their values in source, logs, or `.env` files. |
+| `APPLE_API_KEY_BASE64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` **or** `APPLE_NOTARY_ID`, `APPLE_NOTARY_APP_PASSWORD`, `APPLE_NOTARY_TEAM_ID` | One complete managed notarization credential set, consumed by the macOS release workflow. |
+| `CSC_IDENTITY_AUTO_DISCOVERY=false` | Local unpublished packaging can avoid selecting user signing identities. It does not authorize distributing that unsigned macOS bundle. |
+| `NOTARIZE=1`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Optional local notarization hook inputs; public release uses the managed signed/notarized workflow and final-artifact checks. |
+
+Use Node.js **22.12.0 or newer**, `npm ci`, and the committed lockfile. `npm run check` is the full static, behavioral, real-Electron, accessibility, adapter, update, catalog, and dependency-security gate; it is not just a syntax check. Test fixtures use disposable data and stub destructive operations. Run `npm audit` and `npm audit --omit=dev` separately so build-tool advisories are not concealed by a clean runtime graph. Platform packaging and trusted signature/provenance checks remain independent gates.
+
+## Release and Freeze Rules
+
+Release only through a pull request with the required native Linux/Windows desktop checks; retain CodeQL, dependency review, and source regressions. Never bypass active branch rules, move published tags, overwrite public artifact bytes, disable sandboxing, or lower security audit thresholds. Annotated date/revision tags and matching package/lock identities are immutable snapshots; a source tag is not a downloadable binary.
+
+Once a release is verified and frozen, all later fixes and features start on a versioned branch (for example `release/v1.1` or `v1.1/feature-name`) and reach `main` through a reviewed pull request. Preserve historical changelog entries and the release log rather than rewriting prior evidence. To roll back distribution, retain the prior verified release and its checksums; never overwrite its files or repoint an immutable tag. A compatibility hotfix is a new revision, not a change to the frozen version.
 
 ## Repository Layout
 
 | Path | Purpose |
 |---|---|
 | `desktop/` | Electron desktop app and package configuration. |
-| `desktop/catalog.json` | The 35 curated Claude Code workflow choices, including optional source-backed popular plugins. |
+| `desktop/catalog.json` | The 36 curated Claude Code workflow choices, including optional source-backed popular plugins. |
 | `desktop/convex-components.json` | The current 145-entry Convex Components Library. |
 | `docs/two-level-catalog-design.md` | Product, safety, and Compass design decisions. |
 | `docs/claude-setup-manager-design.md` | Discovery, duplicate-review, custom-addition, and backup-only cleanup rules. |

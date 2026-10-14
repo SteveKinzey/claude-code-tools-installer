@@ -107,12 +107,43 @@ test('prepare generates exact source, checksum and dual receipts', () => withFix
   assert.equal(receipt.installer.sha256, digest(bytes));
   assert.equal(receipt.installer.sha512, hash);
   assert.equal(receipt.installer.size, bytes.length);
+  assert.equal(receipt.updater_sha256, digest(fs.readFileSync(path.join(fixture.artifacts, 'latest.yml'))));
   assert.equal(receipt.lock_sha256, digest(fs.readFileSync(path.join(fixture.source, 'desktop/package-lock.json'))));
   assert.equal(receipt.tagged_runtime_sha256['desktop/src/main.js'], digest(fs.readFileSync(path.join(fixture.source, 'desktop/src/main.js'))));
   assert.equal(fs.readFileSync(path.join(fixture.artifacts, `${name}.sha256`), 'utf8'), `${digest(bytes)}  ${name}\n`);
   for (const file of ['windows-unsigned-source.json', 'windows-unsigned-source-predicate.json']) {
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(fixture.artifacts, file), 'utf8')), receipt);
   }
+}));
+test('staged verification binds installer, updater and immutable source', () => withFixture((fixture) => {
+  const receipt = prepare(fixture.options);
+  for (const bundle of ['windows-build-provenance.sigstore.json', 'windows-source-binding.sigstore.json']) {
+    fs.writeFileSync(path.join(fixture.artifacts, bundle), '{}'); // Structural fixture only; signature trust is independent.
+  }
+  const { verify } = require('./verify-windows-staged-artifact.cjs');
+  const verifiedPath = path.join(fixture.source, 'verified-attestation-output.json');
+  fs.writeFileSync(verifiedPath, JSON.stringify([{ verificationResult: { statement: {
+    predicateType: 'https://claudetool.app/attestations/windows-unsigned-source/v1',
+    predicate: receipt, subject: [{ name, digest: { sha256: receipt.installer.sha256 } }],
+  } } }])); // Structural verification output fixture, not a cryptographic pass claim.
+  const check = (commit = fixture.expectedCommit) => verify(fixture.artifacts, tag, commit, verifiedPath);
+  assert.equal(check().passed, true);
+  const feedPath = path.join(fixture.artifacts, 'latest.yml');
+  const original = fs.readFileSync(feedPath);
+  fs.writeFileSync(feedPath, 'tampered updater');
+  assert.throws(() => check(), /Staged updater bytes mismatch/);
+  const forged = { ...receipt, updater_sha256: digest(Buffer.from('tampered updater')) };
+  for (const file of ['windows-unsigned-source.json', 'windows-unsigned-source-predicate.json']) {
+    fs.writeFileSync(path.join(fixture.artifacts, file), JSON.stringify(forged));
+  }
+  assert.throws(() => check(), /Signed source predicate must equal downloaded receipt/, 'Mutually consistent receipt/feed tampering must still be refused');
+  for (const file of ['windows-unsigned-source.json', 'windows-unsigned-source-predicate.json']) {
+    fs.writeFileSync(path.join(fixture.artifacts, file), JSON.stringify(receipt));
+  }
+  fs.writeFileSync(feedPath, original);
+  assert.throws(() => check('0'.repeat(40)), /Staged source commit mismatch/);
+  fs.writeFileSync(path.join(fixture.artifacts, name), 'MZfixture-installeR');
+  assert.throws(() => check(), /Verified source subject must bind exact installer bytes/);
 }));
 rejects('prepare refuses same-size tagged source tampering', (f) => fs.writeFileSync(path.join(f.source, 'fixture.txt'), 'tagged-contenT\n'), /Exported tagged source mismatch/);
 rejects('prepare refuses missing tagged source', (f) => fs.unlinkSync(path.join(f.source, 'fixture.txt')), /ENOENT/);
@@ -177,4 +208,37 @@ test('workflow keeps build execution outside privileged attestation', () => {
     for (const step of job.steps) if (step.uses) assert.match(step.uses, /@[a-f0-9]{40}$/, 'Every external action remains immutably pinned');
   }
 });
+test('final unsigned release isolates build, attestation and draft staging', () => {
+  const text = fs.readFileSync(path.join(root, '.github/workflows/release-windows-unsigned.yml'), 'utf8');
+  const release = yaml.load(text);
+  const build = release.jobs.unsigned;
+  const attest = release.jobs['attest-unsigned'];
+  const stage = release.jobs.stage;
+  assert.deepEqual(build.permissions, { contents: 'read' });
+  assert.deepEqual(attest.permissions, { contents: 'read', 'id-token': 'write', attestations: 'write' });
+  assert.deepEqual(stage.permissions, { contents: 'write' });
+  assert.equal(build.if, "github.ref_type == 'tag' && github.ref_name == inputs.tag");
+  assert.equal(build.env.SOURCE_COMMIT, '${{ github.sha }}');
+  assert.equal(build.environment, 'windows-release');
+  assert.equal(attest.needs, 'unsigned');
+  assert.equal(stage.needs, 'attest-unsigned');
+  assert.match(text, /test-windows-nsis-lifecycle\.ps1/);
+  const privilegedRuns = [...attest.steps, ...stage.steps].map((step) => step.run || '').join('\n');
+  assert.doesNotMatch(privilegedRuns, /npm |product\//);
+  const staging = stage.steps.map((step) => step.run || '').join('\n');
+  assert.match(staging, /verify-windows-staged-artifact\.cjs/);
+  assert.match(staging, /Refusing to modify an already-public release/);
+  assert.match(staging, /gh release create.*--draft/);
+  assert.equal((staging.match(/gh attestation verify/g) || []).length, 2);
+  assert.match(staging, /--format json/);
+  assert.ok(staging.indexOf('--format json') < staging.indexOf('node scripts/verify-windows-staged-artifact.cjs'), 'Authenticate signed statement before trusting receipt');
+  assert.match(staging, /gh api -X DELETE/);
+  assert.match(staging, /draft during each asset retry/);
+  assert.doesNotMatch(staging, /--clobber/);
+  assert.doesNotMatch(text, /azure\/login|AZURE_CODESIGN|draft=false/);
+  for (const job of Object.values(release.jobs)) {
+    for (const step of job.steps) if (step.uses) assert.match(step.uses, /@[a-f0-9]{40}$/);
+  }
+});
+require('./test-windows-unsigned-retries.cjs')(root);
 console.log(`PASS ${cases} unsigned preparation groups; inert disposable repositories/artifacts only, no installer execution or publication.`);

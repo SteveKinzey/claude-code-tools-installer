@@ -34,7 +34,18 @@ function isAtLeast(version, required) {
 }
 
 assert.equal(packageJson.engines?.node, `>=${minimumNode}`, `Desktop package engine must require Node ${minimumNode} or later.`);
-assert.match(packageJson.devDependencies?.electron || '', /^\^44\./, 'Desktop dependency must stay on the supported Electron 44 release line.');
+assert.match(packageJson.devDependencies?.electron || '', /^44\.\d+\.\d+$/, 'Desktop dependency must be exactly pinned on the supported Electron 44 release line.');
+for (const section of ['dependencies', 'devDependencies']) {
+  for (const [name, version] of Object.entries(packageJson[section] || {})) {
+    assert.match(version, /^\d+\.\d+\.\d+$/, `${name} must use an exact reviewed version, not a floating range.`);
+    assert.equal(lockfile.packages?.['']?.[section]?.[name], version, `${name} lockfile declaration must match the manifest.`);
+    assert.equal(lockfile.packages?.[`node_modules/${name}`]?.version, version, `${name} locked version must match the exact declaration.`);
+  }
+}
+assert.equal(packageJson.overrides?.['@electron/get']?.['global-agent'], '4.1.3', 'Downloader override must stay scoped and pinned to the validated proxy parent.');
+for (const name of Object.keys(lockfile.packages || {})) {
+  assert.doesNotMatch(name, /(?:^|\/)node_modules\/(?:sprintf-js|roarr)$/, 'The vulnerable proxy logging chain must not be reintroduced.');
+}
 assert.ok(isAtLeast(lockfile.packages?.['node_modules/electron']?.version, '44.3.0'), 'Lockfile must resolve Electron 44.3.0 or later.');
 assert.equal(lockfile.packages?.['node_modules/extract-zip'], undefined, 'Vulnerable extract-zip must not be present in the resolved dependency tree.');
 assert.match(packageJson.scripts?.['security:check'] || '', /validate-security-remediation\.js/, 'Security check must validate the package, lockfile, and CI contract.');

@@ -73,6 +73,7 @@ function prepare({ source, controller, artifacts, tag, expectedCommit, controlle
     version,
     architecture: 'x64',
     distribution: 'unsigned NSIS; build-only, not published',
+    updater_sha256: digest(fs.readFileSync(path.join(artifacts, 'latest.yml'))),
     installer: { name, size: bytes.length, sha256, sha512: digest(bytes, 'sha512', 'base64') },
     tagged_runtime_sha256: hashes,
     lock_sha256: hashes['desktop/package-lock.json'],
