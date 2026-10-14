@@ -53,9 +53,13 @@ assert.match(signedWindowsWorkflow, /actions\/attest-build-provenance@[0-9a-f]{4
 assert.match(signedWindowsWorkflow, /Status -ne 'NotSigned'/, 'unsigned Windows staging must confirm the installer really is unsigned');
 assert.match(signedWindowsWorkflow, /attestations: write/, 'Windows staging must be allowed to write build provenance');
 assert.match(signedWindowsWorkflow, /Windows signing only stages assets on a draft release/, 'signed Windows staging must not publish the shared release');
-assert.match(publisherWorkflow, /signed Windows x64 installer/, 'the shared publisher must verify a signed Windows installer before publication');
-assert.match(publisherWorkflow, /Windows checksum sidecar does not match the staged signed installer/, 'the shared publisher must validate the Windows checksum sidecar');
-assert.match(publisherWorkflow, /Windows latest\.yml does not reference the signed installer/, 'the shared publisher must validate the Windows updater feed');
+assert.match(publisherWorkflow, /unsigned Windows x64 installer/, 'the shared publisher must verify a signed Windows installer before publication');
+assert.match(publisherWorkflow, /Windows checksum sidecar does not match the staged unsigned installer/, 'the shared publisher must validate the Windows checksum sidecar');
+assert.match(publisherWorkflow, /Windows latest\.yml does not reference the unsigned installer/, 'the shared publisher must validate the Windows updater feed');
+assert.match(publisherWorkflow, /verify-windows-staged-artifact\.cjs/, 'publisher must verify complete Windows byte/source/updater receipts');
+assert.match(publisherWorkflow, /windows-build-provenance\.sigstore\.json/, 'publisher must verify build signature');
+assert.match(publisherWorkflow, /windows-source-binding\.sigstore\.json/, 'publisher must verify exact-source signature');
+assert.match(publisherWorkflow, /--source-digest/, 'publisher must bind signatures to immutable source commit');
 assert.match(publisherWorkflow, /X-GitHub-Api-Version: 2026-03-10/, 'the shared publisher must use the documented GitHub API version when assigning the latest release pointer.');
 assert.match(publisherWorkflow, /releases\/latest" --jq '\.tag_name'/, 'the shared publisher must verify that GitHub\'s latest-release pointer resolves to the published tag.');
 execFileSync('bash', [path.join(root, 'scripts', 'test-publish-latest-pointer-workflow.sh'), root], { stdio: 'inherit' });

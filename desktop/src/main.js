@@ -17,6 +17,7 @@ const { mcpDefinitions, pluginInstalls } = require('./inventory/config-scan');
 const { planResolution, groupFingerprint } = require('./inventory/resolvers');
 const { spawnSafely, resolveWindowsExecutable, isAbsoluteWindowsPath, windowsPathFromEnv } = require('./windows-command');
 const { displayPathFor } = require('./display-path');
+const { captureProcessOutput, MAXIMUM_PROCESS_OUTPUT_BYTES } = require('./process-output');
 
 if (process.env.CCTI_ELECTRON_TEST === '1' && process.env.CCTI_TEST_HOME) {
   app.setPath('home', path.resolve(process.env.CCTI_TEST_HOME));
@@ -563,28 +564,32 @@ function runProcess(command, args, options = {}) {
       reject(error);
       return;
     }
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    const capture = captureProcessOutput(child);
+    const result = (code) => {
+      const { stdout, stderr, outputTruncated } = capture.snapshot();
+      const notice = outputTruncated ? `\nProcess output was truncated at ${MAXIMUM_PROCESS_OUTPUT_BYTES / 1024} KiB. CCTI cannot trust an incomplete command result.` : '';
+      return { code: outputTruncated ? -1 : code, stdout, stderr: `${stderr}${notice}`, ...(outputTruncated ? { outputTruncated: true } : {}) };
+    };
     child.on('error', (err) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      capture.snapshot();
       reject(err);
     });
     child.on('close', (code) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      resolve({ code, stdout, stderr });
+      resolve(result(code));
     });
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         if (settled) return;
         settled = true;
         try { child.kill('SIGKILL'); } catch {}
-        resolve({ code: -1, stdout, stderr: `${stderr}\nProcess timed out after ${timeoutMs}ms.`.trim(), timedOut: true });
+        const timedOutResult = result(-1);
+        resolve({ ...timedOutResult, stderr: `${timedOutResult.stderr}\nProcess timed out after ${timeoutMs}ms.`.trim(), timedOut: true });
       }, timeoutMs);
     }
   });

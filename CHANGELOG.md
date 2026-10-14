@@ -2,6 +2,31 @@
 
 All notable changes are documented in this file. New version tags use `vYYYY.MM.DD.RR`; historical `vYYYY.MM.DD` tags remain unchanged.
 
+## v2026.10.14.00 — Consolidation, zero-audit build chain, and verified unsigned Windows release
+
+> **Release boundary:** Package identity `2026.10.1400`. This is the consolidated release/freeze baseline. macOS, Linux, and unsigned Windows availability is established only by their exact-tag artifacts, native checks, trust verification, and final public GitHub Release—not by this changelog or source tag. Until then, prior public downloads remain authoritative.
+
+### Consolidated and cleaned
+
+- Integrate finished exact-source Windows preparation through [#87](https://github.com/SteveKinzey/claude-code-tools-installer/pull/87); retain all main and branch safety gates.
+- Preserve historical branches in verified archive tags/local snapshots, then remove the owner-authorized stale remote branches. Keep attached owner/concurrent worktrees intact.
+- Correct curated catalog counts, immutable development setup, Electron architecture, managed signing variables, and unsigned Windows release documentation.
+- Apply consistent formatting to new modules and add complete source syntax coverage; do not remove intentional diagnostic logs or historical records as dead code.
+
+### Hardened
+
+- Pin all direct desktop dependencies at their existing reviewed versions. Scope a pinned `global-agent` 4.1.3 override to `@electron/get`, removing the vulnerable `roarr`/`sprintf-js` build chain without downgrading Electron or builder. Full/runtime dependency audit evidence must remain zero for the exact final candidate.
+- Add a six-case loopback proxy matrix through the actual downloader loader: HTTP proxy, TLS CONNECT with verification enabled, NO_PROXY, runtime switching, explicit agents, and proxy authentication.
+- Bound main-process command capture to a shared 256 KiB budget. Preserve split UTF-8 characters, reject incomplete successful records, and cover timeout/error/late-data behavior with stubbed children.
+- Keep tagged install/build code outside OIDC/attestation and release-write jobs. The maintained unsigned Windows lane separately builds/tests, attests, and draft-stages exact-source assets without Azure or Store configuration.
+- Bind complete updater bytes into the signed source receipt. The shared publisher verifies installer and updater bytes plus both immutable-source attestations before publishing; Windows provenance is not Authenticode signing.
+- Add clean-runner unsigned NSIS install, main-window startup, and uninstall acceptance. Automatic Windows updates and SmartScreen reputation are not promised.
+
+### Freeze and rollback
+
+- Once the exact release is publicly verified, its tag and artifact bytes remain immutable. Later work starts on a new versioned branch and reaches protected `main` only through a reviewed PR.
+- Preserve the prior verified public release for rollback; never overwrite old public artifacts or move tags.
+
 ## v2026.10.12.00 — Component install safety and POSIX command lookup
 
 > **Release status:** The source tag maps to package identity `2026.10.1200`. The GitHub Release published verified macOS and Linux artifacts; Windows availability is separate and must be confirmed from the public asset inventory. Source-only and build-only Windows preparation does not itself create a public Windows download.
