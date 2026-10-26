@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "candidates": [
+    {
+      "tag": "v2026.10.02.02",
+      "tagObject": "a17ad61ee0a28de77150ddda8707afab0d000ed0",
+      "commit": "6b351bcffd0767742b554480636356dd8a9776bf",
+      "status": "superseded-staging",
+      "supersededBy": "v2026.10.02.03",
+      "supersedingCommit": "68f3d50c0c09b33f340eabdf87f2e610a29236e2",
+      "reason": "The draft was never published; revision .03 incorporates its pinned setup and terminal changes plus the moved-upstream repair. Preserve the original tag and draft assets.",
+      "evidence": [
+        "https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.10.02.03",
+        "https://github.com/SteveKinzey/claude-code-tools-installer/blob/5a803978f6d2a8070e7cba7a7c3fe2fd8baefb13/CHANGELOG.md"
+      ]
+    },
+    {
+      "tag": "v2026.10.14.00",
+      "tagObject": "96aca630138d62615ddcb326f2830507622004ff",
+      "commit": "51098e8d9ba75069b8b6445273590644edbe8eb9",
+      "status": "superseded-staging",
+      "supersededBy": "v2026.10.14.01",
+      "supersedingCommit": "42a2d1969af421bb87acf056bac72a9dbe20a79f",
+      "reason": "Private staging was retained after the Windows lifecycle wrapper falsely failed. Published revision .01 fixes the wrapper and repeats the release gates. Preserve the original tag and draft assets.",
+      "evidence": [
+        "https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/v2026.10.14.01",
+        "https://github.com/SteveKinzey/claude-code-tools-installer/blob/5a803978f6d2a8070e7cba7a7c3fe2fd8baefb13/RELEASE_LOG.md"
+      ]
+    }
+  ]
+}

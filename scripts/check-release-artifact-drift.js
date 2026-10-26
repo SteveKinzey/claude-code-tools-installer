@@ -5,6 +5,9 @@
  * Kept dependency-free so it can run locally and in GitHub Actions.
  */
 const fs = require("node:fs");
+const path = require("node:path");
+const { execFileSync, spawnSync } = require("node:child_process");
+const root = path.resolve(__dirname, "..");
 const { parseReleaseIdentity } = require("../desktop/src/release-identity");
 
 const DEFAULT_GRACE_HOURS = 24;
@@ -68,7 +71,63 @@ function ageHours(createdAt, now) {
   return Math.max(0, (current - created) / (60 * 60 * 1000));
 }
 
-function evaluateReleaseArtifactState({ tag, release, createdAt, now = new Date().toISOString(), graceHours = DEFAULT_GRACE_HOURS }) {
+// This is a protected, reviewed record of abandoned staging candidates, not a
+// wildcard exclusion list. Every use rechecks immutable source and live assets.
+function validateDispositions(document) {
+  if (document?.schemaVersion !== 1 || !Array.isArray(document.candidates)) {
+    throw new Error("Invalid release disposition schema.");
+  }
+  const seen = new Set();
+  for (const item of document.candidates) {
+    if (!item || item.status !== "superseded-staging"
+      || !isReleaseTag(item.tag) || !isReleaseTag(item.supersededBy)
+      || item.tag === item.supersededBy || seen.has(item.tag)
+      || ![item.tagObject, item.commit, item.supersedingCommit].every((sha) => /^[a-f0-9]{40}$/.test(sha || ""))
+      || typeof item.reason !== "string" || !item.reason.trim()
+      || !Array.isArray(item.evidence) || item.evidence.length === 0
+      || !item.evidence.every((url) => typeof url === "string" && url.startsWith("https://github.com/SteveKinzey/claude-code-tools-installer/"))) {
+      throw new Error("Invalid or duplicate superseded staging disposition.");
+    }
+    seen.add(item.tag);
+  }
+  return document.candidates;
+}
+
+function resolveTag(tag) {
+  const resolve = (suffix) => execFileSync("git", ["rev-parse", "--verify", "--end-of-options", `refs/tags/${tag}${suffix}`], { cwd: root, encoding: "utf8" }).trim();
+  return { object: resolve(""), commit: resolve("^{commit}") };
+}
+
+function isAncestor(ancestor, descendant) {
+  const result = spawnSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], { cwd: root });
+  if (result.error || ![0, 1].includes(result.status)) throw result.error || new Error("Cannot verify release ancestry.");
+  return result.status === 0;
+}
+
+function evaluateSupersededStaging({ tag, release, releases, dispositions, git }) {
+  const item = dispositions.find((candidate) => candidate.tag === tag);
+  if (!item) return null;
+  const fail = (reason) => ({ state: "drift", coverage: {}, message: `${tag} staging disposition refused: ${reason}.` });
+  // A subsequently published record must satisfy the ordinary artifact gate.
+  if (release && (release.tag_name !== tag || !release.draft)) return fail("the candidate is no longer an unpublished draft");
+  const source = git.resolveTag(tag);
+  const successor = git.resolveTag(item.supersededBy);
+  if (source.object !== item.tagObject || source.commit !== item.commit
+    || successor.commit !== item.supersedingCommit) return fail("immutable tag/source binding changed");
+  if (source.commit === successor.commit || !git.isAncestor(source.commit, successor.commit)) return fail("replacement does not contain the staged source");
+  const replacement = releases.find((candidate) => candidate.tag_name === item.supersededBy);
+  if (!replacement || replacement.draft || replacement.prerelease
+    || !Object.values(getCoverage(replacement)).some((files) => files.length > 0)) {
+    return fail("the pinned replacement lacks published SHA-256-backed executable assets");
+  }
+  return {
+    state: "superseded",
+    coverage: {},
+    message: `${tag} is retained as unpublished staging, superseded by verified public ${item.supersededBy}. ${item.reason}`,
+  };
+}
+
+function evaluateReleaseArtifactState({ tag, release, createdAt, now = new Date().toISOString(), graceHours = DEFAULT_GRACE_HOURS, releases = [], dispositions = [], git = { resolveTag, isAncestor } }) {
   if (!isReleaseTag(tag)) {
     return { state: "ignored", message: `Ignored non-release tag ${String(tag || "(missing)")}.`, coverage: {} };
   }
@@ -82,6 +141,9 @@ function evaluateReleaseArtifactState({ tag, release, createdAt, now = new Date(
       coverage,
     };
   }
+
+  const superseded = evaluateSupersededStaging({ tag, release, releases, dispositions, git });
+  if (superseded) return superseded;
 
   const age = ageHours(createdAt || normalizedRelease?.published_at || normalizedRelease?.created_at, now);
   const reason = normalizedRelease
@@ -97,7 +159,7 @@ function evaluateReleaseArtifactState({ tag, release, createdAt, now = new Date(
 
   return {
     state: "drift",
-    message: `${tag} ${reason} after the ${graceHours}-hour grace period. Publish a signed platform artifact and its SHA-256 digest, or remove/rename the tag if it is not a desktop release.`,
+    message: `${tag} ${reason} after the ${graceHours}-hour grace period. Complete authorized platform trust and artifact publication, or propose a documented superseded-staging disposition through a protected PR; preserve tag history.`,
     coverage,
   };
 }
@@ -125,6 +187,8 @@ function runCli() {
   const graceHours = Number(options["grace-hours"] || DEFAULT_GRACE_HOURS);
   const releases = options["releases-file"] ? readJson(options["releases-file"]) : [];
   const release = options["release-file"] ? readJson(options["release-file"]) : null;
+  if (!Array.isArray(releases)) throw new Error("Release inventory must be an array.");
+  const dispositions = validateDispositions(readJson(path.join(root, "docs", "release-staging-dispositions.json")));
 
   const evaluations = options.all
     ? (Array.isArray(releases) ? releases : []).filter((candidate) => isReleaseTag(candidate.tag_name)).map((candidate) => evaluateReleaseArtifactState({
@@ -133,6 +197,8 @@ function runCli() {
       createdAt: candidate.published_at || candidate.created_at,
       now,
       graceHours,
+      releases,
+      dispositions,
     }))
     : [evaluateReleaseArtifactState({
       tag: options.tag,
@@ -140,6 +206,8 @@ function runCli() {
       createdAt: options["tag-created-at"],
       now,
       graceHours,
+      releases,
+      dispositions,
     })];
 
   const lines = evaluations.map((result) => `- **${result.state.toUpperCase()}** — ${result.message}`);
@@ -160,4 +228,5 @@ module.exports = {
   getCoverage,
   isReleaseTag,
   isVerifiedExecutableAsset,
+  validateDispositions,
 };
