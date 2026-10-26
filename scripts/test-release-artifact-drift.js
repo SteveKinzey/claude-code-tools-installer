@@ -123,6 +123,11 @@ try {
   // Simulate a moved staging ref inside this disposable repository only.
   runGit('update-ref', `refs/tags/${candidate.tag}`, newCommit, oldObject);
   assert.equal(invoke().status, 1, 'moved staging ref must fail CLI');
+  runGit('update-ref', '-d', `refs/tags/${candidate.tag}`, newCommit);
+  const listed = execFileSync(process.execPath, [args[0], '--list-audit-tags'], { encoding: 'utf8' }).trim().split(/\r?\n/);
+  assert.ok(listed.includes(candidate.tag), 'scheduled enumeration must retain a registered original absent from Git tags');
+  assert.ok(listed.includes(candidate.supersededBy), 'ordinary existing release tags remain enumerated');
+  assert.equal(invoke().status, 1, 'absent original must fail pinned-ref evaluation');
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
@@ -133,3 +138,6 @@ assert.equal((workflowText.match(/gh api --paginate --slurp/g) || []).length, 2,
 assert.equal((workflowText.match(/--releases-file/g) || []).length, 2, 'both workflow routes must validate the superseding release');
 assert.equal((workflowText.match(/--grace-hours 24/g) || []).length, 2, 'both workflow routes retain the existing grace period');
 assert.match(fs.readFileSync(path.join(__dirname, '../.github/workflows/desktop-validation.yml'), 'utf8'), /docs\/release-staging-dispositions\.json\|/, 'manifest-only PR changes must run required desktop checks');
+
+assert.match(workflowText, /--list-audit-tags > "\$RUNNER_TEMP\/dated-tags\.txt"/, 'scheduled audit must use the union of existing and registered tags');
+assert.match(workflowText, /done < "\$RUNNER_TEMP\/dated-tags\.txt"/, 'the audit loop must consume the checked enumeration');

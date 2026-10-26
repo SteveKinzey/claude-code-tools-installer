@@ -170,7 +170,7 @@ function parseArgs(argv) {
     const argument = argv[index];
     if (!argument.startsWith("--")) continue;
     const key = argument.slice(2);
-    if (key === "all") values.all = true;
+    if (["all", "list-audit-tags"].includes(key)) values[key] = true;
     else values[key] = argv[index + 1];
   }
   return values;
@@ -183,12 +183,19 @@ function writeSummary(lines) {
 
 function runCli() {
   const options = parseArgs(process.argv.slice(2));
+  const dispositions = validateDispositions(readJson(path.join(root, "docs", "release-staging-dispositions.json")));
+  if (options["list-audit-tags"]) {
+    const existing = execFileSync("git", ["tag", "--list", "v*"], { cwd: root, encoding: "utf8" }).trim().split(/\r?\n/).filter(isReleaseTag);
+    // Retain registered originals even if their refs disappear, so evaluation
+    // reaches the pinned-ref check instead of silently omitting the candidate.
+    console.log([...new Set([...existing, ...dispositions.map((item) => item.tag)])].sort().reverse().join("\n"));
+    return;
+  }
   const now = options.now || new Date().toISOString();
   const graceHours = Number(options["grace-hours"] || DEFAULT_GRACE_HOURS);
   const releases = options["releases-file"] ? readJson(options["releases-file"]) : [];
   const release = options["release-file"] ? readJson(options["release-file"]) : null;
   if (!Array.isArray(releases)) throw new Error("Release inventory must be an array.");
-  const dispositions = validateDispositions(readJson(path.join(root, "docs", "release-staging-dispositions.json")));
 
   const evaluations = options.all
     ? (Array.isArray(releases) ? releases : []).filter((candidate) => isReleaseTag(candidate.tag_name)).map((candidate) => evaluateReleaseArtifactState({

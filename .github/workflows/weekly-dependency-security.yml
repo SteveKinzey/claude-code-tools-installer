@@ -49,7 +49,7 @@ jobs:
           mkdir -p ../security-reports
           audit_status=0
           npm audit --json > ../security-reports/npm-audit.json || audit_status=$?
-          node -e 'const r = require("../security-reports/npm-audit.json"); if (r.error || !r.metadata?.vulnerabilities) process.exit(1)'
+          node -e 'const r = require("../security-reports/npm-audit.json"); const v = r.metadata?.vulnerabilities; if (r.error || !v || typeof v !== "object" || Array.isArray(v) || !["high", "critical"].every(k => Number.isInteger(v[k]) && v[k] >= 0)) process.exit(1)'
           if [[ "$audit_status" -gt 1 ]]; then
             exit "$audit_status"
           fi

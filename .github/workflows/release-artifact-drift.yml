@@ -117,11 +117,13 @@ jobs:
       - name: Audit published releases and tags
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           releases="$RUNNER_TEMP/releases.json"
           gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" | jq 'add' > "$releases"
           failures=0
           checked=0
+          # Include registered originals even when a ref has disappeared.
+          node scripts/check-release-artifact-drift.js --list-audit-tags > "$RUNNER_TEMP/dated-tags.txt"
 
           while IFS= read -r tag; do
             [[ "$tag" =~ ^v?[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]{2})?$ ]] || continue
@@ -132,7 +134,7 @@ jobs:
             if ! node scripts/check-release-artifact-drift.js --tag "$tag" --release-file "$release" --releases-file "$releases" --tag-created-at "$created_at" --grace-hours 24; then
               failures=1
             fi
-          done < <(git tag --list 'v*' | sort -r)
+          done < "$RUNNER_TEMP/dated-tags.txt"
 
           echo "Audited ${checked} dated CCTI tag(s)." >> "$GITHUB_STEP_SUMMARY"
           exit "$failures"

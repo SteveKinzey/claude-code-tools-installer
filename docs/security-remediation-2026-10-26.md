@@ -30,9 +30,9 @@ root Electron declaration, including registry integrity values.
 The weekly scan now captures JSON even after earlier validation fails. It retains
 the full desktop check and high/critical threshold, validates audit JSON, refuses
 registry/invalid-report errors and uploads the report through the existing bounded
-artifact step. Seven offline cases execute the actual workflow shell block to
+artifact step. Fifteen offline cases execute the actual workflow shell block to
 exercise clean, moderate/high, registry, malformed-report and exit-status behavior.
-These cases run in the mandatory security contract.
+Malformed high/critical counters are rejected. These cases run in the mandatory security contract.
 
 ## Release drift
 

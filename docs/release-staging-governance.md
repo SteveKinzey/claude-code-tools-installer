@@ -39,7 +39,7 @@ the current Windows release lane verifies checksums and provenance.
    executable/digest gate. No recursive exemption through another staging record.
 4. Retain tags, drafts and staged assets. Report `SUPERSEDED` separately from
    `VERIFIED`, with empty executable coverage for unpublished staging. A later
-   published original must satisfy the ordinary artifact gate. Missing/changed refs,
+   published original must satisfy the ordinary artifact gate. Scheduled enumeration includes registered originals even when their refs disappear. Missing/changed refs,
    invalid records or replacement asset drift fail closed.
 5. New binary publication still requires the existing exact-tag security, native
    acceptance, platform trust and final publication authorization. This record

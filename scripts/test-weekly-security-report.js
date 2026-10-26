@@ -30,6 +30,10 @@ try {
     ['high finding still blocks', valid, 1, 1, 1, true],
     ['registry error', JSON.stringify({ error: { code: 'E503' } }), 1, 0, 1, false],
     ['missing metadata', '{}', 0, 0, 1, false],
+    ...[{}, 'invalid counters', null, [], { high: 0 }, { high: -1, critical: 0 },
+      { high: 0.5, critical: 0 }, { high: 0, critical: '0' }].map((v) => [
+      'malformed counters ' + JSON.stringify(v), JSON.stringify({ metadata: { vulnerabilities: v } }), 0, 0, 1, false,
+    ]),
     ['invalid JSON', 'not json', 1, 0, 1, false],
     ['unexpected audit exit', valid, 2, 0, 2, false],
   ]) {
@@ -45,4 +49,4 @@ try {
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log('Weekly audit report fixtures passed: clean, moderate/high, registry/error exits and retained evidence.');
+console.log('15 weekly audit report fixtures passed: clean, moderate/high, malformed counters, registry/error exits and retained evidence.');
