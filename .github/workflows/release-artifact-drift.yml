@@ -53,24 +53,15 @@ jobs:
           echo "checked=true" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch the matching public GitHub Release
+      - name: Fetch release inventory including superseding releases
         if: steps.tag.outputs.checked == 'true'
         id: release
         shell: bash
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" > "$RUNNER_TEMP/release.json" 2>"$RUNNER_TEMP/release-error.txt"; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
-            status=$?
-            if [[ "$status" -ne 1 ]] || ! grep -q 'HTTP 404' "$RUNNER_TEMP/release-error.txt"; then
-              cat "$RUNNER_TEMP/release-error.txt" >&2
-              exit "$status"
-            fi
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            printf 'null\n' > "$RUNNER_TEMP/release.json"
-          fi
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" | jq 'add' > "$RUNNER_TEMP/releases.json"
+          jq --arg tag "$TAG" 'first(.[] | select(.tag_name == $tag)) // null' "$RUNNER_TEMP/releases.json" > "$RUNNER_TEMP/release.json"
 
       - name: Evaluate executable artifact coverage
         if: steps.tag.outputs.checked == 'true'
@@ -81,7 +72,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_CREATED_AT: ${{ github.event.created_at }}
         run: |
-          args=(scripts/check-release-artifact-drift.js --tag "$TAG" --release-file "$RELEASE_FILE" --grace-hours 24)
+          args=(scripts/check-release-artifact-drift.js --tag "$TAG" --release-file "$RELEASE_FILE" --releases-file "$RUNNER_TEMP/releases.json" --grace-hours 24)
           tag_created_at="$EVENT_CREATED_AT"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             tag_created_at="$(git log -1 --format=%cI "${TAG}^{commit}" 2>/dev/null || true)"
@@ -99,7 +90,7 @@ jobs:
             echo "## CCTI release artifact drift detected"
             echo
             echo "The dated tag has outlived the 24-hour release grace period without an uploaded, SHA-256-backed desktop artifact."
-            echo "Publish the signed platform artifact and checksum to its GitHub Release, or remove/rename the tag if it is source-only work."
+            echo "Complete the authorized platform trust and artifact publication gates, or propose an evidence-backed superseded-staging disposition through a protected PR. Preserve tags and draft assets."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify configured release-alert channel
@@ -126,11 +117,13 @@ jobs:
       - name: Audit published releases and tags
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           releases="$RUNNER_TEMP/releases.json"
-          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "$releases"
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" | jq 'add' > "$releases"
           failures=0
           checked=0
+          # Include registered originals even when a ref has disappeared.
+          node scripts/check-release-artifact-drift.js --list-audit-tags > "$RUNNER_TEMP/dated-tags.txt"
 
           while IFS= read -r tag; do
             [[ "$tag" =~ ^v?[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]{2})?$ ]] || continue
@@ -138,10 +131,10 @@ jobs:
             release="$RUNNER_TEMP/release-${checked}.json"
             jq --arg tag "$tag" 'first(.[] | select(.tag_name == $tag)) // null' "$releases" > "$release"
             created_at="$(git log -1 --format=%cI "${tag}^{commit}" 2>/dev/null || true)"
-            if ! node scripts/check-release-artifact-drift.js --tag "$tag" --release-file "$release" --tag-created-at "$created_at" --grace-hours 24; then
+            if ! node scripts/check-release-artifact-drift.js --tag "$tag" --release-file "$release" --releases-file "$releases" --tag-created-at "$created_at" --grace-hours 24; then
               failures=1
             fi
-          done < <(git tag --list 'v*' | sort -r)
+          done < "$RUNNER_TEMP/dated-tags.txt"
 
           echo "Audited ${checked} dated CCTI tag(s)." >> "$GITHUB_STEP_SUMMARY"
           exit "$failures"
@@ -154,7 +147,7 @@ jobs:
             echo "## CCTI release artifact drift detected"
             echo
             echo "At least one dated tag has outlived the 24-hour grace period without an uploaded, SHA-256-backed desktop artifact."
-            echo "Publish a signed artifact plus checksum, or remove/rename source-only tags so they do not look like desktop releases."
+            echo "Complete the authorized platform trust and artifact publication gates, or propose an evidence-backed superseded-staging disposition through a protected PR. Preserve tags and draft assets."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify configured release-alert channel
