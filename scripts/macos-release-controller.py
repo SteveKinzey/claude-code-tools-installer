@@ -55,7 +55,7 @@ def safe_unpack(archive, destination):
         members = tf.getmembers()
         require(0 < len(members) <= 30000, 'Invalid archive entry count')
         require(sum(m.size for m in members) <= 2 * 1024**3, 'Archive exceeds size limit')
-        names, links, link_directories = set(), {}, {}
+        names, links, link_directories, resolved_links = set(), {}, {}, {}
         by_name = {m.name: m for m in members}
         for m in members:
             p = PurePosixPath(m.name)
@@ -98,6 +98,7 @@ def safe_unpack(archive, destination):
             target = '/'.join(resolved)
             require(target in names, 'Dangling symbolic link')
             link_directories[name] = by_name[target].isdir()
+            resolved_links[name] = target
         destination.mkdir(mode=0o700)
         try:
             for m in sorted(members, key=lambda x: (len(PurePosixPath(x.name).parts), x.name)):
@@ -111,9 +112,13 @@ def safe_unpack(archive, destination):
                     path.chmod(m.mode & 0o777)
             for m in members:
                 if m.issym():
-                    # The archive uses POSIX spelling, while Windows reparse points
-                    # require native separators and an explicit directory-link type.
+                    # Preserve original POSIX links on the signing host. Windows
+                    # normalizes .. before following reparse points, so materialize
+                    # the validated final target there to retain POSIX semantics.
                     target = Path(*PurePosixPath(m.linkname).parts)
+                    if os.name == 'nt':
+                        target = os.path.relpath(destination / resolved_links[m.name],
+                                                 (destination / m.name).parent)
                     (destination / m.name).symlink_to(target, target_is_directory=link_directories[m.name])
         except BaseException:
             shutil.rmtree(destination)
