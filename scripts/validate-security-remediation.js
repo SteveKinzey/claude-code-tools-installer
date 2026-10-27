@@ -151,8 +151,15 @@ assert.match(weeklySecurityWorkflow, /retention-days:\s*30/, 'Weekly vulnerabili
 assert.match(weeklySecurityWorkflow, /contents: read/, 'Weekly security scanning must use a read-only token.');
 assert.match(codeqlWorkflow, /pull_request:/, 'CodeQL must scan pull requests before merge.');
 assert.match(codeqlWorkflow, /cron:\s*'41 8 \* \* 1'/, 'CodeQL must run on the established weekly schedule.');
-assert.match(codeqlWorkflow, /github\/codeql-action\/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee/, 'CodeQL initialization must use the pinned reviewed action revision.');
-assert.match(codeqlWorkflow, /github\/codeql-action\/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee/, 'CodeQL analysis must use the pinned reviewed action revision.');
+// GuardRails mistakes these public action commit IDs for GitHub keys. Limit its
+// line-specific exception to the two exact upstream references and comments;
+// an extra value, changed revision or additional ignored line must fail this gate.
+const approvedCodeqlReferences = ['init', 'analyze'].map((action) =>
+  `        uses: github/codeql-action/${action}@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0; guardrails-disable-line: public upstream commit SHA, not a credential.`);
+const codeqlReferences = codeqlWorkflow.split('\n').filter((line) => /github\/codeql-action\/(?:init|analyze)@|guardrails-disable-line/.test(line));
+assert.ok(codeqlReferences.length === approvedCodeqlReferences.length
+  && codeqlReferences.every((line, index) => line === approvedCodeqlReferences[index]),
+'CodeQL initialization/analysis and false-positive exceptions must contain only the two exact reviewed public references.');
 assert.match(codeqlWorkflow, /security-events: write/, 'CodeQL must have only the security-events write permission required to upload findings.');
 assert.match(codeqlWorkflow, /languages:\s*\$\{\{ matrix\.language \}\}/, 'CodeQL must analyze the configured JavaScript and TypeScript language matrix.');
 assert.ok(!workflows.some((workflowPath) => /build-windows-signed-/i.test(path.basename(workflowPath))), 'Obsolete alternate Windows distribution workflows must not be present.');
