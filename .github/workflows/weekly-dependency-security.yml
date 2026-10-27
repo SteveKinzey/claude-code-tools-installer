@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.12.0'
           package-manager-cache: false
@@ -41,10 +41,18 @@ jobs:
         run: npm run check
 
       - name: Scan dependency vulnerabilities
+        # The complete check includes an audit and can fail before this step.
+        # Still capture the JSON evidence; retain the audit's failing exit status.
+        if: ${{ always() && !cancelled() }}
         run: |
           set -o pipefail
           mkdir -p ../security-reports
-          npm audit --json > ../security-reports/npm-audit.json || true
+          audit_status=0
+          npm audit --json > ../security-reports/npm-audit.json || audit_status=$?
+          node -e 'const r = require("../security-reports/npm-audit.json"); const v = r.metadata?.vulnerabilities; if (r.error || !v || typeof v !== "object" || Array.isArray(v) || !["high", "critical"].every(k => Number.isInteger(v[k]) && v[k] >= 0)) process.exit(1)'
+          if [[ "$audit_status" -gt 1 ]]; then
+            exit "$audit_status"
+          fi
           npm audit --audit-level=high
 
       - name: Upload vulnerability scan report
