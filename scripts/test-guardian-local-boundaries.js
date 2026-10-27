@@ -137,14 +137,19 @@ async function supervision() {
   exitedWindowsRoot.emit('close', 0);
   await assert.rejects(windowsTree.signal('SIGKILL'), /root already exited/, 'Never taskkill a reusable exited-root PID');
   assert.equal(windowsTree.alive(), true, 'Unknown Windows descendants retain mutation authority');
+  const exitingWindowsRoot = new EventEmitter();
+  exitingWindowsRoot.pid = 124;
+  const pipeHeldTree = processTree(exitingWindowsRoot, 'win32');
+  exitingWindowsRoot.emit('exit', 0);
+  await assert.rejects(pipeHeldTree.signal('SIGKILL'), /root already exited/, 'Root exit forbids PID-based termination even while descendant pipes delay close');
+  assert.equal(pipeHeldTree.alive(), true, 'Open descendant pipes do not authorize reusing the exited root PID');
   console.log('PASS setup supervisor: normal exit, ignored termination, kill errors, escalation, retained group lock, delayed descendant exit, truthful fresh timeout.');
 }
 
 async function nativeGroup(root) {
   const marker = path.join(root, 'writer');
-  const writer = `process.on('SIGTERM',()=>{});setInterval(()=>require('node:fs').appendFileSync(${JSON.stringify(marker)},'.'),10)`;
-  const parent = `process.on('SIGTERM',()=>{});require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(writer)}],{stdio:'inherit'});console.log('ready');setInterval(()=>{},1000)`;
-  const child = spawn(process.execPath, ['-e', parent], { detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+  const fixture = path.join(__dirname, 'fixtures', 'installer-process-tree.cjs');
+  const child = spawn(process.execPath, [fixture, 'parent'], { cwd: root, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
   const nativeTree = processTree(child);
   let emergency;
   try {

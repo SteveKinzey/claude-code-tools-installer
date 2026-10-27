@@ -6,7 +6,9 @@ const path = require('node:path');
 // the shell leaves npm/vendor bootstrap descendants able to write after timeout.
 function processTree(child, platform = process.platform) {
   let closed = false;
+  let exited = false;
   let windowsTreeStopped = false;
+  child.once('exit', () => { exited = true; });
   child.once('close', () => { closed = true; });
   return {
     alive() {
@@ -25,7 +27,7 @@ function processTree(child, platform = process.platform) {
         return;
       }
       if (!Number.isInteger(child.pid) || child.pid <= 0) { child.kill(signal); return; }
-      if (closed) {
+      if (exited || closed) {
         if (windowsTreeStopped) return;
         // Never taskkill an exited root's reusable PID. Without a verified tree kill,
         // its surviving descendants are unknown and the mutation lock stays held.

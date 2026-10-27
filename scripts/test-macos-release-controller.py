@@ -191,8 +191,8 @@ class ControllerTests(unittest.TestCase):
         framework = self.app / 'Contents/Frameworks/Example.framework'
         (framework / 'Versions/A').mkdir(parents=True)
         (framework / 'Versions/A/Example').write_bytes(b'native fixture')
-        (framework / 'Versions/Current').symlink_to('A')
-        (framework / 'Example').symlink_to('Versions/Current/Example')
+        (framework / 'Versions/Current').symlink_to('A', target_is_directory=True)
+        (framework / 'Example').symlink_to(Path('Versions/Current/Example'))
         c.pack(self.app, self.archive)
         app = c.safe_unpack(self.archive, self.root / 'unpacked')
         self.assertEqual((app / 'Contents/Frameworks/Example.framework/Example').read_bytes(), b'native fixture')
@@ -227,6 +227,57 @@ class ControllerTests(unittest.TestCase):
                     tf.addfile(entry)
             with self.assertRaises(ValueError):
                 c.safe_unpack(archive, self.root / label)
+
+    def test_chained_link_parent_traversal_is_refused_before_writes(self):
+        archive = self.root / 'chained-escape.tar.gz'
+        outside = self.root / 'outside'
+        outside.write_bytes(b'outside fixture sentinel')
+        with tarfile.open(archive, 'w:gz') as tf:
+            for name in [c.APP, c.APP + '/Contents']:
+                entry = tarfile.TarInfo(name)
+                entry.type = tarfile.DIRTYPE
+                tf.addfile(entry)
+            decoy = tarfile.TarInfo(c.APP + '/outside')
+            decoy.size = len(b'harmless decoy')
+            tf.addfile(decoy, io.BytesIO(b'harmless decoy'))
+            for name, target in [('shortcut', '..'), ('escape', 'shortcut/../../outside')]:
+                entry = tarfile.TarInfo(c.APP + '/Contents/' + name)
+                entry.type, entry.linkname = tarfile.SYMTYPE, target
+                tf.addfile(entry)
+        destination = self.root / 'unpacked'
+        with self.assertRaisesRegex(ValueError, 'escapes app'):
+            c.safe_unpack(archive, destination)
+        self.assertFalse(destination.exists(), 'Reject the complete archive before any extraction writes')
+        self.assertEqual(outside.read_bytes(), b'outside fixture sentinel')
+
+    def test_safe_parent_traversal_after_link_expansion_stays_supported(self):
+        archive = self.root / 'safe-chain.tar.gz'
+        with tarfile.open(archive, 'w:gz') as tf:
+            for name in [c.APP, c.APP + '/Contents', c.APP + '/Resources', c.APP + '/Resources/A']:
+                entry = tarfile.TarInfo(name)
+                entry.type = tarfile.DIRTYPE
+                tf.addfile(entry)
+            guide = tarfile.TarInfo(c.APP + '/Resources/A/guide')
+            guide.size = len(b'guide fixture')
+            tf.addfile(guide, io.BytesIO(b'guide fixture'))
+            for name, target in [('shortcut', '../Resources/A'), ('guide', 'shortcut/../A/guide')]:
+                entry = tarfile.TarInfo(c.APP + '/Contents/' + name)
+                entry.type, entry.linkname = tarfile.SYMTYPE, target
+                tf.addfile(entry)
+        unpacked = c.safe_unpack(archive, self.root / 'safe-unpacked')
+        self.assertEqual((unpacked / 'Contents/guide').read_bytes(), b'guide fixture')
+
+    def test_link_cycle_is_refused_before_writes(self):
+        archive = self.root / 'cycle.tar.gz'
+        with tarfile.open(archive, 'w:gz') as tf:
+            for name, target in [('a', 'b'), ('b', 'a')]:
+                entry = tarfile.TarInfo(c.APP + '/' + name)
+                entry.type, entry.linkname = tarfile.SYMTYPE, target
+                tf.addfile(entry)
+        destination = self.root / 'cycle-unpacked'
+        with self.assertRaisesRegex(ValueError, 'Cyclic'):
+            c.safe_unpack(archive, destination)
+        self.assertFalse(destination.exists())
 
 
 if __name__ == '__main__':

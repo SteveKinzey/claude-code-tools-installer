@@ -7,6 +7,7 @@ out from the workflow controller commit, never loaded from the build artifact.
 """
 import argparse
 import base64
+from collections import deque
 import hashlib
 import json
 import os
@@ -54,7 +55,8 @@ def safe_unpack(archive, destination):
         members = tf.getmembers()
         require(0 < len(members) <= 30000, 'Invalid archive entry count')
         require(sum(m.size for m in members) <= 2 * 1024**3, 'Archive exceeds size limit')
-        names, links = set(), {}
+        names, links, link_directories = set(), {}, {}
+        by_name = {m.name: m for m in members}
         for m in members:
             p = PurePosixPath(m.name)
             require(m.name == str(p) and not p.is_absolute() and '..' not in p.parts
@@ -65,30 +67,37 @@ def safe_unpack(archive, destination):
             if m.issym():
                 target = PurePosixPath(m.linkname)
                 require(not target.is_absolute() and '\\' not in m.linkname, 'Unsafe symbolic link')
-                # Resolve lexical .. without following any on-disk or other archived links.
-                parts = list(p.parent.parts)
-                for part in target.parts:
-                    if part == '..':
-                        require(len(parts) > 1, 'Symbolic link escapes app')
-                        parts.pop()
-                    elif part != '.':
-                        parts.append(part)
-                links[m.name] = '/'.join(parts)
+                links[m.name] = target.parts
         # No member may be written through an archived symbolic-link ancestor.
         for name in names:
             require(not any(str(p) in links for p in PurePosixPath(name).parents), 'Linked archive ancestor')
-        # Framework symlink chains are allowed only if their final resolved target stays inside.
-        for name, target in links.items():
-            seen = {name}
-            while True:
-                alias = next((str(p) for p in [PurePosixPath(target), *PurePosixPath(target).parents] if str(p) in links), None)
-                if alias is None:
-                    break
-                require(alias not in seen, 'Cyclic symbolic link')
-                seen.add(alias)
-                suffix = PurePosixPath(target).relative_to(alias)
-                target = str(PurePosixPath(links[alias]) / suffix)
+        directories = {m.name for m in members if m.isdir()}
+        directories.update(str(parent) for name in names for parent in PurePosixPath(name).parents if str(parent) != '.')
+        # Expand an encountered link immediately, before processing later .. components.
+        # Lexically collapsing a/../.. first can hide that a itself redirects traversal.
+        for name, raw_target in links.items():
+            pending = deque((*PurePosixPath(name).parent.parts, *raw_target))
+            resolved, expansions = [], 0
+            while pending:
+                component = pending.popleft()
+                if component in ['', '.']:
+                    continue
+                if component == '..':
+                    require(len(resolved) > 1, 'Symbolic link escapes app')
+                    resolved.pop()
+                    continue
+                resolved.append(component)
+                current = '/'.join(resolved)
+                if current in links:
+                    expansions += 1
+                    require(expansions <= 40, 'Cyclic or excessively chained symbolic link')
+                    resolved.pop()
+                    pending.extendleft(reversed(links[current]))
+                elif pending:
+                    require(current in directories, 'Symbolic link traverses a non-directory')
+            target = '/'.join(resolved)
             require(target in names, 'Dangling symbolic link')
+            link_directories[name] = by_name[target].isdir()
         destination.mkdir(mode=0o700)
         try:
             for m in sorted(members, key=lambda x: (len(PurePosixPath(x.name).parts), x.name)):
@@ -102,7 +111,10 @@ def safe_unpack(archive, destination):
                     path.chmod(m.mode & 0o777)
             for m in members:
                 if m.issym():
-                    (destination / m.name).symlink_to(m.linkname)
+                    # The archive uses POSIX spelling, while Windows reparse points
+                    # require native separators and an explicit directory-link type.
+                    target = Path(*PurePosixPath(m.linkname).parts)
+                    (destination / m.name).symlink_to(target, target_is_directory=link_directories[m.name])
         except BaseException:
             shutil.rmtree(destination)
             raise
@@ -112,7 +124,11 @@ def safe_unpack(archive, destination):
 def pack(app, archive):
     require(Path(app).name == APP and Path(app).is_dir() and not Path(app).is_symlink(), 'Require the expected app bundle')
     with tarfile.open(archive, 'w:gz', dereference=False) as tf:
-        tf.add(app, arcname=APP)
+        def portable_link(entry):
+            if entry.issym():
+                entry.linkname = entry.linkname.replace(os.sep, '/')
+            return entry
+        tf.add(app, arcname=APP, filter=portable_link)
 
 
 def run(*args):
@@ -218,7 +234,7 @@ def sign(archive, output, source, controller, version, input_digest, env=None):
             image = scratch / 'image'
             image.mkdir()
             shutil.move(str(app), image / APP)
-            (image / 'Applications').symlink_to('/Applications')
+            (image / 'Applications').symlink_to('/Applications', target_is_directory=True)
             run('/usr/bin/hdiutil', 'create', '-volname', 'Claude Code Tools Installer', '-srcfolder', str(image), '-format', 'UDZO', str(dmg))
             run('/usr/bin/codesign', '--force', '--sign', name, '--keychain', str(keychain), '--timestamp', str(dmg))
             dmg_notary = notarize(dmg)
