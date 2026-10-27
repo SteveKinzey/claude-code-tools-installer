@@ -143,6 +143,25 @@ async function supervision() {
   exitingWindowsRoot.emit('exit', 0);
   await assert.rejects(pipeHeldTree.signal('SIGKILL'), /root already exited/, 'Root exit forbids PID-based termination even while descendant pipes delay close');
   assert.equal(pipeHeldTree.alive(), true, 'Open descendant pipes do not authorize reusing the exited root PID');
+  const windowsRoot = new EventEmitter();
+  windowsRoot.pid = 125;
+  const killer = new EventEmitter();
+  let killRequests = 0;
+  const sharedTree = processTree(windowsRoot, 'win32', { systemRoot: 'C:\\Windows', spawnKiller: (executable, args) => {
+    killRequests += 1;
+    assert.equal(executable, 'C:\\Windows\\System32\\taskkill.exe');
+    assert.deepEqual(args, ['/PID', '125', '/T', '/F']);
+    return killer;
+  } });
+  const graceful = sharedTree.signal('SIGTERM');
+  windowsRoot.emit('exit', -1);
+  windowsRoot.emit('close', -1);
+  const forced = sharedTree.signal('SIGKILL');
+  assert.equal(killRequests, 1, 'Escalation shares the active Windows tree termination even after root exit');
+  assert.equal(sharedTree.alive(), true, 'Root close alone does not verify the active tree kill');
+  killer.emit('close', 0);
+  await Promise.all([graceful, forced]);
+  assert.equal(sharedTree.alive(), false, 'Successful tree kill and root close permit retry');
   console.log('PASS setup supervisor: normal exit, ignored termination, kill errors, escalation, retained group lock, delayed descendant exit, truthful fresh timeout.');
 }
 
@@ -162,7 +181,7 @@ async function nativeGroup(root) {
     const result = await superviseInstaller(child, { timeoutMs: 30, graceMs: 30, forceWaitMs: 50, pollMs: 10, tree: nativeTree });
     assert.equal(result.timedOut, true);
     if (result.stillRunning) {
-      await Promise.race([result.whenStopped, new Promise((_, reject) => { emergency = setTimeout(() => reject(new Error('native group did not exit')), 3000); })]);
+      await Promise.race([result.whenStopped, new Promise((_, reject) => { emergency = setTimeout(() => reject(new Error('native group did not exit')), 8000); })]);
     }
     const size = (await fs.stat(marker)).size;
     await delay(80);

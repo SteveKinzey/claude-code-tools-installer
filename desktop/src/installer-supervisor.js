@@ -4,10 +4,11 @@ const path = require('node:path');
 
 // Complete-setup POSIX children start in a dedicated process group. Killing only
 // the shell leaves npm/vendor bootstrap descendants able to write after timeout.
-function processTree(child, platform = process.platform) {
+function processTree(child, platform = process.platform, { spawnKiller = spawn, systemRoot = process.env.SystemRoot } = {}) {
   let closed = false;
   let exited = false;
   let windowsTreeStopped = false;
+  let windowsTermination;
   child.once('exit', () => { exited = true; });
   child.once('close', () => { closed = true; });
   return {
@@ -27,22 +28,25 @@ function processTree(child, platform = process.platform) {
         return;
       }
       if (!Number.isInteger(child.pid) || child.pid <= 0) { child.kill(signal); return; }
+      // Both timeout phases use /T /F on Windows. Share an active request: two
+      // taskkill processes can race and each report an already-terminated child.
+      if (windowsTermination) return windowsTermination;
       if (exited || closed) {
         if (windowsTreeStopped) return;
         // Never taskkill an exited root's reusable PID. Without a verified tree kill,
         // its surviving descendants are unknown and the mutation lock stays held.
         throw new Error('The installer root already exited before its tree could be verified.');
       }
-      const systemRoot = process.env.SystemRoot;
       if (!systemRoot || !path.win32.isAbsolute(systemRoot)) throw new Error('Cannot locate the Windows process-tree terminator.');
       // Keep the root alive until taskkill can enumerate its descendants. A successful
       // /T /F result plus root close is required before permitting a new mutation.
-      await new Promise((resolve, reject) => {
-        const killer = spawn(path.win32.join(systemRoot, 'System32', 'taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      windowsTermination = new Promise((resolve, reject) => {
+        const killer = spawnKiller(path.win32.join(systemRoot, 'System32', 'taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
         const timer = setTimeout(() => { killer.kill(); reject(new Error('Process-tree termination did not complete.')); }, 5000);
         killer.once('error', (error) => { clearTimeout(timer); reject(error); });
         killer.once('close', (code) => { clearTimeout(timer); if (code === 0) { windowsTreeStopped = true; resolve(); } else reject(new Error('Process-tree termination could not be verified.')); });
       });
+      try { await windowsTermination; } finally { windowsTermination = undefined; }
     },
   };
 }
