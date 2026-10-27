@@ -46,7 +46,7 @@ assert.equal(packageJson.overrides?.['@electron/get']?.['global-agent'], '4.1.3'
 for (const name of Object.keys(lockfile.packages || {})) {
   assert.doesNotMatch(name, /(?:^|\/)node_modules\/(?:sprintf-js|roarr)$/, 'The vulnerable proxy logging chain must not be reintroduced.');
 }
-assert.ok(isAtLeast(lockfile.packages?.['node_modules/electron']?.version, '44.3.0'), 'Lockfile must resolve Electron 44.3.0 or later.');
+assert.ok(isAtLeast(lockfile.packages?.['node_modules/electron']?.version, '44.9.3'), 'Lockfile must resolve Electron 44.9.3 or later.');
 assert.equal(lockfile.packages?.['node_modules/extract-zip'], undefined, 'Vulnerable extract-zip must not be present in the resolved dependency tree.');
 assert.match(packageJson.scripts?.['security:check'] || '', /validate-security-remediation\.js/, 'Security check must validate the package, lockfile, and CI contract.');
 assert.match(packageJson.scripts?.['security:check'] || '', /npm audit --audit-level=high/, 'Security check must block high or critical npm audit findings.');
@@ -145,15 +145,20 @@ assert.match(weeklySecurityWorkflow, /cron:\s*'23 8 \* \* 1'/, 'Weekly dependenc
 assert.match(weeklySecurityWorkflow, /npm ci --ignore-scripts/, 'Weekly dependency security scanning must not execute lifecycle scripts.');
 assert.match(weeklySecurityWorkflow, /sudo apt-get install --yes xvfb/, 'Weekly dependency security scanning must provide a virtual display for the Electron renderer integration test.');
 assert.match(weeklySecurityWorkflow, /npm audit --audit-level=high/, 'Weekly dependency security scanning must fail on high or critical findings.');
+assert.match(weeklySecurityWorkflow, /name: Scan dependency vulnerabilities\n(?:[^\n]*\n)*?\s+if: \$\{\{ always\(\) && !cancelled\(\) \}\}/, 'Audit evidence must still be captured when complete validation fails.');
+assert.doesNotMatch(weeklySecurityWorkflow, /npm audit --json[^\n]*\|\| true/, 'Audit execution errors must not be silently suppressed.');
 assert.match(weeklySecurityWorkflow, /retention-days:\s*30/, 'Weekly vulnerability reports must have bounded retention.');
 assert.match(weeklySecurityWorkflow, /contents: read/, 'Weekly security scanning must use a read-only token.');
 assert.match(codeqlWorkflow, /pull_request:/, 'CodeQL must scan pull requests before merge.');
 assert.match(codeqlWorkflow, /cron:\s*'41 8 \* \* 1'/, 'CodeQL must run on the established weekly schedule.');
-assert.match(codeqlWorkflow, /github\/codeql-action\/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2/, 'CodeQL initialization must use the pinned reviewed action revision.');
-assert.match(codeqlWorkflow, /github\/codeql-action\/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2/, 'CodeQL analysis must use the pinned reviewed action revision.');
+assert.match(codeqlWorkflow, /github\/codeql-action\/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee/, 'CodeQL initialization must use the pinned reviewed action revision.');
+assert.match(codeqlWorkflow, /github\/codeql-action\/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee/, 'CodeQL analysis must use the pinned reviewed action revision.');
 assert.match(codeqlWorkflow, /security-events: write/, 'CodeQL must have only the security-events write permission required to upload findings.');
 assert.match(codeqlWorkflow, /languages:\s*\$\{\{ matrix\.language \}\}/, 'CodeQL must analyze the configured JavaScript and TypeScript language matrix.');
 assert.ok(!workflows.some((workflowPath) => /build-windows-signed-/i.test(path.basename(workflowPath))), 'Obsolete alternate Windows distribution workflows must not be present.');
+
+const reportFixtures = require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, 'test-weekly-security-report.js')], { stdio: 'inherit' });
+assert.equal(reportFixtures.status, 0, 'Weekly audit report capture and failure semantics must pass.');
 
 const sourceTrust = require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, 'test-macos-source-trust.js')], { stdio: 'inherit' });
 assert.equal(sourceTrust.status, 0, 'macOS signing-source positive and negative regressions must pass.');

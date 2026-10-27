@@ -48,7 +48,7 @@ jobs:
           relevant=false
           while IFS= read -r file; do
             case "$file" in
-              desktop/*|scripts/*|setup-my-claude.sh|setup-my-claude-linux.sh|setup-my-claude.ps1|.github/workflows/*)
+              desktop/*|scripts/*|docs/release-staging-dispositions.json|setup-my-claude.sh|setup-my-claude-linux.sh|setup-my-claude.ps1|.github/workflows/*)
                 relevant=true; echo "Desktop-relevant change: $file" ;;
             esac
           done <<< "$files"
