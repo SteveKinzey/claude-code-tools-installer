@@ -6,6 +6,8 @@ const fs = require('node:fs/promises');
 const nodeFs = require('node:fs');
 const os = require('node:os');
 const { StringDecoder } = require('node:string_decoder');
+const { installReviewedSkill } = require('./custom-skill-copy');
+const { superviseInstaller } = require('./installer-supervisor');
 const { inspectProjectPackage, prepareProjectPackage, resolveProjectFolder } = require('./project-prerequisites');
 const { comparePackageVersions, parsePackageVersion, parseReleaseIdentity } = require('./release-identity');
 const { TRACKED_ITEMS, trackedItem } = require('./inventory/tracked-items');
@@ -2199,7 +2201,7 @@ async function applyKnownClaudeRemoval({ reviewId, confirmation, removeSettings 
   if (confirmation !== 'REMOVE CLAUDE CODE') return { ok: false, error: 'Type REMOVE CLAUDE CODE exactly before CCTI removes anything.' };
   const plan = reviewedClaudeRemovalPlans.get(reviewId);
   if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) return { ok: false, error: 'This removal review has expired. Review the plan again.' };
-  if (activeInstall) return { ok: false, error: 'Another CCTI action is running. Wait for it to finish first.' };
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'Another CCTI action is running. Wait for it to finish first.' };
   reviewedClaudeRemovalPlans.delete(reviewId);
   activeInstall = true;
   emit('installer:state', { running: true });
@@ -2543,7 +2545,7 @@ async function applyAppUninstall({ reviewId, confirmation } = {}) {
   if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) {
     return { ok: false, error: 'This uninstall plan has expired. Please review and start the uninstallation again.' };
   }
-  if (activeInstall || activeComponentInstall) {
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) {
     return { ok: false, error: 'Another setup or installation task is currently running. Please wait for it to complete.' };
   }
   reviewedAppUninstallPlans.delete(reviewId);
@@ -2614,50 +2616,21 @@ function spawnInstaller(mode, selectedIds = [], dryRun = false, { skillScope = '
     args.push(option('-DryRun', '--dry-run'));
   }
 
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let timeout = null;
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      resolve(result);
-    };
-    const env = claudeProcessEnv();
-    let executable;
-    try {
-      // On Windows the installer may run with an untrusted project as its working folder, so
-      // pwsh.exe is resolved to an absolute path and never picked from that folder.
-      executable = trustedExecutable(definition.command, env);
-    } catch (error) {
-      settled = true;
-      reject(new Error(`Could not start ${definition.command}: ${error.message}`));
-      return;
-    }
-    const child = spawn(executable, args, {
-      cwd: skillScope === 'project' && projectPath ? projectPath : app.getPath('home'),
-      windowsHide: true,
-      env,
-    });
-
-    child.stdout.on('data', (chunk) => emit('installer:output', { stream: 'stdout', text: chunk.toString() }));
-    child.stderr.on('data', (chunk) => emit('installer:output', { stream: 'stderr', text: chunk.toString() }));
-    child.on('error', (error) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      reject(new Error(`Could not start ${definition.command}: ${error.message}`));
-    });
-    child.on('close', (code) => finish({ code, args }));
-    if (timeoutMs > 0) {
-      timeout = setTimeout(() => {
-        const error = `Complete setup timed out after ${Math.round(timeoutMs / 60000)} minutes. CCTI stopped waiting and did not remove any existing Claude Code configuration.`;
-        emit('installer:output', { stream: 'stderr', text: `[CCTI] ${error}\n` });
-        try { child.kill('SIGTERM'); } catch {}
-        finish({ code: -1, args, timedOut: true, error });
-      }, timeoutMs);
-    }
+  const env = claudeProcessEnv();
+  const executable = trustedExecutable(definition.command, env);
+  const child = spawn(executable, args, {
+    cwd: skillScope === 'project' && projectPath ? projectPath : app.getPath('home'),
+    windowsHide: true,
+    detached: isCompleteSetup && process.platform !== 'win32',
+    env,
   });
+  child.stdout.on('data', (chunk) => emit('installer:output', { stream: 'stdout', text: chunk.toString() }));
+  child.stderr.on('data', (chunk) => emit('installer:output', { stream: 'stderr', text: chunk.toString() }));
+  return superviseInstaller(child, {
+    timeoutMs,
+    fresh: mode === 'fresh-complete',
+    onTimeout: (error) => emit('installer:output', { stream: 'stderr', text: `[CCTI] ${error}\n` }),
+  }).then((result) => ({ ...result, args }));
 }
 
 async function validateSetupProjectFolder(projectPath) {
@@ -2680,7 +2653,7 @@ const FRESH_SETUP_REVIEW_LIFETIME_MS = 10 * 60 * 1000;
 const FRESH_SETUP_MAX_REVIEWS = 20;
 
 async function reviewFreshSetup(payload = {}) {
-  if (activeInstall) return { ok: false, error: 'An installation is already running.' };
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'An installation is already running.' };
   let setupScope;
   try {
     setupScope = await resolveCompleteSetupScope(payload);
@@ -4242,6 +4215,7 @@ function storeCustomAddOnReview(review, sourceManifest = null) {
     source: review.source,
     scope: review.scope,
     destination: review.destination || '',
+    destinationAnchor: review.destinationAnchor || '',
     sourceManifest,
     createdAt: Date.now(),
   };
@@ -4315,7 +4289,7 @@ async function reviewCustomAddOn({ source, scope, projectPath }) {
             : `CCTI did not add ${path.basename(sourcePath)} because this skill name is already available in Claude Code.`,
         };
       }
-      return storeCustomAddOnReview({ ok: true, kind: 'skill-copy', source: sourcePath, scope: cleanScope, destination, description: 'Copies this local skill folder into the selected Claude Code scope. The original folder stays where it is.' }, sourceManifest);
+      return storeCustomAddOnReview({ ok: true, kind: 'skill-copy', source: sourcePath, scope: cleanScope, destination, destinationAnchor: root, description: 'Copies this local skill folder into the selected Claude Code scope. The original folder stays where it is.' }, sourceManifest);
     } catch {
       try {
         await fs.access(path.join(sourcePath, '.claude-plugin', 'marketplace.json'));
@@ -4334,46 +4308,32 @@ async function applyCustomAddOn({ reviewId }) {
   if (!plan || Date.now() - plan.createdAt > 10 * 60 * 1000) {
     return { ok: false, error: 'This add-on review has expired. Review the source again before adding it.' };
   }
+  if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: ACTION_LOCKED };
   reviewedCustomAddOnPlans.delete(reviewId);
-  if (plan.kind === 'skill-copy') {
-    try {
-      const sourceInfo = await fs.lstat(plan.source);
-      if (sourceInfo.isSymbolicLink() || !sourceInfo.isDirectory()) throw new Error('The reviewed skill folder is no longer a direct readable folder.');
-      await fs.access(path.join(plan.source, 'SKILL.md'));
-      const currentManifest = await skillContentManifest(plan.source);
-      if (!plan.sourceManifest || currentManifest.identity !== plan.sourceManifest.identity || JSON.stringify(currentManifest.files) !== JSON.stringify(plan.sourceManifest.files)) {
-        return { ok: false, error: 'The reviewed skill changed after review. Review it again before adding it.' };
-      }
-      await fs.access(plan.destination);
-      return { ok: false, code: 'already-available', error: `CCTI did not add ${path.basename(plan.destination)} because this skill is already available in Claude Code.` };
-    } catch {
+  activeSkillCleanup = true;
+  try {
+    if (plan.kind === 'skill-copy') {
       try {
-        const sourceInfo = await fs.lstat(plan.source);
-        if (sourceInfo.isSymbolicLink() || !sourceInfo.isDirectory()) return { ok: false, error: 'The reviewed skill folder is no longer a direct readable folder. Review it again before adding it.' };
-        await fs.access(path.join(plan.source, 'SKILL.md'));
-        const currentManifest = await skillContentManifest(plan.source);
-        if (!plan.sourceManifest || currentManifest.identity !== plan.sourceManifest.identity || JSON.stringify(currentManifest.files) !== JSON.stringify(plan.sourceManifest.files)) {
-          return { ok: false, error: 'The reviewed skill changed after review. Review it again before adding it.' };
-        }
-        await fs.mkdir(path.dirname(plan.destination), { recursive: true });
-        await fs.cp(plan.source, plan.destination, { recursive: true, errorOnExist: true });
+        await installReviewedSkill({ source: plan.source, destination: plan.destination,
+          anchor: plan.destinationAnchor, manifest: plan.sourceManifest, readManifest: skillContentManifest });
         return { ok: true, message: `Added your skill to ${plan.scope === 'user' ? 'your Claude Code setup' : 'the selected project'}.` };
       } catch (error) {
+        if (error.code === 'EEXIST') return { ok: false, code: 'already-available', error: 'This skill is already available. CCTI did not overwrite it.' };
         return { ok: false, error: `CCTI could not add the reviewed skill: ${error.message}` };
       }
     }
-  }
-  if (UNSAFE_ADD_ON_SOURCE.test(String(plan.source ?? ''))) return unsafeAddOnSourceResult(plan.source);
-  if (String(plan.source ?? '').startsWith('-')) return { ok: false, error: 'This marketplace source looks like a command option. Review a trusted source again.' };
-  try {
-    const claude = await claudeStatus();
-    if (!claude.installed) return { ok: false, error: 'Claude Code is not ready. Check this computer again after Claude Code is available.' };
-    const result = await runProcess(claude.path || 'claude', ['plugin', 'marketplace', 'add', plan.source], { cwd: app.getPath('home'), env: claudeProcessEnv() });
-    if (result.code !== 0) return { ok: false, error: result.stderr.trim() || 'CCTI could not add this marketplace.' };
-    return { ok: true, message: 'CCTI added the reviewed marketplace to your Claude Code setup. No plugin from it was installed yet.' };
-  } catch (error) {
-    return { ok: false, error: `CCTI could not add this marketplace: ${error.message}` };
-  }
+    if (UNSAFE_ADD_ON_SOURCE.test(String(plan.source ?? ''))) return unsafeAddOnSourceResult(plan.source);
+    if (String(plan.source ?? '').startsWith('-')) return { ok: false, error: 'This marketplace source looks like a command option. Review a trusted source again.' };
+    try {
+      const claude = await claudeStatus();
+      if (!claude.installed) return { ok: false, error: 'Claude Code is not ready. Check this computer again after Claude Code is available.' };
+      const result = await runProcess(claude.path || 'claude', ['plugin', 'marketplace', 'add', plan.source], { cwd: app.getPath('home'), env: claudeProcessEnv() });
+      if (result.code !== 0) return { ok: false, error: result.stderr.trim() || 'CCTI could not add this marketplace.' };
+      return { ok: true, message: 'CCTI added the reviewed marketplace to your Claude Code setup. No plugin from it was installed yet.' };
+    } catch (error) {
+      return { ok: false, error: `CCTI could not add this marketplace: ${error.message}` };
+    }
+  } finally { activeSkillCleanup = false; }
 }
 
 async function reviewCleanup({ discoveryId, findingId }) {
@@ -5119,12 +5079,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup-manager:apply-permanent-delete', async (_event, payload) => applyPermanentDelete(payload || {}));
 
   ipcMain.handle('claude:install-only', async () => {
-    if (activeInstall) return { ok: false, error: 'An installation is already running.', installed: false, version: '' };
+    if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'An installation is already running.', installed: false, version: '' };
+    activeInstall = true;
+    emit('installer:state', { running: true });
     try {
       const before = await claudeStatus();
       if (before.installed) return { ok: true, installed: true, version: before.version, alreadyInstalled: true };
-      activeInstall = true;
-      emit('installer:state', { running: true });
       const result = await spawnInstaller('claude-only');
       const after = await claudeStatus();
       return {
@@ -5185,7 +5145,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('setup:complete', async (_event, payload = {}) => {
     const fresh = payload.fresh === true;
-    if (activeInstall) return { ok: false, error: 'An installation is already running.' };
+    if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'An installation is already running.' };
     let setupScope;
     if (fresh) {
       // Start fresh runs only the scope main reviewed, after the exact typed phrase.
@@ -5199,6 +5159,8 @@ app.whenReady().then(async () => {
         return { ok: false, error: `Choose a valid project folder before installing project skills: ${error.message}` };
       }
     }
+    if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'An installation is already running.' };
+    let releaseInstallLock = true;
     activeInstall = true;
     emit('installer:state', { running: true });
     const trackedIds = Object.keys(TRACKED_ITEMS);
@@ -5209,6 +5171,16 @@ app.whenReady().then(async () => {
     let claudeAfterInstall = null;
     try {
       const result = await spawnInstaller(fresh ? 'fresh-complete' : 'complete', [], false, setupScope);
+      if (result.timedOut) {
+        if (result.stillRunning) {
+          releaseInstallLock = false;
+          result.whenStopped.then(() => {
+            activeInstall = false;
+            emit('installer:state', { running: false });
+          });
+        }
+        return { ok: false, code: -1, installed: false, version: '', error: result.error };
+      }
       const after = await claudeStatus();
       claudeAfterInstall = after;
       if (result.code === 0 && after.installed) {
@@ -5237,14 +5209,16 @@ app.whenReady().then(async () => {
     } catch (error) {
       return { ok: false, error: error.message, installed: false, version: '' };
     } finally {
-      if (trackedBefore) await recordCctiInstalls(trackedIds, trackedBefore, setupScope, claudeAfterInstall);
-      activeInstall = false;
-      emit('installer:state', { running: false });
+      if (releaseInstallLock) {
+        if (trackedBefore) await recordCctiInstalls(trackedIds, trackedBefore, setupScope, claudeAfterInstall);
+        activeInstall = false;
+        emit('installer:state', { running: false });
+      }
     }
   });
 
   ipcMain.handle('install:run', async (_event, { selectedIds, dryRun }) => {
-    if (activeInstall) return { ok: false, error: 'An installation is already running.' };
+    if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'An installation is already running.' };
     if (!Array.isArray(selectedIds) || selectedIds.length === 0) {
       return { ok: false, error: 'Choose at least one tool before continuing.' };
     }
@@ -5317,7 +5291,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('components:install', async (_event, { projectPath, componentIds, dryRun }) => {
-    if (activeComponentInstall) return { ok: false, error: 'A project component installation is already running.' };
+    if (activeInstall || activeComponentInstall || activeSkillCleanup) return { ok: false, error: 'A project component installation or another CCTI action is already running.' };
     const holdsInstallLock = !dryRun;
     let releaseInstallLock = holdsInstallLock;
     if (holdsInstallLock) {
