@@ -66,7 +66,11 @@ for (const workflowPath of workflows) {
   const filename = path.basename(workflowPath);
   const actionReferences = contents.match(/^\s*uses:\s+[^\s]+/gm) || [];
   for (const reference of actionReferences) {
-    assert.match(reference, /@[0-9a-f]{40}\b/, `${filename} must pin every GitHub Action to a full commit SHA.`);
+    if (reference.trim() === 'uses: ./.github/workflows/macos-isolated-sign.yml') {
+      assert.ok(fs.existsSync(path.join(root, '.github/workflows/macos-isolated-sign.yml')), 'Local reusable workflow is resolved from this exact controller commit.');
+    } else {
+      assert.match(reference, /@[0-9a-f]{40}\b/, `${filename} must pin every external GitHub Action to a full commit SHA.`);
+    }
   }
   const checkoutReferences = contents.match(/actions\/checkout@[0-9a-f]{40}\b/g) || [];
   const disabledCredentialPersistence = contents.match(/persist-credentials:\s*false/g) || [];
@@ -109,30 +113,12 @@ assert.match(pagesWorkflow, /deploy:[\s\S]*?permissions:\n\s+pages: write\n\s+id
 assert.doesNotMatch(macReleaseWorkflow, /\n  push:\n[\s\S]*?tags:/, 'The privileged macOS release workflow must not run automatically on tag pushes.');
 assert.match(macReleaseWorkflow, /workflow_dispatch:/, 'The privileged macOS release workflow must require manual dispatch.');
 assert.doesNotMatch(macReleaseWorkflow, /\n    env:\n(?:      [^\n]*\n)*      [^:\n]+:\s*\$\{\{ secrets\./, 'macOS release secrets must be scoped to consuming steps instead of the job.');
-assert.match(macReleaseWorkflow, /notary_auth=api_key/, 'macOS release workflow must support a complete App Store Connect API-key notarization set.');
-assert.match(macReleaseWorkflow, /notary_auth=apple_id/, 'macOS release workflow must support the managed Apple ID notarization secret set.');
-assert.match(macReleaseWorkflow, /APPLE_NOTARY_APP_PASSWORD/, 'macOS release workflow must scope the Apple ID notarization password to consuming steps.');
-assert.match(macReleaseWorkflow, /steps\.checksums\.outputs\.dmg_checksum/, 'macOS release workflow must publish a detached DMG SHA-256 checksum.');
-assert.match(macReleaseWorkflow, /printf '%s  %s\\n' "\$dmg_digest" "\$\(basename "\$DMG"\)"/, 'macOS release workflow must write portable SHA-256 checksum filenames.');
-assert.match(macReleaseWorkflow, /notarytool submit \"\$ZIP\"/, 'macOS native update ZIP must be notarized before release upload.');
-assert.match(macReleaseWorkflow, /refresh-macos-update-metadata\.js \"\$METADATA\" \"\$DMG\"/, 'macOS release workflow must refresh latest-mac.yml after stapling changes final DMG bytes.');
-assert.match(macReleaseWorkflow, /verify-macos-update-metadata\.js \"\$METADATA\" \"\$DMG\" \"\$ZIP\"/, 'macOS release workflow must verify every final latest-mac.yml descriptor before release upload.');
-const refreshMetadataIndex = macReleaseWorkflow.indexOf('refresh-macos-update-metadata.js "$METADATA" "$DMG"');
-const verifyMetadataIndex = macReleaseWorkflow.indexOf('verify-macos-update-metadata.js "$METADATA" "$DMG" "$ZIP"');
-const checksumCreationIndex = macReleaseWorkflow.indexOf('name: Create SHA-256 checksums');
-assert.ok(refreshMetadataIndex >= 0 && verifyMetadataIndex > refreshMetadataIndex && checksumCreationIndex > verifyMetadataIndex, 'Final latest-mac.yml verification must run after metadata refresh and before checksums or release upload.');
-assert.match(macReleaseWorkflow, /for artifact in "\$DMG" "\$ZIP" "\$METADATA" "\$DMG_CHECKSUM" "\$ZIP_CHECKSUM"; do/, 'macOS release workflow must upload each notarized release asset in a deterministic order.');
-assert.match(macReleaseWorkflow, /upload_release_asset "\$artifact"/, 'macOS release upload retries must use its per-asset retry helper without concurrent upload races.');
-assert.match(macReleaseWorkflow, /gh api -X DELETE "repos\/\$GITHUB_REPOSITORY\/releases\/assets\/\$release_asset_database_id"/, 'macOS release upload retries must remove only the matching conflicting asset by numeric REST database ID before retrying.');
-assert.match(macReleaseWorkflow, /if gh release upload "\$TAG" "\$artifact"; then/, 'macOS release upload retries must upload each asset individually.');
-assert.match(macReleaseWorkflow, /gh release create "\$TAG" --target "\$SOURCE_COMMIT" --title "\$TAG" --generate-notes --draft/, 'macOS release publication must start from a private draft.');
-assert.match(macReleaseWorkflow, /Verify draft macOS asset inventory before cross-platform handoff/, 'macOS releases must verify the complete draft asset inventory before cross-platform handoff.');
-assert.match(macReleaseWorkflow, /gh release view "\$TAG" --json databaseId --jq '\.databaseId'/, 'macOS release publication must resolve the numeric GitHub release databaseId.');
-assert.match(macReleaseWorkflow, /release_database_id.*=~ \^\[0-9\]\+\$/, 'macOS release publication must reject a missing or non-numeric release databaseId.');
-assert.match(macReleaseWorkflow, /releases\/\$release_database_id\/assets/, 'macOS staging must use the numeric release databaseId for draft asset inventory.');
-assert.match(macReleaseWorkflow, /releases\/\$release_database_id\/assets\?per_page=100/, 'macOS draft retries must list release assets through the numeric release REST endpoint.');
-assert.match(macReleaseWorkflow, /release_asset_database_id.*=~ \^\[0-9\]\+\$/, 'macOS draft retries must reject a missing or non-numeric release asset database ID.');
-assert.match(macReleaseWorkflow, /releases\/assets\/\$release_asset_database_id/, 'macOS draft retries must delete assets by numeric REST database ID.');
+// Native signing, notarization, final metadata and source evidence now live in a
+// separate fixed controller. The mandatory behavioral suite covers both auth modes,
+// final-byte metadata, rejection paths, and credential cleanup without real secrets.
+assert.match(macReleaseWorkflow, /uses: \.\/\.github\/workflows\/macos-isolated-sign\.yml/, 'macOS release must use the isolated signing workflow.');
+const guardianRelease = require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, 'test-guardian-release-boundaries.js')], { stdio: 'inherit' });
+assert.equal(guardianRelease.status, 0, 'Credential isolation, source binding and shared release lock contracts must pass.');
 assert.match(macCandidateWorkflow, /source_ref:/, 'macOS candidate workflow must support an optional trusted full commit SHA.');
 assert.match(macCandidateWorkflow, /rev-parse --verify --quiet --end-of-options "\$\{SOURCE_REF\}\^\{commit\}"/, 'macOS candidate workflow must resolve the requested SHA without option injection.');
 assert.match(macCandidateWorkflow, /test "\$GITHUB_REF" = refs\/heads\/main/, 'macOS signing controller must run from protected main.');
