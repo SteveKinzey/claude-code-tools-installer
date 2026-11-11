@@ -34,7 +34,7 @@ function isAtLeast(version, required) {
 }
 
 assert.equal(packageJson.engines?.node, `>=${minimumNode}`, `Desktop package engine must require Node ${minimumNode} or later.`);
-assert.match(packageJson.devDependencies?.electron || '', /^44\.\d+\.\d+$/, 'Desktop dependency must be exactly pinned on the supported Electron 44 release line.');
+assert.match(packageJson.devDependencies?.electron || '', /^45\.\d+\.\d+$/, 'Desktop dependency must be exactly pinned on the supported Electron 45 release line.');
 for (const section of ['dependencies', 'devDependencies']) {
   for (const [name, version] of Object.entries(packageJson[section] || {})) {
     assert.match(version, /^\d+\.\d+\.\d+$/, `${name} must use an exact reviewed version, not a floating range.`);
