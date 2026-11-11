@@ -45,6 +45,7 @@ if [[ "$1" == 'api' && "$*" == *'--method PATCH'* ]]; then
   [[ "$*" == *'X-GitHub-Api-Version: 2026-03-10'* ]] || { echo 'PATCH omitted the required GitHub API version header' >&2; exit 43; }
   if [[ "$*" == *'draft=false'* ]]; then
     [[ "$*" == *'make_latest=false'* ]] || { echo 'publication PATCH must not combine draft=false with make_latest=true' >&2; exit 41; }
+    printf 'true' > "$MOCK_PUBLISHED_FILE"
     printf '{"ok":true}\n'
     exit 0
   fi
@@ -64,6 +65,15 @@ if [[ "$1" == 'api' && "$*" == *'releases/latest'* ]]; then
   exit 0
 fi
 
+if [[ "$1" == 'release' && "$2" == 'view' && "$*" == *'databaseId,isDraft,isPrerelease,assets'* ]]; then
+  draft=true
+  [[ -f "$MOCK_PUBLISHED_FILE" ]] && draft=false
+  asset_id=asset-1
+  [[ "${MOCK_CHANGE_INVENTORY:-0}" == 1 ]] && asset_id=replaced-asset
+  printf '{"databaseId":393445255,"isDraft":%s,"isPrerelease":false,"assets":[{"id":"%s","name":"fixture.dmg","size":1,"state":"uploaded","digest":"sha256:%064d"}]}\n' "$draft" "$asset_id" 1
+  exit 0
+fi
+
 if [[ "$1" == 'release' && "$2" == 'view' ]]; then
   printf 'https://github.com/SteveKinzey/claude-code-tools-installer/releases/tag/%s\n' "$TAG"
   exit 0
@@ -80,6 +90,14 @@ exit 0
 MOCK_SLEEP
 chmod +x "$mock_bin/sleep"
 
+cat > "$mock_bin/git" <<'MOCK_GIT'
+#!/usr/bin/env bash
+[[ "$1" == rev-parse ]] || exit 2
+printf '%s\n' "$GITHUB_SHA"
+MOCK_GIT
+chmod +x "$mock_bin/git"
+
+
 run_case() {
   local label="$1"
   local sequence="$2"
@@ -90,16 +108,24 @@ run_case() {
   local stderr_file="$temp_root/$label.stderr"
   printf '0' > "$state_file"
   : > "$log_file"
+  local case_dir="$temp_root/$label"
+  mkdir -p "$case_dir"
+  local initial='{"databaseId":393445255,"isDraft":true,"isPrerelease":false,"assets":[{"id":"asset-1","name":"fixture.dmg","size":1,"state":"uploaded","digest":"sha256:0000000000000000000000000000000000000000000000000000000000000001"}]}'
+  node "$repo_root/scripts/release-inventory.cjs" save "$case_dir/ccti-verified-inventory.json" "$initial"
 
   set +e
-  PATH="$mock_bin:$PATH" \
+  (cd "$repo_root" && PATH="$mock_bin:$PATH" \
     GITHUB_REPOSITORY='SteveKinzey/claude-code-tools-installer' \
     release_database_id='393445255' \
     MOCK_STATE_FILE="$state_file" \
     MOCK_LOG_FILE="$log_file" \
     MOCK_LATEST_SEQUENCE="$sequence" \
+    RUNNER_TEMP="$case_dir" \
+    MOCK_PUBLISHED_FILE="$case_dir/published" \
+    MOCK_CHANGE_INVENTORY="${MOCK_CHANGE_INVENTORY:-0}" \
+    GITHUB_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
     TAG='v2099.01.02' \
-    bash -euo pipefail "$temp_root/publish-block.sh" >"$stdout_file" 2>"$stderr_file"
+    bash -euo pipefail "$temp_root/publish-block.sh" >"$stdout_file" 2>"$stderr_file")
   local exit_code=$?
   set -e
 
@@ -108,6 +134,11 @@ run_case() {
     cat "$stderr_file" >&2
     exit 1
   }
+  if [[ "${MOCK_CHANGE_INVENTORY:-0}" == 1 ]]; then
+    ! grep -q 'PATCH' "$log_file" || { echo 'Changed inventory reached a release mutation.' >&2; exit 1; }
+    printf '%s' "$exit_code"
+    return
+  fi
   grep -Fq 'draft=false -f make_latest=false' "$log_file" || {
     echo "$label simulation did not publish the draft before latest-pointer promotion." >&2
     exit 1
@@ -139,3 +170,6 @@ stale_calls="$(cat "$temp_root/stale.state")"
 [[ "$stale_calls" == '6' ]] || { echo "Stale simulation should exhaust six polls; got $stale_calls." >&2; exit 1; }
 
 echo "Latest-pointer simulation passed: success advanced after ${success_calls} poll(s); a stale pointer failed after ${stale_calls} bounded poll(s)."
+
+changed_exit="$(MOCK_CHANGE_INVENTORY=1 run_case changed 'v2099.01.02' 1)"
+echo "Changed-inventory simulation passed: stopped before publication (exit $changed_exit)."

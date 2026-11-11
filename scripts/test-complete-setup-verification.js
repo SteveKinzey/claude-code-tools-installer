@@ -53,7 +53,7 @@ function finish(child, { code = 0, stdout = '', stderr = '' } = {}) {
 
 function spawnStub(command, args = [], options = {}) {
   const child = childProcess();
-  spawns.push({ command, args: [...args], options: { ...options } });
+  spawns.push({ command, args: [...args], options: { ...options }, child });
   const requested = args[0] || '';
   if (commandName(command) === commandLocator) {
     const locations = {
@@ -307,8 +307,13 @@ async function run() {
       assert.equal(timeoutResult.timedOut, undefined, 'The IPC response should preserve the documented setup response surface.');
       assert.equal(timeoutResult.code, -1, 'A hung Complete setup child must return a deterministic timeout code.');
       assert.match(timeoutResult.error, /timed out after 10 minutes/i, 'CCTI must explain that it stopped waiting without removing existing configuration.');
+      const timedOutChild = spawns.filter((entry) => entry.args.includes(completeFlag)).at(-1).child;
+      const blockedRetry = await completeSetup(null, { fresh: false, skillScope: 'global' });
+      assert.equal(blockedRetry.error, 'An installation is already running.', 'Timeout cannot release mutation authority before exit.');
+      timedOutChild.emit('close', -1);
+      await new Promise((done) => setImmediate(done));
       const retryAfterTimeout = await completeSetup(null, { fresh: false, skillScope: 'global' });
-      assert.notEqual(retryAfterTimeout.error, 'An installation is already running.', 'A timed-out Complete setup must clear its lock and permit a retry.');
+      assert.notEqual(retryAfterTimeout.error, 'An installation is already running.', 'Verified process exit permits a retry.');
     } finally {
       global.setTimeout = originalSetTimeout;
     }
