@@ -17,7 +17,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-release-${{ inputs.tag }}
+  group: ccti-release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -70,7 +70,7 @@ jobs:
           TAG: ${{ steps.release.outputs.tag }}
           REQUIRE_WINDOWS: ${{ inputs.require_windows }}
         run: |
-          release_json="$(gh release view "$TAG" --json databaseId,isDraft,assets)"
+          release_json="$(gh release view "$TAG" --json databaseId,isDraft,isPrerelease,assets)"
           release_database_id="$(node -e 'const release = JSON.parse(process.argv[1]); if (!release.isDraft) throw new Error("Release is already public; refusing to modify it."); if (!/^\d+$/.test(String(release.databaseId))) throw new Error("Draft release is missing a numeric databaseId."); process.stdout.write(String(release.databaseId));' "$release_json")"
           [[ "$release_database_id" =~ ^[0-9]+$ ]] || exit 2
           download_dir="$RUNNER_TEMP/ccti-release-$TAG"
@@ -79,7 +79,11 @@ jobs:
             --pattern '*linux-x64.tar.gz' \
             --pattern '*linux-x64.tar.gz.sha256' \
             --pattern '*linux-x64.tar.gz.sigstore.json' \
-            --pattern 'claude-code-tools-installer-macos-*.sha256' \
+            --pattern '*mac*.sha256' \
+            --pattern '*-mac-arm64.dmg' \
+            --pattern '*-mac-arm64.zip' \
+            --pattern 'latest-mac.yml' \
+            --pattern 'macos-*.json' \
             --pattern '*-win-x64.exe' \
             --pattern '*-win-x64.exe.sha256' \
             --pattern 'latest.yml' \
@@ -162,16 +166,34 @@ jobs:
               --format json > "$RUNNER_TEMP/windows-source-verified.json"
             node scripts/verify-windows-staged-artifact.cjs "$download_dir" "$TAG" "$source_commit" "$RUNNER_TEMP/windows-source-verified.json"
           fi
+          source_commit="$(git rev-parse "${TAG}^{commit}")"
+          version="$(node -p 'require("./desktop/package.json").version')"
+          dmg="$download_dir/Claude-Code-Tools-Installer-${version}-mac-arm64.dmg"
+          gh attestation verify "$dmg" --repo "$GITHUB_REPOSITORY" \
+            --bundle "$download_dir/macos-source-binding.sigstore.json" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/macos-isolated-sign.yml" \
+            --signer-digest "$source_commit" --source-digest "$source_commit" --deny-self-hosted-runners \
+            --predicate-type https://claudetool.app/attestations/macos-source/v1 \
+            --format json > "$RUNNER_TEMP/macos-source-verified.json"
+          python3 scripts/macos-release-controller.py verify --directory "$download_dir" --source "$source_commit" --controller "$source_commit" --version "$version" --verified "$RUNNER_TEMP/macos-source-verified.json"
+          # Save the exact originally verified inventory, including immutable asset IDs.
+          node scripts/release-inventory.cjs save "$RUNNER_TEMP/ccti-verified-inventory.json" "$release_json"
           echo "release_database_id=$release_database_id" >> "$GITHUB_ENV"
 
       - name: Publish verified draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           # GitHub may ignore make_latest when a draft is published in the same PATCH.
           # Publish first, prove the release is public, then advance the latest pointer separately.
+          current="$(gh release view "$TAG" --json databaseId,isDraft,isPrerelease,assets)"
+          node scripts/release-inventory.cjs draft "$RUNNER_TEMP/ccti-verified-inventory.json" "$current"
+          test "$(git rev-parse "${TAG}^{commit}")" = "$GITHUB_SHA"
           gh api -H 'X-GitHub-Api-Version: 2026-03-10' --method PATCH "repos/${GITHUB_REPOSITORY}/releases/$release_database_id" -f draft=false -f make_latest=false >/dev/null
           gh release view "${{ steps.release.outputs.tag }}" --json isDraft,isPrerelease,url --jq 'select(.isDraft == false and .isPrerelease == false) | .url'
+          current="$(gh release view "$TAG" --json databaseId,isDraft,isPrerelease,assets)"
+          node scripts/release-inventory.cjs public "$RUNNER_TEMP/ccti-verified-inventory.json" "$current"
           gh api -H 'X-GitHub-Api-Version: 2026-03-10' --method PATCH "repos/${GITHUB_REPOSITORY}/releases/$release_database_id" -f make_latest=true >/dev/null
           for attempt in 1 2 3 4 5 6; do
             latest_tag="$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name')"

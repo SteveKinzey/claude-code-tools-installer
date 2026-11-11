@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-unsigned-release-${{ inputs.tag }}
+  group: ccti-release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:

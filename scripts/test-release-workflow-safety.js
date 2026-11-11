@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const macWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-macos-signed-notarized.yml'), 'utf8');
+const isolatedMacWorkflow = fs.readFileSync(path.join(root, '.github/workflows/macos-isolated-sign.yml'), 'utf8');
 const windowsWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-windows-portable-zip.yml'), 'utf8');
 const signedWindowsWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-windows-signed.yml'), 'utf8');
 const publisherWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'publish-verified-release.yml'), 'utf8');
@@ -21,9 +22,9 @@ assert.match(macWorkflow, /Leave verified macOS assets on the draft release/, 'm
 assert.match(macWorkflow, /Release must remain a draft until Linux assets and cross-platform verification succeed/, 'macOS automation must fail closed until the shared publisher verifies Linux assets');
 assert.doesNotMatch(macWorkflow, /-f draft=false/, 'macOS asset staging must not publish the shared release');
 assert.match(macWorkflow, /Refusing to modify an already-public release/, 'macOS automation must not replace assets on an existing public release');
-assert.match(macWorkflow, /checkout "\$TAG" -- desktop setup-my-claude\.sh setup-my-claude-linux\.sh setup-my-claude\.ps1/, 'macOS releases must package the desktop runtime from the immutable tag.');
+assert.match(isolatedMacWorkflow, /git archive \"\$SOURCE_COMMIT\"/, 'macOS builds must export the immutable reviewed source.');
 assert.doesNotMatch(macWorkflow, /checkout "\$TAG" -- desktop scripts/, 'macOS releases must retain current release-policy validators rather than restoring stale tag scripts.');
-assert.match(macWorkflow, /bash \.\.\/scripts\/run-release-desktop-check\.sh/, 'macOS releases must use the resilient release-specific audit gate.');
+assert.match(isolatedMacWorkflow, /bash \.\.\/scripts\/run-release-desktop-check\.sh/, 'macOS releases must use the resilient release-specific audit gate.');
 for (const [name, workflow] of [['macOS', macWorkflow], ['Linux', linuxWorkflow], ['Windows', signedWindowsWorkflow], ['publisher', publisherWorkflow]]) {
   assert.match(workflow, /release-identity\.js/, `${name} releases must centralize public tag to package version validation.`);
   assert.match(workflow, /--require-daily-revision/, `${name} releases must require a daily revision identity.`);

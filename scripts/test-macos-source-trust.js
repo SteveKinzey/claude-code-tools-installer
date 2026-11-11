@@ -15,7 +15,7 @@ function git(cwd, ...args) {
 }
 try {
   const source = path.join(root, 'source'); fs.mkdirSync(source); git(source,'init','-b','main');
-  fs.writeFileSync(path.join(source,'fixture.txt'),'trusted\n'); git(source,'add','.'); git(source,'commit','-m','trusted'); const trusted=git(source,'rev-parse','HEAD');
+  fs.writeFileSync(path.join(source,'fixture.txt'),'trusted\n'); fs.mkdirSync(path.join(source,'desktop')); fs.writeFileSync(path.join(source,'desktop/package.json'), JSON.stringify({version:'2026.10.1401'})); git(source,'add','.'); git(source,'commit','-m','trusted'); const trusted=git(source,'rev-parse','HEAD');
   git(source,'switch','-c','unreviewed'); fs.writeFileSync(path.join(source,'fixture.txt'),'unreviewed\n'); git(source,'commit','-am','unreviewed'); const untrusted=git(source,'rev-parse','HEAD'); git(source,'switch','main');
   const cases=[
     ['default trusted main','',trusted,'refs/heads/main',true],

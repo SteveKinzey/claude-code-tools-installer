@@ -35,9 +35,9 @@ if (fs.existsSync(releaseWorkflowPath)) {
   const releaseWorkflow = fs.readFileSync(releaseWorkflowPath, 'utf8');
   expect(releaseWorkflow.includes('scripts/release-identity.js'), 'Release tag validation must use the centralized release identity validator.');
   expect(releaseWorkflow.includes('--require-daily-revision'), 'New macOS releases must require a canonical daily revision tag.');
-  expect(releaseWorkflow.includes('checkout "$TAG" -- desktop setup-my-claude.sh'), 'Release workflow must restore the tagged desktop runtime before validation.');
+  expect(releaseWorkflow.includes('uses: ./.github/workflows/macos-isolated-sign.yml'), 'Release workflow must use isolated unsigned-build and native-signing jobs.');
   expect(!releaseWorkflow.includes('checkout "$TAG" -- desktop scripts'), 'Release workflow must retain current release-policy validators instead of restoring stale tag scripts.');
-  expect(releaseWorkflow.includes('for artifact in "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"; do'), 'Release workflow must upload macOS assets sequentially to avoid GitHub asset-name races.');
+  expect(releaseWorkflow.includes('for artifact in "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM" staged/macos-source-predicate.json staged/macos-source-binding.sigstore.json; do'), 'Release workflow must upload macOS assets sequentially to avoid GitHub asset-name races.');
   expect(releaseWorkflow.includes('upload_release_asset() {'), 'Release workflow must use a dedicated GitHub Release asset uploader.');
   expect(releaseWorkflow.includes('for attempt in 1 2 3; do'), 'Release workflow must retry macOS release asset uploads before failing.');
   expect(releaseWorkflow.includes('gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$release_asset_database_id"'), 'Release workflow must remove any pre-existing asset by numeric REST database ID before uploading a replacement.');
