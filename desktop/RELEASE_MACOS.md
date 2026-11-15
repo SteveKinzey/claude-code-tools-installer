@@ -4,6 +4,33 @@ Use this runbook to turn the Electron desktop installer into a signed, notarized
 
 > Do not place certificates, private keys, app-specific passwords, API-key `.p8` files, or environment-variable values in this repository, shell history, screenshots, or release notes.
 
+## Managed release boundary
+
+The managed release and signed-test workflows now call `macos-isolated-sign.yml`.
+They build and validate without signing credentials, transfer an exact artifact ID
+to a fresh signer, and use a fixed Python/system-tool controller to sign and
+notarize bytes without running application code or installing dependencies.
+A third runner binds the final DMG, ZIP, and update metadata to their source and
+controller commits in a signed attestation. The publisher verifies that binding
+before it can publish or promote the release.
+
+Configure the `macos-release` environment with required reviewers and appropriate
+source-ref rules before the first managed signing run. The workflow file alone
+does not configure or prove these account settings. The existing certificate
+common-name secret remains supported; the controller normalizes the
+`Developer ID Application:` prefix and verifies the resulting team and authority.
+Both a complete App Store Connect API-key set and the Apple ID secret set below
+are supported. Signing keys are scoped to the native signing step and removed
+on failure as well as success.
+
+All release staging and publication workflows share one lock per tag. Retry a
+draft staging run only; already-public assets cannot be replaced through these
+workflows. New macOS releases require their source-binding receipt and bundle;
+old public releases are not retroactively modified. See
+[`../docs/guardian-remediation-design.md`](../docs/guardian-remediation-design.md)
+for validation and rollback boundaries. The local/manual steps below are for a
+separately reviewed local signing session; they are not the managed CI pipeline.
+
 ## 1. Preconditions
 
 Install Node.js 22 or newer, then verify the build and notarization tools:

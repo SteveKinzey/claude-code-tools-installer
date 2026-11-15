@@ -1,0 +1,198 @@
+name: Isolated macOS build, native signing, and source attestation
+
+on:
+  workflow_call:
+    inputs:
+      source_commit:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+    secrets:
+      MACOS_CERTIFICATE_P12_BASE64:
+        required: true
+      MACOS_CERTIFICATE_PASSWORD:
+        required: true
+      MACOS_CODESIGN_IDENTITY:
+        required: true
+      APPLE_API_KEY_BASE64:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
+      APPLE_NOTARY_ID:
+        required: false
+      APPLE_NOTARY_APP_PASSWORD:
+        required: false
+      APPLE_NOTARY_TEAM_ID:
+        required: false
+    outputs:
+      artifact_id:
+        value: ${{ jobs.attest.outputs.artifact_id }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Validate and package without signing authority
+    runs-on: macos-14
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      input_digest: ${{ steps.archive.outputs.digest }}
+    steps:
+      - name: Check out fixed controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.12.0'
+          package-manager-cache: false
+      - name: Export reviewed product source
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ ]] || exit 2
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$SOURCE_COMMIT" refs/remotes/origin/main
+          mkdir product
+          git archive "$SOURCE_COMMIT" | tar -x -C product
+          test "$(node -p 'require("./product/desktop/package.json").version')" = "$EXPECTED_VERSION"
+      - name: Install and validate without release secrets
+        working-directory: product/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm ci
+          bash ../scripts/run-release-desktop-check.sh
+      - name: Build unsigned arm64 application
+        working-directory: product/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          NOTARIZE: '0'
+        run: npx --no-install electron-builder --mac dir --arm64 --publish never --config.forceCodeSigning=false --config.mac.identity=null
+      - id: archive
+        name: Package exact unsigned input
+        run: |
+          python3 scripts/macos-release-controller.py pack --app 'product/releases/test-builds/mac-arm64/Claude Code Tools Installer.app' --archive "$RUNNER_TEMP/unsigned-app.tar.gz"
+          echo "digest=$(shasum -a 256 "$RUNNER_TEMP/unsigned-app.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-unsigned-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/unsigned-app.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    name: Sign bytes with fixed native controller
+    needs: build
+    runs-on: macos-14
+    environment: macos-release
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Check out fixed controller only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/macos-release-controller.py
+          sparse-checkout-cone-mode: false
+      - name: Download this run's unsigned bytes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: unsigned-input
+          merge-multiple: true
+      - name: Native signing and notarization without product execution
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          CSC_NAME: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_NOTARY_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_NOTARY_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          VERSION: ${{ inputs.version }}
+          INPUT_DIGEST: ${{ needs.build.outputs.input_digest }}
+        run: python3 scripts/macos-release-controller.py sign --archive unsigned-input/unsigned-app.tar.gz --directory signed-output --source "$SOURCE_COMMIT" --controller "$GITHUB_SHA" --version "$VERSION" --input-digest "$INPUT_DIGEST"
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-signed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: signed-output/*
+          if-no-files-found: error
+          retention-days: 7
+
+  attest:
+    name: Attest signed byte and source binding on a fresh runner
+    needs: sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/macos-release-controller.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.sign.outputs.artifact_id }}
+          path: signed-output
+          merge-multiple: true
+      - name: Validate signed receipt before attestation
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          python3 - "$SOURCE_COMMIT" "$GITHUB_SHA" "$VERSION" <<'PY'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location('controller', 'scripts/macos-release-controller.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module.verify('signed-output', *sys.argv[1:])
+          PY
+      - id: source
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            signed-output/*.dmg
+            signed-output/*.zip
+            signed-output/latest-mac.yml
+          predicate-type: https://claudetool.app/attestations/macos-source/v1
+          predicate-path: signed-output/macos-source-predicate.json
+      - name: Preserve source binding bundle
+        env:
+          BUNDLE: ${{ steps.source.outputs.bundle-path }}
+        run: cp "$BUNDLE" signed-output/macos-source-binding.sigstore.json
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-attested-${{ github.run_id }}-${{ github.run_attempt }}
+          path: signed-output/*
+          if-no-files-found: error
+          retention-days: 14

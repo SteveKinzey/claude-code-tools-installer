@@ -4,240 +4,105 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag, such as v2026.09.09"
+        description: "Existing reviewed daily release tag; dispatch from that exact tag"
         required: true
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
+# Every writer and publisher of the same release holds this shared lock.
 concurrency:
-  group: macos-release-${{ inputs.tag || github.ref }}
+  group: ccti-release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build, sign, notarize, and release macOS DMG
-    runs-on: macos-14
-    timeout-minutes: 45
-    defaults:
-      run:
-        working-directory: desktop
-        shell: bash
-
+  source:
+    if: github.ref_type == 'tag' && github.ref_name == inputs.tag
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.release.outputs.commit }}
+      version: ${{ steps.release.outputs.version }}
     steps:
-      - name: Check out hardened release automation
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
-
       - id: release
-        name: Validate release tag
+        name: Validate release tag and reviewed source
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ inputs.tag }}
-          REF_NAME: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag }}
         run: |
-          tag="$REF_NAME"
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            tag="$INPUT_TAG"
-          fi
-          git -C "$GITHUB_WORKSPACE" rev-parse --verify --quiet "${tag}^{commit}" >/dev/null || {
-            echo "Release tag was not found: $tag" >&2
-            exit 2
-          }
-          package_json="$RUNNER_TEMP/ccti-release-package.json"
-          git -C "$GITHUB_WORKSPACE" show "$tag:desktop/package.json" > "$package_json"
-          node "$GITHUB_WORKSPACE/scripts/release-identity.js" --tag "$tag" --package-json "$package_json" --require-daily-revision
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "commit=$(git -C "$GITHUB_WORKSPACE" rev-parse "${tag}^{commit}")" >> "$GITHUB_OUTPUT"
+          [[ "$TAG" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}$ ]] || exit 2
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          source_commit="$(git rev-parse --verify --end-of-options "${TAG}^{commit}")"
+          test "$source_commit" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$source_commit" refs/remotes/origin/main
+          node scripts/release-identity.js --tag "$TAG" --package-json desktop/package.json --require-daily-revision
+          echo "commit=$source_commit" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p 'require("./desktop/package.json").version')" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare immutable runtime source
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          git -C "$GITHUB_WORKSPACE" checkout "$TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1
-          git -C "$GITHUB_WORKSPACE" diff --quiet "$TAG" -- desktop setup-my-claude.sh setup-my-claude-linux.sh setup-my-claude.ps1 || {
-            echo "Runtime source does not exactly match $TAG." >&2
-            exit 2
-          }
-          # Keep release-policy validators from the hardened workflow revision.
-          # The packaged application source remains the exact immutable tag.
-          printf 'Packaging runtime source: %s\n' "$(git -C "$GITHUB_WORKSPACE" rev-parse "${TAG}^{commit}")"
+  package:
+    needs: source
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/macos-isolated-sign.yml
+    with:
+      source_commit: ${{ needs.source.outputs.commit }}
+      version: ${{ needs.source.outputs.version }}
+    secrets: inherit
 
-      - name: Set up Node.js 22
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+  stage:
+    needs: [source, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: '22.12.0'
-          package-manager-cache: false
-
-      - id: notary_auth
-        name: Confirm required secrets are available
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.package.outputs.artifact_id }}
+          path: staged
+          merge-multiple: true
+      - id: files
+        name: Verify exact signed source and bytes before staging
         env:
-          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          CSC_NAME: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
-          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_ID: ${{ secrets.APPLE_NOTARY_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_NOTARY_APP_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ needs.source.outputs.commit }}
+          VERSION: ${{ needs.source.outputs.version }}
         run: |
-          for name in MACOS_CERTIFICATE_P12_BASE64 CSC_KEY_PASSWORD CSC_NAME; do
-            value="${!name:-}"
-            [[ -n "$value" ]] || { echo "Required secret is unavailable: $name" >&2; exit 2; }
-          done
-          if [[ -n "${APPLE_API_KEY_BASE64:-}" && -n "${APPLE_API_KEY_ID:-}" && -n "${APPLE_API_ISSUER:-}" ]]; then
-            echo "notary_auth=api_key" >> "$GITHUB_OUTPUT"
-          elif [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
-            echo "notary_auth=apple_id" >> "$GITHUB_OUTPUT"
-          else
-            echo "A complete App Store Connect API-key or Apple ID notarization secret set is required." >&2
-            exit 2
-          fi
-
-      - name: Prepare ephemeral signing and notarization credentials
-        if: steps.notary_auth.outputs.notary_auth == 'api_key'
-        env:
-          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-        run: |
-          certificate_path="$RUNNER_TEMP/claude-tools-developer-id.p12"
-          api_key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
-          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | { base64 --decode 2>/dev/null || base64 -D; } > "$certificate_path"
-          printf '%s' "$APPLE_API_KEY_BASE64" | { base64 --decode 2>/dev/null || base64 -D; } > "$api_key_path"
-          test -s "$certificate_path"
-          test -s "$api_key_path"
-          chmod 600 "$certificate_path" "$api_key_path"
-          echo "CSC_LINK=$certificate_path" >> "$GITHUB_ENV"
-          echo "APPLE_API_KEY=$api_key_path" >> "$GITHUB_ENV"
-
-      - name: Prepare ephemeral signing certificate
-        if: steps.notary_auth.outputs.notary_auth == 'apple_id'
-        env:
-          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-        run: |
-          certificate_path="$RUNNER_TEMP/claude-tools-developer-id.p12"
-          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | { base64 --decode 2>/dev/null || base64 -D; } > "$certificate_path"
-          test -s "$certificate_path"
-          chmod 600 "$certificate_path"
-          echo "CSC_LINK=$certificate_path" >> "$GITHUB_ENV"
-
-      - name: Install and validate desktop dependencies
-        run: |
-          npm ci
-          bash ../scripts/run-release-desktop-check.sh
-
-      - name: Build a signed macOS DMG and ZIP
-        env:
-          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          CSC_NAME: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
-        run: npm run dist:mac:signed
-
-      - id: artifact
-        name: Identify release candidate and native update metadata
-        run: |
-          dmg="$(find ../releases/test-builds -maxdepth 1 -type f -name '*.dmg' -print -quit)"
-          zip="$(find ../releases/test-builds -maxdepth 1 -type f -name '*.zip' -print -quit)"
-          metadata="$(find ../releases/test-builds -maxdepth 1 -type f -name 'latest-mac.yml' -print -quit)"
-          test -n "$dmg"
-          test -n "$zip"
-          test -n "$metadata"
-          grep -q 'sha512:' "$metadata"
-          for artifact in "$dmg" "$zip"; do
-            grep -Fq "$(basename "$artifact")" "$metadata" || {
-              echo "Native update metadata does not reference $(basename "$artifact")." >&2
-              exit 2
-            }
-          done
-          echo "dmg=$dmg" >> "$GITHUB_OUTPUT"
-          echo "zip=$zip" >> "$GITHUB_OUTPUT"
-          echo "metadata=$metadata" >> "$GITHUB_OUTPUT"
-      - name: Notarize the final DMG and native update ZIP, then staple the DMG
-        env:
-          DMG: ${{ steps.artifact.outputs.dmg }}
-          ZIP: ${{ steps.artifact.outputs.zip }}
-          NOTARY_AUTH: ${{ steps.notary_auth.outputs.notary_auth }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_ID: ${{ secrets.APPLE_NOTARY_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_NOTARY_APP_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
-        run: |
-          if [[ "$NOTARY_AUTH" == 'api_key' ]]; then
-            xcrun notarytool submit "$DMG" \
-              --key "$APPLE_API_KEY" \
-              --key-id "$APPLE_API_KEY_ID" \
-              --issuer "$APPLE_API_ISSUER" \
-              --wait
-            xcrun notarytool submit "$ZIP" \
-              --key "$APPLE_API_KEY" \
-              --key-id "$APPLE_API_KEY_ID" \
-              --issuer "$APPLE_API_ISSUER" \
-              --wait
-          else
-            xcrun notarytool submit "$DMG" \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" \
-              --wait
-            xcrun notarytool submit "$ZIP" \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" \
-              --wait
-          fi
-          xcrun stapler staple "$DMG"
-
-      - name: Refresh native update metadata after DMG stapling
-        env:
-          DMG: ${{ steps.artifact.outputs.dmg }}
-          METADATA: ${{ steps.artifact.outputs.metadata }}
-        run: node ../scripts/refresh-macos-update-metadata.js "$METADATA" "$DMG"
-
-      - name: Verify final native update metadata before release upload
-        env:
-          DMG: ${{ steps.artifact.outputs.dmg }}
-          ZIP: ${{ steps.artifact.outputs.zip }}
-          METADATA: ${{ steps.artifact.outputs.metadata }}
-        run: node ../scripts/verify-macos-update-metadata.js "$METADATA" "$DMG" "$ZIP"
-
-      - name: Verify signature, Gatekeeper, and stapled ticket
-        env:
-          DMG: ${{ steps.artifact.outputs.dmg }}
-        run: bash ../scripts/verify-signed-macos-dmg.sh "$DMG"
-
-      - id: checksums
-        name: Create SHA-256 checksums
-        env:
-          DMG: ${{ steps.artifact.outputs.dmg }}
-          ZIP: ${{ steps.artifact.outputs.zip }}
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          output_dir="../releases/test-builds/release"
-          mkdir -p "$output_dir"
-          dmg_checksum="$output_dir/claude-code-tools-installer-macos-${TAG}.dmg.sha256"
-          zip_checksum="$output_dir/claude-code-tools-installer-macos-${TAG}.zip.sha256"
-          dmg_digest="$(shasum -a 256 "$DMG" | awk '{print $1}')"
-          zip_digest="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
-          printf '%s  %s\n' "$dmg_digest" "$(basename "$DMG")" > "$dmg_checksum"
-          printf '%s  %s\n' "$zip_digest" "$(basename "$ZIP")" > "$zip_checksum"
-          echo "dmg_checksum=$dmg_checksum" >> "$GITHUB_OUTPUT"
-          echo "zip_checksum=$zip_checksum" >> "$GITHUB_OUTPUT"
+          prefix="staged/Claude-Code-Tools-Installer-${VERSION}-mac-arm64"
+          gh attestation verify "${prefix}.dmg" --repo "$GITHUB_REPOSITORY" \
+            --bundle staged/macos-source-binding.sigstore.json \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/macos-isolated-sign.yml" \
+            --signer-digest "$GITHUB_SHA" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners \
+            --predicate-type https://claudetool.app/attestations/macos-source/v1 \
+            --format json > "$RUNNER_TEMP/macos-verified.json"
+          python3 scripts/macos-release-controller.py verify --directory staged --source "$SOURCE_COMMIT" --controller "$GITHUB_SHA" --version "$VERSION" --verified "$RUNNER_TEMP/macos-verified.json"
+          echo "dmg=${prefix}.dmg" >> "$GITHUB_OUTPUT"
+          echo "zip=${prefix}.zip" >> "$GITHUB_OUTPUT"
+          echo "metadata=staged/latest-mac.yml" >> "$GITHUB_OUTPUT"
+          echo "dmg_checksum=${prefix}.dmg.sha256" >> "$GITHUB_OUTPUT"
+          echo "zip_checksum=${prefix}.zip.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Attach native update files, notarized DMG, and checksums to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          SOURCE_COMMIT: ${{ steps.release.outputs.commit }}
-          DMG: ${{ steps.artifact.outputs.dmg }}
-          ZIP: ${{ steps.artifact.outputs.zip }}
-          METADATA: ${{ steps.artifact.outputs.metadata }}
-          DMG_CHECKSUM: ${{ steps.checksums.outputs.dmg_checksum }}
-          ZIP_CHECKSUM: ${{ steps.checksums.outputs.zip_checksum }}
+          TAG: ${{ inputs.tag }}
+          SOURCE_COMMIT: ${{ needs.source.outputs.commit }}
+          DMG: ${{ steps.files.outputs.dmg }}
+          ZIP: ${{ steps.files.outputs.zip }}
+          METADATA: ${{ steps.files.outputs.metadata }}
+          DMG_CHECKSUM: ${{ steps.files.outputs.dmg_checksum }}
+          ZIP_CHECKSUM: ${{ steps.files.outputs.zip_checksum }}
         run: |
           if gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx false; then
             echo "Refusing to modify an already-public release. Create a new release tag for a corrected artifact." >&2
@@ -260,6 +125,7 @@ jobs:
             local artifact_name release_asset_database_id attempt
             artifact_name="$(basename "$artifact")"
             for attempt in 1 2 3; do
+              [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" == true ]] || { echo "Refusing to modify an already-public release." >&2; return 2; }
               release_asset_database_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_database_id/assets?per_page=100" --paginate --jq ".[] | select(.name == \"$artifact_name\") | .id" | head -n 1)"
               if [[ -n "$release_asset_database_id" ]]; then
                 [[ "$release_asset_database_id" =~ ^[0-9]+$ ]] || {
@@ -269,6 +135,7 @@ jobs:
                 gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$release_asset_database_id"
                 sleep 5
               fi
+              [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" == true ]] || return 2
               if gh release upload "$TAG" "$artifact"; then
                 return 0
               fi
@@ -280,19 +147,19 @@ jobs:
             echo "GitHub Release asset upload failed after 3 attempts: $artifact_name" >&2
             return 1
           }
-          for artifact in "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM"; do
+          for artifact in "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM" staged/macos-source-predicate.json staged/macos-source-binding.sigstore.json; do
             upload_release_asset "$artifact"
           done
 
       - name: Verify draft macOS asset inventory before cross-platform handoff
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          DMG: ${{ steps.artifact.outputs.dmg }}
-          ZIP: ${{ steps.artifact.outputs.zip }}
-          METADATA: ${{ steps.artifact.outputs.metadata }}
-          DMG_CHECKSUM: ${{ steps.checksums.outputs.dmg_checksum }}
-          ZIP_CHECKSUM: ${{ steps.checksums.outputs.zip_checksum }}
+          TAG: ${{ inputs.tag }}
+          DMG: ${{ steps.files.outputs.dmg }}
+          ZIP: ${{ steps.files.outputs.zip }}
+          METADATA: ${{ steps.files.outputs.metadata }}
+          DMG_CHECKSUM: ${{ steps.files.outputs.dmg_checksum }}
+          ZIP_CHECKSUM: ${{ steps.files.outputs.zip_checksum }}
         run: |
           release_json="$(gh release view "$TAG" --json id,isDraft,assets)"
           node - "$release_json" "$DMG" "$ZIP" "$METADATA" "$DMG_CHECKSUM" "$ZIP_CHECKSUM" <<'NODE'
@@ -324,7 +191,7 @@ jobs:
       - name: Leave verified macOS assets on the draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
+          TAG: ${{ inputs.tag }}
         run: |
           is_draft="$(gh release view "$TAG" --json isDraft --jq '.isDraft')"
           [[ "$is_draft" == true ]] || {
@@ -332,23 +199,3 @@ jobs:
             exit 2
           }
           echo "macOS assets are staged on draft release $TAG. Run Publish verified cross-platform CCTI release from the same tag after Linux signing completes."
-
-      - name: Upload release evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: claude-code-tools-installer-macos-${{ steps.release.outputs.tag || github.sha }}
-          path: |
-            releases/test-builds/*.dmg
-            releases/test-builds/*.zip
-            releases/test-builds/release/*.sha256
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Remove ephemeral credentials
-        if: always()
-        env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-        run: |
-          rm -f "$RUNNER_TEMP/claude-tools-developer-id.p12" \
-                "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"

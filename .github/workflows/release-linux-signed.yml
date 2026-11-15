@@ -13,7 +13,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: linux-release-${{ inputs.tag }}
+  group: ccti-release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -167,9 +167,11 @@ jobs:
             asset_database_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_database_id/assets?per_page=100" --paginate --jq ".[] | select(.name == \"$asset_name\") | .id" | head -n 1)"
             if [[ -n "$asset_database_id" ]]; then
               [[ "$asset_database_id" =~ ^[0-9]+$ ]] || { echo "Existing asset is missing a numeric ID: $asset_name" >&2; return 1; }
+              [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" == true ]] || return 2
               gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_database_id"
               sleep 3
             fi
+            [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" == true ]] || return 2
             gh release upload "$TAG" "$artifact"
           }
           upload_draft_asset "$ARCHIVE"

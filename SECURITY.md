@@ -49,7 +49,7 @@ Out of scope:
 For context when assessing reports, the installer is designed so that:
 
 - Nothing installs without explicit user confirmation — every action shows a plan before it runs
-- There is no `curl | bash` pattern; users download packaged releases and run them locally
+- CCTI is distributed as a packaged release. When Claude Code is missing, its bootstrap downloads and immediately executes Anthropic’s official installer from `https://claude.ai/install.sh` (macOS/Linux) or `https://claude.ai/install.ps1` (Windows). These vendor installers are mutable and are not pinned or independently checksummed by CCTI; this step delegates trust to Anthropic and HTTPS. The Node.js runtime has a separate checksum check.
 - The Node.js runtime is verified against official SHA-256 checksums before use
 - Credentials are never collected automatically; credential-sensitive plugin steps are saved to a checklist for the user to run themselves
 - Telemetry is off by default, and optional counts contain no paths or tool lists

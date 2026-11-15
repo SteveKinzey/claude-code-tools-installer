@@ -18,7 +18,7 @@ permissions:
   attestations: write
 
 concurrency:
-  group: windows-release-${{ inputs.tag }}
+  group: ccti-release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
